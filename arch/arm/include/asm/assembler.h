@@ -569,4 +569,80 @@ THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
 #define _ASM_NOKPROBE(entry)
 #endif
 
+	.macro		__adldst_l, op, reg, sym, tmp
+	.if		__LINUX_ARM_ARCH__ < 7
+	ldr		\tmp, 111f
+	.subsection	1
+	.align		2
+111:	.long		\sym - (222f + 8)
+	.previous
+	.else
+	/*
+	 * In Thumb-2 builds, the PC bias depends on whether we are currently
+	 * emitting into a .arm or a .thumb section. So emit a nop and take
+	 * its size, so we can infer the execution mode and PC bias from it.
+	 */
+   ARM(	.set		.Lnopsize, 4			)
+ THUMB(	.pushsection	".discard.nop", "x", %note	)
+ THUMB(	111:		nop				)
+ THUMB(	.set		.Lnopsize, . - 111b		)
+ THUMB(	.popsection					)
+
+	movw		\tmp, #:lower16:\sym - (222f + 2 * .Lnopsize)
+	movt		\tmp, #:upper16:\sym - (222f + 2 * .Lnopsize)
+	.endif
+222:
+	.ifc		\op, add
+	add		\reg, \tmp, pc
+ THUMB(	.elseif		.Lnopsize == 2			)
+ THUMB(	add		\tmp, \tmp, pc			)
+ THUMB(	\op		\reg, [\tmp]			)
+	.else
+	\op		\reg, [pc, \tmp]
+	.endif
+	.endm
+
+	/*
+	 * mov_l - move a constant value or [relocated] address into a register
+	 */
+	.macro		mov_l, dst:req, imm:req
+	.if		__LINUX_ARM_ARCH__ < 7
+	ldr		\dst, =\imm
+	.else
+	movw		\dst, #:lower16:\imm
+	movt		\dst, #:upper16:\imm
+	.endif
+	.endm
+
+	/*
+	 * adr_l - adr pseudo-op with unlimited range
+	 *
+	 * @dst: destination register
+	 * @sym: name of the symbol
+	 */
+	.macro		adr_l, dst:req, sym:req
+	__adldst_l	add, \dst, \sym, \dst
+	.endm
+
+	/*
+	 * ldr_l - ldr <literal> pseudo-op with unlimited range
+	 *
+	 * @dst: destination register
+	 * @sym: name of the symbol
+	 */
+	.macro		ldr_l, dst:req, sym:req
+	__adldst_l	ldr, \dst, \sym, \dst
+	.endm
+
+	/*
+	 * str_l - str <literal> pseudo-op with unlimited range
+	 *
+	 * @src: source register
+	 * @sym: name of the symbol
+	 * @tmp: mandatory scratch register
+	 */
+	.macro		str_l, src:req, sym:req, tmp:req
+	__adldst_l	str, \src, \sym, \tmp
+	.endm
+
 #endif /* __ASM_ASSEMBLER_H__ */
