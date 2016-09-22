@@ -83,4 +83,15 @@ static inline void efifb_setup_from_dmi(struct screen_info *si, const char *opt)
 #define MIN_ZIMAGE_OFFSET	MAX_UNCOMP_KERNEL_SIZE
 #define MAX_FDT_OFFSET		ZIMAGE_OFFSET_LIMIT
 
+struct efi_simd_reg_stash {
+};
+
+static inline void arch_efi_stash_simd_regs(struct efi_simd_reg_stash *stash)
+{
+}
+
+static inline void arch_efi_unstash_simd_regs(struct efi_simd_reg_stash *stash)
+{
+}
+
 #endif /* _ASM_ARM_EFI_H */
