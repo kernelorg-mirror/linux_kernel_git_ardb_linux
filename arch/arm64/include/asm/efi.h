@@ -81,4 +81,37 @@ static inline void efi_set_pgd(struct mm_struct *mm)
 void efi_virtmap_load(void);
 void efi_virtmap_unload(void);
 
+struct efi_simd_reg_stash {
+	u8	q8[16];
+	u8	q9[16];
+	u8	q10[16];
+	u8	q11[16];
+	u8	q12[16];
+	u8	q13[16];
+	u8	q14[16];
+	u8	q15[16];
+};
+
+static inline void arch_efi_stash_simd_regs(struct efi_simd_reg_stash *stash)
+{
+	asm("stp	q8,  q9,  [%1];"
+	    "stp	q10, q11, [%1, #32];"
+	    "stp	q12, q13, [%1, #64];"
+	    "stp	q14, q15, [%1, #96];"
+
+	    : "=m"(*stash)
+	    : "r"(stash));
+}
+
+static inline void arch_efi_unstash_simd_regs(struct efi_simd_reg_stash *stash)
+{
+	asm("ldp	q8,  q9,  [%1];"
+	    "ldp	q10, q11, [%1, #32];"
+	    "ldp	q12, q13, [%1, #64];"
+	    "ldp	q14, q15, [%1, #96];"
+
+	    :
+	    : "m"(*stash), "r"(stash));
+}
+
 #endif /* _ASM_EFI_H */
