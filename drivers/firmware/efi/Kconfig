@@ -129,6 +129,15 @@ config EFI_TEST
 	  Say Y here to enable the runtime services support via /dev/efi_test.
 	  If unsure, say N.
 
+config EFI_MMC_PROXY
+	bool "Expose Embedded MMC host protocol to the firmware"
+	depends on EFI && (ARM || ARM64)
+	help
+	  This driver exposes the MMC host whose DT node is annotated with the
+	  "linux,uefi-varstore" property to the firmware via a UEFI compatible
+	  protocol. This allows the EFI variable store to reside on an MMC
+	  volume that is owned by the OS at runtime.
+
 endmenu
 
 config UEFI_CPER

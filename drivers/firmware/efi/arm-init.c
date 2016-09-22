@@ -56,9 +56,11 @@ static phys_addr_t efi_to_phys(unsigned long addr)
 }
 
 static __initdata unsigned long screen_info_table = EFI_INVALID_TABLE_ADDR;
+unsigned long __initdata mmc_fv_emulation_table = EFI_INVALID_TABLE_ADDR;
 
 static __initdata efi_config_table_type_t arch_tables[] = {
 	{LINUX_EFI_ARM_SCREEN_INFO_TABLE_GUID, NULL, &screen_info_table},
+	{LINUX_MMC_FV_EMULATION_TABLE_GUID, NULL, &mmc_fv_emulation_table},
 	{NULL_GUID, NULL, NULL}
 };
 
