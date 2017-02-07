@@ -129,5 +129,6 @@ section_table:
 
 		.align	12
 __efi_start:
+		.text
 #endif
 		.endm
