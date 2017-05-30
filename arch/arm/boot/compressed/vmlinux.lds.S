@@ -29,6 +29,11 @@ SECTIONS
      * of the text/got segments.
      */
     *(.data)
+    /*
+     * C code that is shared with the kernel proper (but rebuilt for the
+     * decompressor) may contain exports that we have no use for here.
+     */
+    *(*ksymtab* *kcrctab*)
   }
 
   . = TEXT_START;
