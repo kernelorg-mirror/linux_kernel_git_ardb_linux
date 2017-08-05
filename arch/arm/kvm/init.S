@@ -143,13 +143,7 @@ reset:
 	bic	r1, r1, r0
 	mcr	p15, 4, r1, c1, c0, 0	@ HSCTLR
 
-	/*
-	 * Install stub vectors, using ardb's VA->PA trick.
-	 */
-0:	adr	r0, 0b					@ PA(0)
-	movw	r1, #:lower16:__hyp_stub_vectors - 0b   @ VA(stub) - VA(0)
-	movt	r1, #:upper16:__hyp_stub_vectors - 0b
-	add	r1, r1, r0				@ PA(stub)
+	adr_l	r1, __hyp_stub_vectors			@ PA(stub)
 	mcr	p15, 4, r1, c12, c0, 0	@ HVBAR
 	b	exit
 
