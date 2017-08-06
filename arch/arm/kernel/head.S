@@ -594,8 +594,7 @@ ENDPROC(__fixup_pv_table)
 
 	.text
 __fixup_a_pv_table:
-	mov_l	r6, __pv_offset
-	add	r6, r6, r3
+	adr_l	r6, __pv_offset
 	ldr	r0, [r6, #HIGH_OFFSET]	@ pv_offset high word
 	ldr	r6, [r6, #LOW_OFFSET]	@ pv_offset low word
 	mov	r6, r6, lsr #24
@@ -613,22 +612,22 @@ __fixup_a_pv_table:
 	orr	r6, r6, r7, lsl #12
 	orr	r6, #0x4000
 	b	2f
-1:	add     r7, r3
-	ldrh	ip, [r7, #2]
+1:	add	r7, r4
+	ldrh	ip, [r7, #(-4 + 2)]
 ARM_BE8(rev16	ip, ip)
 	tst	ip, #0x4000
 	and	ip, #0x8f00
 	orrne	ip, r6	@ mask in offset bits 31-24
 	orreq	ip, r0	@ mask in offset bits 7-0
 ARM_BE8(rev16	ip, ip)
-	strh	ip, [r7, #2]
+	strh	ip, [r7, #(-4 + 2)]
 	bne	2f
-	ldrh	ip, [r7]
+	ldrh	ip, [r7, #(-4 + 0)]
 ARM_BE8(rev16	ip, ip)
 	bic	ip, #0x20
 	orr	ip, ip, r0, lsr #16
 ARM_BE8(rev16	ip, ip)
-	strh	ip, [r7]
+	strh	ip, [r7, #(-4 + 0)]
 2:	cmp	r4, r5
 	ldrcc	r7, [r4], #4	@ use branch for delay slot
 	bcc	1b
@@ -640,7 +639,8 @@ ARM_BE8(rev16	ip, ip)
 	moveq	r0, #0x400000	@ set bit 22, mov to mvn instruction
 #endif
 	b	2f
-1:	ldr	ip, [r7, r3]
+1:	ldr	ip, [r7, r4]!
+	add	r4, r4, #4
 #ifdef CONFIG_CPU_ENDIAN_BE8
 	@ in BE8, we load data in BE, but instructions still in LE
 	bic	ip, ip, #0xff000000
@@ -655,9 +655,9 @@ ARM_BE8(rev16	ip, ip)
 	biceq	ip, ip, #0x400000	@ clear bit 22
 	orreq	ip, ip, r0	@ mask in offset bits 7-0
 #endif
-	str	ip, [r7, r3]
+	str	ip, [r7]
 2:	cmp	r4, r5
-	ldrcc	r7, [r4], #4	@ use branch for delay slot
+	ldrcc	r7, [r4]	@ use branch for delay slot
 	bcc	1b
 	ret	lr
 #endif
@@ -665,7 +665,6 @@ ENDPROC(__fixup_a_pv_table)
 
 ENTRY(fixup_pv_table)
 	stmfd	sp!, {r4 - r7, lr}
-	mov	r3, #0			@ no offset
 	mov	r4, r0			@ r0 = table start
 	add	r5, r0, r1		@ r1 = table size
 	bl	__fixup_a_pv_table
