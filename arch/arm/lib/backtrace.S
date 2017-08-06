@@ -105,13 +105,10 @@ for_each_frame:	tst	frame, mask		@ Check for address exceptions
 no_frame:	ldmfd	sp!, {r4 - r8, pc}
 ENDPROC(c_backtrace)
 		
-		.pushsection __ex_table,"a"
-		.align	3
-		.long	1001b, 1006b
-		.long	1002b, 1006b
-		.long	1003b, 1006b
-		.long	1004b, 1006b
-		.popsection
+		ex_entry	1001b, 1006b
+		ex_entry	1002b, 1006b
+		ex_entry	1003b, 1006b
+		ex_entry	1004b, 1006b
 
 .Lbad:		.asciz	"Backtrace aborted due to bad frame pointer <%p>\n"
 		.align

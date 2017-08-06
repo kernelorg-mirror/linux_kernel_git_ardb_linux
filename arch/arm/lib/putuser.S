@@ -30,6 +30,7 @@
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/errno.h>
+#include <asm/extable.h>
 #include <asm/domain.h>
 
 ENTRY(__put_user_1)
@@ -88,11 +89,9 @@ __put_user_bad:
 	ret	lr
 ENDPROC(__put_user_bad)
 
-.pushsection __ex_table, "a"
-	.long	1b, __put_user_bad
-	.long	2b, __put_user_bad
-	.long	3b, __put_user_bad
-	.long	4b, __put_user_bad
-	.long	5b, __put_user_bad
-	.long	6b, __put_user_bad
-.popsection
+	ex_entry	1b, __put_user_bad
+	ex_entry	2b, __put_user_bad
+	ex_entry	3b, __put_user_bad
+	ex_entry	4b, __put_user_bad
+	ex_entry	5b, __put_user_bad
+	ex_entry	6b, __put_user_bad

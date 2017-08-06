@@ -314,6 +314,7 @@ do_file(char const *const fname)
 		break;
 
 	case EM_S390:
+	case EM_ARM:
 	case EM_AARCH64:
 	case EM_PARISC:
 	case EM_PPC:
@@ -322,7 +323,6 @@ do_file(char const *const fname)
 		break;
 	case EM_ARCOMPACT:
 	case EM_ARCV2:
-	case EM_ARM:
 	case EM_MICROBLAZE:
 	case EM_MIPS:
 	case EM_XTENSA:
