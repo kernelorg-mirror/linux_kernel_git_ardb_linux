@@ -59,7 +59,10 @@
 		ARM_MMU_DISCARD(*(.text.fixup))				\
 		ARM_MMU_DISCARD(*(__ex_table))				\
 		*(.discard)						\
-		*(.discard.*)
+		*(.discard.*)						\
+		*(.ARM.exidx.discard.text)				\
+		*(.interp .dynamic)					\
+		*(.dynsym .dynstr .hash)
 
 #define ARM_TEXT							\
 		IDMAP_TEXT						\
