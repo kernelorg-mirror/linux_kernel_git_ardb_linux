@@ -99,7 +99,7 @@ ENTRY(tegra20_cpu_shutdown)
 	cmp	r0, #0
 	reteq	lr			@ must not be called for CPU 0
 	mov32	r1, TEGRA_IRAM_RESET_BASE_VIRT
-	ldr	r2, =__tegra20_cpu1_resettable_status_offset
+	ldrh	r2, 0f
 	mov	r12, #CPU_RESETTABLE
 	strb	r12, [r1, r2]
 
@@ -121,6 +121,7 @@ ENTRY(tegra20_cpu_shutdown)
 	beq	.
 	ret	lr
 ENDPROC(tegra20_cpu_shutdown)
+0:	.short	__tegra20_cpu1_resettable_status_offset
 #endif
 
 #ifdef CONFIG_PM_SLEEP
@@ -181,6 +182,9 @@ ENTRY(tegra_pen_unlock)
 	ret     lr
 ENDPROC(tegra_pen_unlock)
 
+.L__tegra20_cpu1_resettable_status_offset:
+	.short	__tegra20_cpu1_resettable_status_offset
+
 /*
  * tegra20_cpu_clear_resettable(void)
  *
@@ -189,7 +193,7 @@ ENDPROC(tegra_pen_unlock)
  */
 ENTRY(tegra20_cpu_clear_resettable)
 	mov32	r1, TEGRA_IRAM_RESET_BASE_VIRT
-	ldr	r2, =__tegra20_cpu1_resettable_status_offset
+	ldrh	r2, .L__tegra20_cpu1_resettable_status_offset
 	mov	r12, #CPU_NOT_RESETTABLE
 	strb	r12, [r1, r2]
 	ret	lr
@@ -203,7 +207,7 @@ ENDPROC(tegra20_cpu_clear_resettable)
  */
 ENTRY(tegra20_cpu_set_resettable_soon)
 	mov32	r1, TEGRA_IRAM_RESET_BASE_VIRT
-	ldr	r2, =__tegra20_cpu1_resettable_status_offset
+	ldrh	r2, .L__tegra20_cpu1_resettable_status_offset
 	mov	r12, #CPU_RESETTABLE_SOON
 	strb	r12, [r1, r2]
 	ret	lr
@@ -217,7 +221,7 @@ ENDPROC(tegra20_cpu_set_resettable_soon)
  */
 ENTRY(tegra20_cpu_is_resettable_soon)
 	mov32	r1, TEGRA_IRAM_RESET_BASE_VIRT
-	ldr	r2, =__tegra20_cpu1_resettable_status_offset
+	ldrh	r2, .L__tegra20_cpu1_resettable_status_offset
 	ldrb	r12, [r1, r2]
 	cmp	r12, #CPU_RESETTABLE_SOON
 	moveq	r0, #1
@@ -238,11 +242,11 @@ ENTRY(tegra20_sleep_core_finish)
 	bl	tegra_disable_clean_inv_dcache
 	mov     r0, r4
 
-	mov32	r3, tegra_shut_off_mmu
+	mov_l	r3, tegra_shut_off_mmu
 	add	r3, r3, r0
 
-	mov32	r0, tegra20_tear_down_core
-	mov32	r1, tegra20_iram_start
+	mov_l	r0, tegra20_tear_down_core
+	mov_l	r1, tegra20_iram_start
 	sub	r0, r0, r1
 	mov32	r1, TEGRA_IRAM_LPx_RESUME_AREA
 	add	r0, r0, r1
@@ -265,7 +269,7 @@ ENTRY(tegra20_sleep_cpu_secondary_finish)
 	bl	tegra_disable_clean_inv_dcache
 
 	mov32	r0, TEGRA_IRAM_RESET_BASE_VIRT
-	ldr	r4, =__tegra20_cpu1_resettable_status_offset
+	ldrh	r4, .L__tegra20_cpu1_resettable_status_offset
 	mov	r3, #CPU_RESETTABLE
 	strb	r3, [r0, r4]
 
@@ -284,7 +288,7 @@ ENTRY(tegra20_sleep_cpu_secondary_finish)
 	bl	tegra_pen_lock
 
 	mov32	r0, TEGRA_IRAM_RESET_BASE_VIRT
-	ldr	r4, =__tegra20_cpu1_resettable_status_offset
+	ldrh	r4, .L__tegra20_cpu1_resettable_status_offset
 	mov	r3, #CPU_NOT_RESETTABLE
 	strb	r3, [r0, r4]
 

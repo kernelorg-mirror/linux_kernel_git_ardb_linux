@@ -101,11 +101,11 @@ ENTRY(tegra_sleep_cpu_finish)
 	bl	tegra_disable_clean_inv_dcache
 
 	mov	r0, r4
-	mov32	r6, tegra_tear_down_cpu
+	mov_l	r6, tegra_tear_down_cpu
 	ldr	r1, [r6]
 	add	r1, r1, r0
 
-	mov32	r3, tegra_shut_off_mmu
+	mov_l	r3, tegra_shut_off_mmu
 	add	r3, r3, r0
 	mov	r0, r1
 

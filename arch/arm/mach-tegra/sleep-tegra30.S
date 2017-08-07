@@ -261,11 +261,11 @@ ENTRY(tegra30_sleep_core_finish)
 	mov32	r6, TEGRA_FLOW_CTRL_BASE
 	mov32	r7, TEGRA_TMRUS_BASE
 
-	mov32	r3, tegra_shut_off_mmu
+	mov_l	r3, tegra_shut_off_mmu
 	add	r3, r3, r0
 
-	mov32	r0, tegra30_tear_down_core
-	mov32	r1, tegra30_iram_start
+	mov_l	r0, tegra30_tear_down_core
+	mov_l	r1, tegra30_iram_start
 	sub	r0, r0, r1
 	mov32	r1, TEGRA_IRAM_LPx_RESUME_AREA
 	add	r0, r0, r1
