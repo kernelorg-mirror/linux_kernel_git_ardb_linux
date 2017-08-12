@@ -318,7 +318,7 @@
 #ifndef RO_AFTER_INIT_DATA
 #define RO_AFTER_INIT_DATA						\
 	__start_ro_after_init = .;					\
-	*(.data..ro_after_init)						\
+	*(.data..ro_after_init .data.rel.ro.*)				\
 	JUMP_TABLE_DATA							\
 	__end_ro_after_init = .;
 #endif
