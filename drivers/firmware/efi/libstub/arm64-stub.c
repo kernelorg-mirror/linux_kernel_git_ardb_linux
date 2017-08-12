@@ -114,7 +114,7 @@ efi_status_t handle_kernel_image(efi_system_table_t *sys_table_arg,
 		*reserve_size = kernel_memsize + offset;
 		status = efi_random_alloc(sys_table_arg, *reserve_size,
 					  MIN_KIMG_ALIGN, reserve_addr,
-					  (u32)phys_seed);
+					  (u32)phys_seed, ULONG_MAX);
 
 		*image_addr = *reserve_addr + offset;
 	} else {
