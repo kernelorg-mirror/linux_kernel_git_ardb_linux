@@ -254,6 +254,15 @@ not_angel:
 		 */
 		mov	r4, pc
 		and	r4, r4, #0xf8000000
+#if defined(CONFIG_RANDOMIZE_BASE) && defined(CONFIG_EFI_STUB)
+		/*
+		 * The KASLR randomization may have already been performed by
+		 * the UEFI stub, in which case kaslr_offset will already have
+		 * a value.
+		 */
+		ldr	r0, __kaslr_offset
+		add	r4, r4, r0
+#endif
 		/* Determine final kernel image address. */
 		add	r4, r4, #TEXT_OFFSET
 #else
@@ -1490,7 +1499,7 @@ ENDPROC(__crc16)
 
 		.align	2
 __kaslr_seed:	.long	0
-kaslr_offset:	.long	0
+__kaslr_offset:	.long	0
 #endif
 
 reloc_code_end:
