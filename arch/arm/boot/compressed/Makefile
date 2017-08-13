@@ -89,8 +89,14 @@ $(addprefix $(obj)/,$(libfdt) $(libfdt_hdrs)): $(obj)/%: $(srctree)/scripts/dtc/
 $(addprefix $(obj)/,$(libfdt_objs) atags_to_fdt.o): \
 	$(addprefix $(obj)/,$(libfdt_hdrs))
 
+ifneq ($(CONFIG_ARM_ATAG_DTB_COMPAT)$(CONFIG_RANDOMIZE_BASE),)
+OBJS	+= $(libfdt_objs)
 ifeq ($(CONFIG_ARM_ATAG_DTB_COMPAT),y)
-OBJS	+= $(libfdt_objs) atags_to_fdt.o
+OBJS	+= atags_to_fdt.o
+endif
+ifeq ($(CONFIG_RANDOMIZE_BASE),y)
+OBJS	+= kaslr.o
+endif
 endif
 
 targets       := vmlinux vmlinux.lds piggy_data piggy.o \
