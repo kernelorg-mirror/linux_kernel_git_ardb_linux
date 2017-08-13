@@ -1810,6 +1810,18 @@ config XEN
 	help
 	  Say Y if you want to run Linux in a Virtual Machine on Xen on ARM.
 
+config RANDOMIZE_BASE
+	bool "Randomize the address of the kernel image"
+	depends on MMU && AUTO_ZRELADDR
+	depends on !XIP_KERNEL && !ZBOOT_ROM
+	select RELOCATABLE
+	select ARM_MODULE_PLTS if MODULES
+	select MODULE_REL_CRCS if MODVERSIONS
+	help
+	  Randomizes the virtual and physical address at which the kernel
+	  image is loaded, as a security feature that deters exploit attempts
+	  relying on knowledge of the location of kernel internals.
+
 endmenu
 
 menu "Boot options"
