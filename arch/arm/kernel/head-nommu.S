@@ -42,10 +42,7 @@ ENTRY(stext)
 	.arm
 ENTRY(stext)
 
- THUMB(	badr	r9, 1f		)	@ Kernel is always entered in ARM.
- THUMB(	bx	r9		)	@ If this is a Thumb-2 kernel,
- THUMB(	.thumb			)	@ switch to Thumb now.
- THUMB(1:			)
+ THUMB(	thumb_switch		)	@ Kernel is always entered in ARM.
 #endif
 
 #ifdef CONFIG_ARM_VIRT_EXT

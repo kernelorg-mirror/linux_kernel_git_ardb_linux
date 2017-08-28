@@ -47,10 +47,8 @@
 ENTRY(mcpm_entry_point)
 
  ARM_BE8(setend        be)
- THUMB(	badr	r12, 1f		)
- THUMB(	bx	r12		)
- THUMB(	.thumb			)
-1:
+ THUMB(	thumb_switch		)
+
 	mrc	p15, 0, r0, c0, c0, 5		@ MPIDR
 	ubfx	r9, r0, #0, #8			@ r9 = cpu
 	ubfx	r10, r0, #8, #8			@ r10 = cluster

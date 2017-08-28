@@ -791,4 +791,16 @@ THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
 	.endif
 	.endm
 
+	/*
+	 * thumb_switch - enter Thumb-2 mode and switch to Thumb-2 codegen
+	 */
+	.macro		thumb_switch
+#ifdef CONFIG_CPU_V7M
+	nop.w
+#else
+	sub		pc, pc, #3
+#endif
+	.thumb
+	.endm
+
 #endif /* __ASM_ASSEMBLER_H__ */

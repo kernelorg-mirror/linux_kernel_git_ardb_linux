@@ -203,13 +203,8 @@ start:
 		.rept	5
 		__nop
 		.endr
-#ifndef CONFIG_THUMB2_KERNEL
-		__nop
-#else
- AR_CLASS(	sub	pc, pc, #3	)	@ A/R: switch to Thumb2 mode
-  M_CLASS(	nop.w			)	@ M: already in Thumb2 mode
-		.thumb
-#endif
+ ARM(		__nop			)
+ THUMB(		thumb_switch		)
 		W(b)	1f
 
 		.word	_magic_sig	@ Magic numbers to help the loader
