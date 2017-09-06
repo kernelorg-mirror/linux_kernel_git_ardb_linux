@@ -115,9 +115,7 @@
 		*(.stubs)						\
 	}								\
 	. = __stubs_start + SIZEOF(.stubs);				\
-	__stubs_end = .;						\
-									\
-	PROVIDE(vector_fiq_offset = vector_fiq - ADDR(.vectors));
+	__stubs_end = .;
 
 #define ARM_TCM								\
 	__itcm_start = ALIGN(4);					\
