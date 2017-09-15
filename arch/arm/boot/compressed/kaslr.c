@@ -205,11 +205,10 @@ static void get_cell_sizes(const void *fdt, int node, int *addr_cells,
 		*size_cells = fdt32_to_cpu(*prop);
 }
 
-static u32 get_memory_end(const void *fdt)
+static u32 get_memory_end(const void *fdt, u32 image_base)
 {
 	int mem_node, address_cells, size_cells, len;
 	const fdt32_t *reg;
-	u64 memory_end = 0;
 
 	/* Look for a node called "memory" at the lowest level of the tree */
 	mem_node = fdt_path_offset(fdt, "/memory");
@@ -241,9 +240,14 @@ static u32 get_memory_end(const void *fdt)
 		reg += size_cells;
 		len -= 4 * size_cells;
 
-		memory_end = max(memory_end, base + size);
+		/*
+		 * Return the top of the region that covers the default
+		 * unrandomized placement of the kernel image.
+		 */
+		if (base <= image_base && (base + size) > image_base)
+			return min(base + size, (u64)U32_MAX);
 	}
-	return min(memory_end, (u64)U32_MAX);
+	return 0;
 }
 
 static char *__strstr(const char *s1, const char *s2, int l2)
@@ -397,8 +401,11 @@ u32 kaslr_early_init(u32 *kaslr_offset, u32 image_base, u32 image_size,
 	}
 
 	/* check the memory nodes for the size of the lowmem region */
-	regions.pa_end = min(regions.pa_end, get_memory_end(fdt)) -
-			 regions.image_size;
+	regions.pa_end = min(regions.pa_end, get_memory_end(fdt, image_base));
+	if (!regions.pa_end)
+		return 0;
+
+	regions.pa_end -= regions.image_size;
 
 	puthex32(regions.image_size);
 	puthex32(regions.pa_start);
