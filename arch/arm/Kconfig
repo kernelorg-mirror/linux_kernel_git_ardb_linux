@@ -1817,6 +1817,7 @@ config RANDOMIZE_BASE
 	select RELOCATABLE
 	select ARM_MODULE_PLTS if MODULES
 	select MODULE_REL_CRCS if MODVERSIONS
+	default y
 	help
 	  Randomizes the virtual and physical address at which the kernel
 	  image is loaded, as a security feature that deters exploit attempts
