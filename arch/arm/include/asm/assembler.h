@@ -446,7 +446,7 @@ ALT_UP_B(.L0_\@)
 THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
 	bne	1f
 	orr	\reg, \reg, #PSR_A_BIT
-	badr	lr, 2f
+	adr	lr, 2f
 	msr	spsr_cxsf, \reg
 	__MSR_ELR_HYP(14)
 	__ERET
