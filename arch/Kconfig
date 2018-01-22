@@ -535,6 +535,10 @@ config GCC_PLUGIN_RANDSTRUCT_PERFORMANCE
 	  in structures.  This reduces the performance hit of RANDSTRUCT
 	  at the cost of weakened randomization.
 
+config GCC_PLUGIN_ARM64_SSP_PER_TASK
+	bool
+	depends on GCC_PLUGINS
+
 config HAVE_CC_STACKPROTECTOR
 	bool
 	help
