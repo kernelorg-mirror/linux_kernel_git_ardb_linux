@@ -6,6 +6,7 @@
  */
 
 #include <asm-generic/vmlinux.lds.h>
+#include <asm/asm-offsets.h>
 #include <asm/cache.h>
 #include <asm/kernel-pgtable.h>
 #include <asm/thread_info.h>
@@ -260,3 +261,10 @@ ASSERT((__entry_tramp_text_end - __entry_tramp_text_start) == PAGE_SIZE,
  * If padding is applied before .head.text, virt<->phys conversions will fail.
  */
 ASSERT(_text == (KIMAGE_VADDR + TEXT_OFFSET), "HEAD is misaligned")
+
+#ifdef CONFIG_CC_STACKPROTECTOR_PER_TASK
+PROVIDE(__stack_chk_guard_tsk_offset = ABSOLUTE(TSK_STACK_CANARY));
+
+ASSERT(__stack_chk_guard_tsk_offset < 0x1000,
+       "__stack_chk_guard_tsk_offset out of range")
+#endif

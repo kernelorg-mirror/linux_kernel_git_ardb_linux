@@ -17,6 +17,7 @@
 #include <linux/version.h>
 
 extern unsigned long __stack_chk_guard;
+extern unsigned long __stack_chk_guard_tsk_offset;
 
 /*
  * Initialize the stackprotector canary value.
@@ -34,7 +35,8 @@ static __always_inline void boot_init_stack_canary(void)
 	canary &= CANARY_MASK;
 
 	current->stack_canary = canary;
-	__stack_chk_guard = current->stack_canary;
+	if (!IS_ENABLED(CONFIG_CC_STACKPROTECTOR_PER_TASK))
+		__stack_chk_guard = current->stack_canary;
 }
 
 #endif	/* _ASM_STACKPROTECTOR_H */

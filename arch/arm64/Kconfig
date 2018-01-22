@@ -1204,6 +1204,13 @@ config RANDOMIZE_MODULE_REGION_FULL
 	  a limited range that contains the [_stext, _etext] interval of the
 	  core kernel, so branch relocations are always in range.
 
+config CC_STACKPROTECTOR_PER_TASK
+	bool "Use a unique stack canary value for each task"
+	depends on GCC_PLUGINS && !CC_STACKPROTECTOR_NONE
+	select GCC_PLUGIN_ARM64_SSP_PER_TASK
+	help
+	  Use a unique value for the stack canary value for each task.
+
 endmenu
 
 menu "Boot options"
