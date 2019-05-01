@@ -166,6 +166,9 @@ int set_direct_map_invalid_noflush(struct page *page)
 		.clear_mask = __pgprot(PTE_VALID),
 	};
 
+	if (!rodata_full)
+		return 0;
+
 	return apply_to_page_range(&init_mm,
 				   (unsigned long)page_address(page),
 				   PAGE_SIZE, change_page_range, &data);
@@ -178,6 +181,9 @@ int set_direct_map_default_noflush(struct page *page)
 		.clear_mask = __pgprot(PTE_RDONLY),
 	};
 
+	if (!rodata_full)
+		return 0;
+
 	return apply_to_page_range(&init_mm,
 				   (unsigned long)page_address(page),
 				   PAGE_SIZE, change_page_range, &data);
@@ -185,6 +191,9 @@ int set_direct_map_default_noflush(struct page *page)
 
 void __kernel_map_pages(struct page *page, int numpages, int enable)
 {
+	if (!debug_pagealloc_enabled() && !rodata_full)
+		return;
+
 	set_memory_valid((unsigned long)page_address(page), numpages, enable);
 }
 
@@ -204,6 +213,9 @@ bool kernel_page_present(struct page *page)
 	pmd_t *pmdp, pmd;
 	pte_t *ptep;
 	unsigned long addr = (unsigned long)page_address(page);
+
+	if (!debug_pagealloc_enabled() && !rodata_full)
+		return true;
 
 	pgdp = pgd_offset_k(addr);
 	if (pgd_none(READ_ONCE(*pgdp)))
