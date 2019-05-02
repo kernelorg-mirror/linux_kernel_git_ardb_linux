@@ -253,6 +253,9 @@ config ARCH_HAS_SET_MEMORY
 config ARCH_HAS_SET_DIRECT_MAP
 	bool
 
+config ARCH_HAS_EAGER_VUNMAP
+	bool
+
 # Select if arch init_task must go in the __init_task_data section
 config ARCH_TASK_STRUCT_ON_STACK
        bool
