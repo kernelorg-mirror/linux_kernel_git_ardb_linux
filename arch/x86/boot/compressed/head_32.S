@@ -162,9 +162,7 @@ ENTRY(efi_pe_entry)
 	popl	%ecx
 	movl	%ecx, efi32_config+8(%esi)	/* EFI System table pointer */
 
-	/* Relocate efi_config->call() */
 	leal	efi32_config(%esi), %eax
-	add	%esi, 40(%eax)
 	pushl	%eax
 
 	call	make_boot_params
@@ -189,9 +187,7 @@ ENTRY(efi32_stub_entry)
 	movl	%ecx, efi32_config(%esi)	/* Handle */
 	movl	%edx, efi32_config+8(%esi)	/* EFI System table pointer */
 
-	/* Relocate efi_config->call() */
 	leal	efi32_config(%esi), %eax
-	add	%esi, 40(%eax)
 	pushl	%eax
 2:
 	call	efi_main
@@ -266,8 +262,6 @@ ENDPROC(efi32_stub_entry)
 	.data
 efi32_config:
 	.fill 5,8,0
-	.long efi_call_phys
-	.long 0
 	.byte 0
 #endif
 
