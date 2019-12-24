@@ -209,10 +209,14 @@ ENTRY(startup_32)
 	pushl	$__KERNEL_CS
 	leal	startup_64(%ebp), %eax
 #ifdef CONFIG_EFI_MIXED
-	movl	efi32_config(%ebp), %ebx
+	movl	efi32_boot_args(%ebp), %ebx
 	cmp	$0, %ebx
 	jz	1f
 	leal	handover_entry(%ebp), %eax
+	movl	0(%ebx), %edi
+	movl	4(%ebx), %esi
+	movl	8(%ebx), %edx
+	movl	$0x0, %ecx
 1:
 #endif
 	pushl	%eax
@@ -229,21 +233,13 @@ ENDPROC(startup_32)
 	.org 0x190
 ENTRY(efi32_stub_entry)
 	add	$0x4, %esp		/* Discard return address */
-	popl	%ecx
-	popl	%edx
-	popl	%esi
 
-	leal	(BP_scratch+4)(%esi), %esp
 	call	1f
 1:	pop	%ebp
 	subl	$1b, %ebp
 
-	movl	%ecx, efi32_config(%ebp)
-	movl	%edx, efi32_config+8(%ebp)
+	movl	%esp, efi32_boot_args(%ebp)
 	sgdtl	efi32_boot_gdt(%ebp)
-
-	leal	efi32_config(%ebp), %eax
-	movl	%eax, efi_config(%ebp)
 
 	/* Disable paging */
 	movl	%cr0, %eax
@@ -450,50 +446,17 @@ trampoline_return:
 	jmp	*%rax
 
 #ifdef CONFIG_EFI_STUB
-
-/* The entry point for the PE/COFF executable is efi_pe_entry. */
-ENTRY(efi_pe_entry)
-	movq	%rcx, efi64_config(%rip)	/* Handle */
-	movq	%rdx, efi64_config+8(%rip) /* EFI System table pointer */
-
-	leaq	efi64_config(%rip), %rax
-	movq	%rax, efi_config(%rip)
-
-	movq	%rax, %rdi
-	call	make_boot_params
-	cmpq	$0,%rax
-	je	fail
-	mov	%rax, %rsi
-	leaq	startup_32(%rip), %rax
-	movl	%eax, BP_code32_start(%rsi)
-
+	.org 0x390
+ENTRY(efi64_stub_entry)
+ENTRY(efi_stub_entry)
+	movq	$1, %rcx
 handover_entry:
-	movq	efi_config(%rip), %rdi
 	and	$~0xf, %rsp			/* realign the stack */
 	call	efi_main
 	movq	%rax,%rsi
-	cmpq	$0,%rax
-	jne	2f
-fail:
-	/* EFI init failed, so hang. */
-	hlt
-	jmp	fail
-2:
 	movl	BP_code32_start(%esi), %eax
 	leaq	startup_64(%rax), %rax
 	jmp	*%rax
-ENDPROC(efi_pe_entry)
-
-	.org 0x390
-ENTRY(efi64_stub_entry)
-	movq	%rdi, efi64_config(%rip)	/* Handle */
-	movq	%rsi, efi64_config+8(%rip) /* EFI System table pointer */
-
-	leaq	efi64_config(%rip), %rax
-	movq	%rax, efi_config(%rip)
-
-	movq	%rdx, %rsi
-	jmp	handover_entry
 ENDPROC(efi64_stub_entry)
 #endif
 
@@ -658,22 +621,10 @@ gdt:
 	.quad   0x0000000000000000	/* TS continued */
 gdt_end:
 
-#ifdef CONFIG_EFI_STUB
-efi_config:
-	.quad	0
-
 #ifdef CONFIG_EFI_MIXED
-	.global efi32_config
-efi32_config:
-	.fill	5,8,0
-	.byte	0
+efi32_boot_args:
+	.long	0
 #endif
-
-	.global efi64_config
-efi64_config:
-	.fill	5,8,0
-	.byte	1
-#endif /* CONFIG_EFI_STUB */
 
 /*
  * Stack and heap for uncompression
