@@ -23,7 +23,7 @@
 
 	.code64
 	.text
-ENTRY(efi64_thunk)
+ENTRY(__efi64_thunk)
 	push	%rbp
 	push	%rbx
 
@@ -97,7 +97,7 @@ ENTRY(efi64_thunk)
 	pop	%rbx
 	pop	%rbp
 	ret
-ENDPROC(efi64_thunk)
+ENDPROC(__efi64_thunk)
 
 ENTRY(efi_exit32)
 	movq	func_rt_ptr(%rip), %rax

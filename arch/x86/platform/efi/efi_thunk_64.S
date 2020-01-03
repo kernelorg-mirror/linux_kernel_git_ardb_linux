@@ -25,7 +25,7 @@
 
 	.text
 	.code64
-ENTRY(efi64_thunk)
+ENTRY(__efi64_thunk)
 	push	%rbp
 	push	%rbx
 
@@ -52,7 +52,7 @@ ENTRY(efi64_thunk)
 	subq	%rax, %rbx
 	movl	%ebx, 8(%rsp)
 
-	leaq	__efi64_thunk(%rip), %rbx
+	leaq	____efi64_thunk(%rip), %rbx
 	subq	%rax, %rbx
 	call	*%rbx
 
@@ -60,14 +60,14 @@ ENTRY(efi64_thunk)
 	pop	%rbx
 	pop	%rbp
 	retq
-ENDPROC(efi64_thunk)
+ENDPROC(__efi64_thunk)
 
 /*
  * We run this function from the 1:1 mapping.
  *
  * This function must be invoked with a 1:1 mapped stack.
  */
-ENTRY(__efi64_thunk)
+ENTRY(____efi64_thunk)
 	movl	%ds, %eax
 	push	%rax
 	movl	%es, %eax
@@ -114,7 +114,7 @@ ENTRY(__efi64_thunk)
 	or	%rcx, %rax
 1:
 	ret
-ENDPROC(__efi64_thunk)
+ENDPROC(____efi64_thunk)
 
 ENTRY(efi_exit32)
 	movq	func_rt_ptr(%rip), %rax
