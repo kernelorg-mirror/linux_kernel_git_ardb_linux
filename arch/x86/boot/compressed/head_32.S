@@ -64,13 +64,6 @@
 	__HEAD
 ENTRY(startup_32)
 	cld
-	/*
-	 * Test KEEP_SEGMENTS flag to see if the bootloader is asking
-	 * us to not reload segments
-	 */
-	testb	$KEEP_SEGMENTS, BP_loadflags(%esi)
-	jnz	1f
-
 	cli
 	movl	$__BOOT_DS, %eax
 	movl	%eax, %ds
@@ -78,7 +71,6 @@ ENTRY(startup_32)
 	movl	%eax, %fs
 	movl	%eax, %gs
 	movl	%eax, %ss
-1:
 
 /*
  * Calculate the delta between where we were compiled to run
