@@ -47,6 +47,7 @@ __efistub__text			= _text;
 __efistub__end			= _end;
 __efistub__edata		= _edata;
 __efistub_screen_info		= screen_info;
+__efistub__ctype		= _ctype;
 
 #endif
 
