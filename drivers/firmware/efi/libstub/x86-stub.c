@@ -15,8 +15,7 @@
 #include <asm/desc.h>
 #include <asm/boot.h>
 
-#include "../string.h"
-#include "eboot.h"
+#include "efistub.h"
 
 static efi_system_table_t *sys_table;
 static bool efi_is64 = IS_ENABLED(CONFIG_X86_64);
