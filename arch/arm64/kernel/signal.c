@@ -43,7 +43,9 @@ struct rt_sigframe {
 
 struct frame_record {
 	u64 fp;
+	u64 pc;
 	u64 lr;
+	u64 sp;
 };
 
 struct rt_sigframe_user_layout {
@@ -612,7 +614,9 @@ static int setup_sigframe(struct rt_sigframe_user_layout *user,
 
 	/* set up the stack frame for unwinding */
 	__put_user_error(regs->regs[29], &user->next_frame->fp, err);
+	__put_user_error(regs->pc, &user->next_frame->pc, err);
 	__put_user_error(regs->regs[30], &user->next_frame->lr, err);
+	__put_user_error(regs->sp, &user->next_frame->sp, err);
 
 	for (i = 0; i < 31; i++)
 		__put_user_error(regs->regs[i], &sf->uc.uc_mcontext.regs[i],
