@@ -39,10 +39,15 @@
  * in the sigcontext may have been modified by this point anyway. Debuggers
  * already have baked-in strategies for attempting to unwind out of signals.
  */
-	.cfi_def_cfa    x29, 0
-	.cfi_offset     x29, 0 * 8
-	.cfi_offset	x30, 2 * 8
-	.cfi_offset	sp,  3 * 8
+	.cfi_def_cfa_offset	ARM64_SIGFRAME_REGS_OFFSET
+	.irp			r, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, \
+				13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,  \
+				24, 25, 26, 27, 28, 29, 30, 31
+	.cfi_offset		\r, \r * 8
+	.endr
+
+	.cfi_offset		96, 32 * 8
+	.cfi_return_column	96
 
 /*
  * This mysterious NOP is required for some unwinders (e.g. libc++) that

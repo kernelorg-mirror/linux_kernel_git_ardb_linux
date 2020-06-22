@@ -18,6 +18,7 @@
 #include <asm/fixmap.h>
 #include <asm/thread_info.h>
 #include <asm/memory.h>
+#include <asm/sigframe.h>
 #include <asm/signal32.h>
 #include <asm/smp_plat.h>
 #include <asm/suspend.h>
@@ -145,5 +146,6 @@ int main(void)
   DEFINE(PTRAUTH_KERNEL_KEY_APIA,	offsetof(struct ptrauth_keys_kernel, apia));
   BLANK();
 #endif
+  DEFINE(ARM64_SIGFRAME_REGS_OFFSET, offsetof (struct rt_sigframe, uc.uc_mcontext.regs));
   return 0;
 }

@@ -29,17 +29,10 @@
 #include <asm/unistd.h>
 #include <asm/fpsimd.h>
 #include <asm/ptrace.h>
+#include <asm/sigframe.h>
 #include <asm/signal32.h>
 #include <asm/traps.h>
 #include <asm/vdso.h>
-
-/*
- * Do a signal return; undo the signal stack. These are aligned to 128-bit.
- */
-struct rt_sigframe {
-	struct siginfo info;
-	struct ucontext uc;
-};
 
 struct frame_record {
 	u64 fp;
