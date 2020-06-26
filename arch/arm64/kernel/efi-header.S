@@ -80,9 +80,15 @@ section_table:
 	.long	0					// PointerToLineNumbers
 	.short	0					// NumberOfRelocations
 	.short	0					// NumberOfLineNumbers
+#ifdef CONFIG_ARM64_BTI_KERNEL
+	.set	.Lextra_characteristics, IMAGE_SCN_MEM_BTT
+#else
+	.set	.Lextra_characteristics, 0
+#endif
 	.long	IMAGE_SCN_CNT_CODE | \
 		IMAGE_SCN_MEM_READ | \
-		IMAGE_SCN_MEM_EXECUTE			// Characteristics
+		IMAGE_SCN_MEM_EXECUTE | \
+		.Lextra_characteristics			// Characteristics
 
 	.ascii	".data\0\0\0"
 	.long	__pecoff_data_size			// VirtualSize

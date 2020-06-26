@@ -117,7 +117,7 @@
 #define IMAGE_SCN_CNT_UNINITIALIZED_DATA 0x00000080 /* .bss */
 #define IMAGE_SCN_LNK_OTHER	0x00000100 /* reserved */
 #define IMAGE_SCN_LNK_INFO	0x00000200 /* .drectve comments */
-#define IMAGE_SCN_RESERVED_4	0x00000400
+#define IMAGE_SCN_MEM_BTT	0x00000400 /* branch target tracking */
 #define IMAGE_SCN_LNK_REMOVE	0x00000800 /* .o only - scn to be rm'd*/
 #define IMAGE_SCN_LNK_COMDAT	0x00001000 /* .o only - COMDAT data */
 #define IMAGE_SCN_RESERVED_5	0x00002000 /* spec omits this */
