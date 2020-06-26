@@ -40,8 +40,12 @@ static __init pteval_t create_mapping_protection(efi_memory_desc_t *md)
 		return pgprot_val(PAGE_KERNEL_RO);
 
 	/* R-X */
-	if (attr & EFI_MEMORY_RO)
-		return pgprot_val(PAGE_KERNEL_ROX);
+	if (attr & EFI_MEMORY_RO) {
+		if (attr & EFI_MEMORY_BT)
+			return pgprot_val(PAGE_KERNEL_ROX) | PTE_MAYBE_GP;
+		else
+			return pgprot_val(PAGE_KERNEL_ROX) & ~PTE_MAYBE_GP;
+	}
 
 	/* RW- */
 	if (((attr & (EFI_MEMORY_RP | EFI_MEMORY_WP | EFI_MEMORY_XP)) ==
