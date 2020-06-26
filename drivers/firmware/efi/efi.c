@@ -707,7 +707,7 @@ void __init efi_systab_report_header(const efi_table_hdr_t *systab_hdr,
 		vendor);
 }
 
-static __initdata char memory_type_name[][20] = {
+static __initconst const char memory_type_name[][16] = {
 	"Reserved",
 	"Loader Code",
 	"Loader Data",
@@ -715,14 +715,14 @@ static __initdata char memory_type_name[][20] = {
 	"Boot Data",
 	"Runtime Code",
 	"Runtime Data",
-	"Conventional Memory",
-	"Unusable Memory",
-	"ACPI Reclaim Memory",
+	"Conventional",
+	"Unusable",
+	"ACPI Reclaim",
 	"ACPI Memory NVS",
-	"Memory Mapped I/O",
+	"MMIO",
 	"MMIO Port Space",
 	"PAL Code",
-	"Persistent Memory",
+	"Persistent",
 };
 
 char * __init efi_md_typeattr_format(char *buf, size_t size,
