@@ -563,6 +563,302 @@ static int ctr_crypt(struct skcipher_request *req)
 	return err;
 }
 
+static int aesni_ccm_setkey(struct crypto_aead *tfm, const u8 *in_key,
+			    unsigned int key_len)
+{
+	struct crypto_aes_ctx *ctx = crypto_aead_ctx(tfm);
+
+	return aes_set_key_common(crypto_aead_tfm(tfm), ctx, in_key, key_len);
+}
+
+static int aesni_ccm_setauthsize(struct crypto_aead *tfm, unsigned int authsize)
+{
+	if ((authsize & 1) || authsize < 4)
+		return -EINVAL;
+	return 0;
+}
+
+static int ccm_set_msg_len(u8 *block, unsigned int msglen, int csize)
+{
+	__be32 data;
+
+	memset(block, 0, csize);
+	block += csize;
+
+	if (csize >= 4)
+		csize = 4;
+	else if (msglen > (1 << (8 * csize)))
+		return -EOVERFLOW;
+
+	data = cpu_to_be32(msglen);
+	memcpy(block - csize, (u8 *)&data + 4 - csize, csize);
+
+	return 0;
+}
+
+static int ccm_init_mac(struct aead_request *req, u8 maciv[], u32 msglen)
+{
+	struct crypto_aead *aead = crypto_aead_reqtfm(req);
+	__be32 *n = (__be32 *)&maciv[AES_BLOCK_SIZE - 8];
+	u32 l = req->iv[0] + 1;
+
+	/* verify that CCM dimension 'L' is set correctly in the IV */
+	if (l < 2 || l > 8)
+		return -EINVAL;
+
+	/* verify that msglen can in fact be represented in L bytes */
+	if (l < 4 && msglen >> (8 * l))
+		return -EOVERFLOW;
+
+	/*
+	 * Even if the CCM spec allows L values of up to 8, the Linux cryptoapi
+	 * uses a u32 type to represent msglen so the top 4 bytes are always 0.
+	 */
+	n[0] = 0;
+	n[1] = cpu_to_be32(msglen);
+
+	memcpy(maciv, req->iv, AES_BLOCK_SIZE - l);
+
+	/*
+	 * Meaning of byte 0 according to CCM spec (RFC 3610/NIST 800-38C)
+	 * - bits 0..2	: max # of bytes required to represent msglen, minus 1
+	 *                (already set by caller)
+	 * - bits 3..5	: size of auth tag (1 => 4 bytes, 2 => 6 bytes, etc)
+	 * - bit 6	: indicates presence of authenticate-only data
+	 */
+	maciv[0] |= (crypto_aead_authsize(aead) - 2) << 2;
+	if (req->assoclen)
+		maciv[0] |= 0x40;
+
+	memset(&req->iv[AES_BLOCK_SIZE - l], 0, l);
+	return ccm_set_msg_len(maciv + AES_BLOCK_SIZE - l, msglen, l);
+}
+
+static int compute_mac(struct crypto_aes_ctx *ctx, u8 mac[], u8 *data, int n,
+		       unsigned int ilen, u8 *idata)
+{
+	unsigned int bs = AES_BLOCK_SIZE;
+	u8 *odata = mac;
+	int datalen, getlen;
+
+	datalen = n;
+
+	/* first time in here, block may be partially filled. */
+	getlen = bs - ilen;
+	if (datalen >= getlen) {
+		memcpy(idata + ilen, data, getlen);
+
+		aesni_cbc_enc(ctx, odata, idata, AES_BLOCK_SIZE, odata);
+
+		datalen -= getlen;
+		data += getlen;
+		ilen = 0;
+	}
+
+	/* now encrypt rest of data */
+	while (datalen >= bs) {
+		aesni_cbc_enc(ctx, odata, data, AES_BLOCK_SIZE, odata);
+
+		datalen -= bs;
+		data += bs;
+	}
+
+	/* check and see if there's leftover data that wasn't
+	 * enough to fill a block.
+	 */
+	if (datalen) {
+		memcpy(idata + ilen, data, datalen);
+		ilen += datalen;
+	}
+	return ilen;
+}
+
+static void ccm_calculate_auth_mac(struct aead_request *req,
+				   struct crypto_aes_ctx *ctx, u8 mac[],
+				   struct scatterlist *src)
+{
+	unsigned int len = req->assoclen;
+	struct scatter_walk walk;
+	u8 idata[AES_BLOCK_SIZE];
+	unsigned int ilen;
+	struct {
+		__be16 l;
+		__be32 h;
+	} __packed *ltag = (void *)idata;
+
+	/* prepend the AAD with a length tag */
+	if (len < 0xff00) {
+		ltag->l = cpu_to_be16(len);
+		ilen = 2;
+	} else  {
+		ltag->l = cpu_to_be16(0xfffe);
+		ltag->h = cpu_to_be32(len);
+		ilen = 6;
+	}
+
+	scatterwalk_start(&walk, src);
+
+	while (len) {
+		u8 *src;
+		int n;
+
+		n = scatterwalk_clamp(&walk, len);
+		if (!n) {
+			scatterwalk_start(&walk, sg_next(walk.sg));
+			n = scatterwalk_clamp(&walk, len);
+		}
+		src = scatterwalk_map(&walk);
+
+		ilen = compute_mac(ctx, mac, src, n, ilen, idata);
+		len -= n;
+
+		scatterwalk_unmap(src);
+		scatterwalk_advance(&walk, n);
+		scatterwalk_done(&walk, 0, len);
+	}
+
+	/* any leftover needs padding and then encrypted */
+	if (ilen) {
+		crypto_xor(mac, idata, ilen);
+		aesni_enc(ctx, mac, mac);
+	}
+}
+
+static int aesni_ccm_encrypt(struct aead_request *req)
+{
+	struct crypto_aead *aead = crypto_aead_reqtfm(req);
+	struct crypto_aes_ctx *ctx = aes_ctx(crypto_aead_ctx(aead));
+	u8 __aligned(8) mac[AES_BLOCK_SIZE];
+	struct skcipher_walk walk;
+	u32 l = req->iv[0] + 1;
+	int err;
+
+	err = ccm_init_mac(req, mac, req->cryptlen);
+	if (err)
+		return err;
+
+	req->iv[AES_BLOCK_SIZE - 1] = 0x1;
+	err = skcipher_walk_aead_encrypt(&walk, req, false);
+	if (err)
+		return err;
+
+	kernel_fpu_begin();
+	aesni_enc(ctx, mac, mac);
+	if (req->assoclen)
+		ccm_calculate_auth_mac(req, ctx, mac, req->src);
+
+	while (walk.nbytes > 0) {
+		int tail = walk.nbytes & ~AES_BLOCK_MASK;
+		int n;
+
+		for (n = 0; n < walk.nbytes - tail; n += AES_BLOCK_SIZE)
+			aesni_cbc_enc(ctx, mac, walk.src.virt.addr + n,
+				      AES_BLOCK_SIZE, mac);
+
+		aesni_ctr_enc(ctx, walk.dst.virt.addr, walk.src.virt.addr,
+			      walk.nbytes - tail, walk.iv);
+
+		if (walk.nbytes == walk.total && tail > 0) {
+			u8 __aligned(8) buf[AES_BLOCK_SIZE] = {};
+
+			memcpy(buf, walk.src.virt.addr + n, tail);
+			aesni_cbc_enc(ctx, mac, buf, AES_BLOCK_SIZE, mac);
+			aesni_ctr_enc(ctx, buf, buf, AES_BLOCK_SIZE, walk.iv);
+			memcpy(walk.dst.virt.addr + n, buf, tail);
+			tail = 0;
+		}
+		kernel_fpu_end();
+
+		err = skcipher_walk_done(&walk, tail);
+		if (err)
+			return err;
+
+		kernel_fpu_begin();
+	}
+
+	memset(walk.iv + AES_BLOCK_SIZE - l, 0, l);
+	aesni_ctr_enc(ctx, mac, mac, AES_BLOCK_SIZE, walk.iv);
+	kernel_fpu_end();
+
+	/* copy authtag to end of dst */
+	scatterwalk_map_and_copy(mac, req->dst, req->assoclen + req->cryptlen,
+				 crypto_aead_authsize(aead), 1);
+
+	return 0;
+}
+
+static int aesni_ccm_decrypt(struct aead_request *req)
+{
+	struct crypto_aead *aead = crypto_aead_reqtfm(req);
+	struct crypto_aes_ctx *ctx = aes_ctx(crypto_aead_ctx(aead));
+	unsigned int authsize = crypto_aead_authsize(aead);
+	u8 __aligned(8) mac[AES_BLOCK_SIZE];
+	u8 __aligned(8) tag[AES_BLOCK_SIZE];
+	struct skcipher_walk walk;
+	u32 l = req->iv[0] + 1;
+	int err;
+
+	err = ccm_init_mac(req, mac, req->cryptlen - authsize);
+	if (err)
+		return err;
+
+	/* copy authtag from end of src */
+	scatterwalk_map_and_copy(tag, req->src,
+				 req->assoclen + req->cryptlen - authsize,
+				 authsize, 0);
+
+	req->iv[AES_BLOCK_SIZE - 1] = 0x1;
+	err = skcipher_walk_aead_decrypt(&walk, req, false);
+
+	kernel_fpu_begin();
+	aesni_enc(ctx, mac, mac);
+	if (req->assoclen)
+		ccm_calculate_auth_mac(req, ctx, mac, req->src);
+
+	while (walk.nbytes > 0) {
+		int tail = walk.nbytes & ~AES_BLOCK_MASK;
+		int n;
+
+		aesni_ctr_enc(ctx, walk.dst.virt.addr, walk.src.virt.addr,
+			      walk.nbytes - tail, walk.iv);
+
+		for (n = 0; n < walk.nbytes - tail; n += AES_BLOCK_SIZE)
+			aesni_cbc_enc(ctx, mac, walk.dst.virt.addr + n,
+				      AES_BLOCK_SIZE, mac);
+
+		if (walk.nbytes == walk.total && tail > 0) {
+			u8 __aligned(8) buf[AES_BLOCK_SIZE];
+
+			memcpy(buf, walk.src.virt.addr + n, tail);
+			aesni_ctr_enc(ctx, buf, buf, AES_BLOCK_SIZE, walk.iv);
+			memset(buf + tail, 0, AES_BLOCK_SIZE - tail);
+			aesni_cbc_enc(ctx, mac, buf, AES_BLOCK_SIZE, mac);
+			memcpy(walk.dst.virt.addr + n, buf, tail);
+			tail = 0;
+		}
+		kernel_fpu_end();
+
+		err = skcipher_walk_done(&walk, tail);
+		if (err)
+			return err;
+
+		kernel_fpu_begin();
+	}
+
+	if (err)
+		return err;
+
+	memset(walk.iv + AES_BLOCK_SIZE - l, 0, l);
+	aesni_ctr_enc(ctx, mac, mac, AES_BLOCK_SIZE, walk.iv);
+	kernel_fpu_end();
+
+	/* compare calculated auth tag with the stored one */
+	if (crypto_memneq(mac, tag, authsize))
+		err = -EBADMSG;
+
+	return err;
+}
+
 static int xts_aesni_setkey(struct crypto_skcipher *tfm, const u8 *key,
 			    unsigned int keylen)
 {
@@ -1087,6 +1383,21 @@ static struct aead_alg aesni_aeads[] = { {
 	.ivsize			= GCM_AES_IV_SIZE,
 	.chunksize		= AES_BLOCK_SIZE,
 	.maxauthsize		= 16,
+}, {
+	.base.cra_name		= "ccm(aes)",
+	.base.cra_driver_name	= "ccm-aesni",
+	.base.cra_priority	= 400,
+	.base.cra_blocksize	= 1,
+	.base.cra_ctxsize	= sizeof(struct crypto_aes_ctx),
+	.base.cra_module	= THIS_MODULE,
+
+	.setkey			= aesni_ccm_setkey,
+	.setauthsize		= aesni_ccm_setauthsize,
+	.encrypt		= aesni_ccm_encrypt,
+	.decrypt		= aesni_ccm_decrypt,
+	.ivsize			= AES_BLOCK_SIZE,
+	.chunksize		= AES_BLOCK_SIZE,
+	.maxauthsize		= AES_BLOCK_SIZE,
 } };
 #else
 static struct aead_alg aesni_aeads[0];
