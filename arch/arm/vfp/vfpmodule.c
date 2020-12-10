@@ -21,6 +21,7 @@
 
 #include <asm/cp15.h>
 #include <asm/cputype.h>
+#include <asm/simd.h>
 #include <asm/system_info.h>
 #include <asm/thread_notify.h>
 #include <asm/vfp.h>
@@ -674,12 +675,13 @@ void kernel_neon_begin(void)
 	u32 fpexc;
 
 	/*
-	 * Kernel mode NEON is only allowed outside of interrupt context
-	 * with preemption disabled. This will make sure that the kernel
-	 * mode NEON register contents never need to be preserved.
+	 * Kernel mode NEON is only allowed outside of hard interrupt context
+	 * with preemption and softirq processing disabled. This ensures that
+	 * the kernel mode NEON register contents never need to be preserved.
 	 */
-	BUG_ON(in_interrupt());
+	BUG_ON(!may_use_simd());
 	cpu = get_cpu();
+	local_bh_disable();
 
 	fpexc = fmrx(FPEXC) | FPEXC_EN;
 	fmxr(FPEXC, fpexc);
@@ -702,6 +704,7 @@ void kernel_neon_end(void)
 {
 	/* Disable the NEON/VFP unit. */
 	fmxr(FPEXC, fmrx(FPEXC) & ~FPEXC_EN);
+	local_bh_enable();
 	put_cpu();
 }
 EXPORT_SYMBOL(kernel_neon_end);
