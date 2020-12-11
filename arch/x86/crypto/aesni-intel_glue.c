@@ -1056,6 +1056,14 @@ static int generic_gcmaes_decrypt(struct aead_request *req)
 }
 
 static struct aead_alg aesni_aeads[] = { {
+	.base.cra_name		= "rfc4106(gcm(aes))",
+	.base.cra_driver_name	= "rfc4106-gcm-aesni",
+	.base.cra_priority	= 400,
+	.base.cra_blocksize	= 1,
+	.base.cra_ctxsize	= sizeof(struct aesni_rfc4106_gcm_ctx),
+	.base.cra_alignmask	= AESNI_ALIGN - 1,
+	.base.cra_module	= THIS_MODULE,
+
 	.setkey			= common_rfc4106_set_key,
 	.setauthsize		= common_rfc4106_set_authsize,
 	.encrypt		= helper_rfc4106_encrypt,
@@ -1063,17 +1071,15 @@ static struct aead_alg aesni_aeads[] = { {
 	.ivsize			= GCM_RFC4106_IV_SIZE,
 	.chunksize		= AES_BLOCK_SIZE,
 	.maxauthsize		= 16,
-	.base = {
-		.cra_name		= "__rfc4106(gcm(aes))",
-		.cra_driver_name	= "__rfc4106-gcm-aesni",
-		.cra_priority		= 400,
-		.cra_flags		= CRYPTO_ALG_INTERNAL,
-		.cra_blocksize		= 1,
-		.cra_ctxsize		= sizeof(struct aesni_rfc4106_gcm_ctx),
-		.cra_alignmask		= AESNI_ALIGN - 1,
-		.cra_module		= THIS_MODULE,
-	},
 }, {
+	.base.cra_name		= "gcm(aes)",
+	.base.cra_driver_name	= "generic-gcm-aesni",
+	.base.cra_priority	= 400,
+	.base.cra_blocksize	= 1,
+	.base.cra_ctxsize	= sizeof(struct generic_gcmaes_ctx),
+	.base.cra_alignmask	= AESNI_ALIGN - 1,
+	.base.cra_module	= THIS_MODULE,
+
 	.setkey			= generic_gcmaes_set_key,
 	.setauthsize		= generic_gcmaes_set_authsize,
 	.encrypt		= generic_gcmaes_encrypt,
@@ -1081,22 +1087,10 @@ static struct aead_alg aesni_aeads[] = { {
 	.ivsize			= GCM_AES_IV_SIZE,
 	.chunksize		= AES_BLOCK_SIZE,
 	.maxauthsize		= 16,
-	.base = {
-		.cra_name		= "__gcm(aes)",
-		.cra_driver_name	= "__generic-gcm-aesni",
-		.cra_priority		= 400,
-		.cra_flags		= CRYPTO_ALG_INTERNAL,
-		.cra_blocksize		= 1,
-		.cra_ctxsize		= sizeof(struct generic_gcmaes_ctx),
-		.cra_alignmask		= AESNI_ALIGN - 1,
-		.cra_module		= THIS_MODULE,
-	},
 } };
 #else
 static struct aead_alg aesni_aeads[0];
 #endif
-
-static struct simd_aead_alg *aesni_simd_aeads[ARRAY_SIZE(aesni_aeads)];
 
 static const struct x86_cpu_id aesni_cpu_id[] = {
 	X86_MATCH_FEATURE(X86_FEATURE_AES, NULL),
@@ -1140,8 +1134,7 @@ static int __init aesni_init(void)
 	if (err)
 		goto unregister_cipher;
 
-	err = simd_register_aeads_compat(aesni_aeads, ARRAY_SIZE(aesni_aeads),
-					 aesni_simd_aeads);
+	err = crypto_register_aeads(aesni_aeads, ARRAY_SIZE(aesni_aeads));
 	if (err)
 		goto unregister_skciphers;
 
@@ -1157,8 +1150,7 @@ unregister_cipher:
 
 static void __exit aesni_exit(void)
 {
-	simd_unregister_aeads(aesni_aeads, ARRAY_SIZE(aesni_aeads),
-			      aesni_simd_aeads);
+	crypto_unregister_aeads(aesni_aeads, ARRAY_SIZE(aesni_aeads));
 	simd_unregister_skciphers(aesni_skciphers, ARRAY_SIZE(aesni_skciphers),
 				  aesni_simd_skciphers);
 	crypto_unregister_alg(&aesni_cipher_alg);
