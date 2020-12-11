@@ -26,59 +26,20 @@
 union fpregs_state init_fpstate __read_mostly;
 
 /*
- * Track whether the kernel is using the FPU state
- * currently.
- *
- * This flag is used:
- *
- *   - by IRQ context code to potentially use the FPU
- *     if it's unused.
- *
- *   - to debug kernel_fpu_begin()/end() correctness
- */
-static DEFINE_PER_CPU(bool, in_kernel_fpu);
-
-/*
  * Track which context is using the FPU on the CPU:
  */
 DEFINE_PER_CPU(struct fpu *, fpu_fpregs_owner_ctx);
-
-static bool kernel_fpu_disabled(void)
-{
-	return this_cpu_read(in_kernel_fpu);
-}
-
-static bool interrupted_kernel_fpu_idle(void)
-{
-	return !kernel_fpu_disabled();
-}
-
-/*
- * Were we in user mode (or vm86 mode) when we were
- * interrupted?
- *
- * Doing kernel_fpu_begin/end() is ok if we are running
- * in an interrupt context from user mode - we'll just
- * save the FPU state as required.
- */
-static bool interrupted_user_mode(void)
-{
-	struct pt_regs *regs = get_irq_regs();
-	return regs && user_mode(regs);
-}
 
 /*
  * Can we use the FPU in kernel mode with the
  * whole "kernel_fpu_begin/end()" sequence?
  *
- * It's always ok in process context (ie "not interrupt")
- * but it is sometimes ok even from an irq.
+ * Process context and softirq context are both ok, and are guaranteed not to
+ * nest as we run kernel mode SIMD with softirq processing disabled.
  */
 bool irq_fpu_usable(void)
 {
-	return !in_interrupt() ||
-		interrupted_user_mode() ||
-		interrupted_kernel_fpu_idle();
+	return !in_irq() && !irqs_disabled() && !in_nmi();
 }
 EXPORT_SYMBOL(irq_fpu_usable);
 
@@ -123,16 +84,12 @@ EXPORT_SYMBOL(copy_fpregs_to_fpstate);
 
 void kernel_fpu_begin(void)
 {
-	preempt_disable();
+	local_bh_disable();
 
 	WARN_ON_FPU(!irq_fpu_usable());
-	WARN_ON_FPU(this_cpu_read(in_kernel_fpu));
-
-	this_cpu_write(in_kernel_fpu, true);
 
 	if (!(current->flags & PF_KTHREAD) &&
-	    !test_thread_flag(TIF_NEED_FPU_LOAD)) {
-		set_thread_flag(TIF_NEED_FPU_LOAD);
+	    !test_and_set_thread_flag(TIF_NEED_FPU_LOAD)) {
 		/*
 		 * Ignore return value -- we don't care if reg state
 		 * is clobbered.
@@ -151,10 +108,7 @@ EXPORT_SYMBOL_GPL(kernel_fpu_begin);
 
 void kernel_fpu_end(void)
 {
-	WARN_ON_FPU(!this_cpu_read(in_kernel_fpu));
-
-	this_cpu_write(in_kernel_fpu, false);
-	preempt_enable();
+	local_bh_enable();
 }
 EXPORT_SYMBOL_GPL(kernel_fpu_end);
 
