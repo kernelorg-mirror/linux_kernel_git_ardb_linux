@@ -48,6 +48,8 @@
 					 KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W | \
 					 KVM_PTE_LEAF_ATTR_HI_S2_XN)
 
+#define KVM_PTE_LEAF_SW_BIT_PROT_NONE	BIT(55)
+
 struct kvm_pgtable_walk_data {
 	struct kvm_pgtable		*pgt;
 	struct kvm_pgtable_walker	*walker;
@@ -120,6 +122,16 @@ static bool kvm_pte_valid(kvm_pte_t pte)
 	return pte & KVM_PTE_VALID;
 }
 
+static bool kvm_pte_prot_none(kvm_pte_t pte)
+{
+	return pte & KVM_PTE_LEAF_SW_BIT_PROT_NONE;
+}
+
+static inline bool stage2_is_permanent_mapping(kvm_pte_t pte)
+{
+	return kvm_pte_prot_none(pte);
+}
+
 static bool kvm_pte_table(kvm_pte_t pte, u32 level)
 {
 	if (level == KVM_PGTABLE_MAX_LEVELS - 1)
@@ -182,7 +194,8 @@ static kvm_pte_t kvm_init_valid_leaf_pte(u64 pa, kvm_pte_t attr, u32 level)
 
 	pte |= attr & (KVM_PTE_LEAF_ATTR_LO | KVM_PTE_LEAF_ATTR_HI);
 	pte |= FIELD_PREP(KVM_PTE_TYPE, type);
-	pte |= KVM_PTE_VALID;
+	if (!kvm_pte_prot_none(pte))
+		pte |= KVM_PTE_VALID;
 
 	return pte;
 }
@@ -317,7 +330,7 @@ static int hyp_map_set_prot_attr(enum kvm_pgtable_prot prot,
 	u32 ap = (prot & KVM_PGTABLE_PROT_W) ? KVM_PTE_LEAF_ATTR_LO_S1_AP_RW :
 					       KVM_PTE_LEAF_ATTR_LO_S1_AP_RO;
 
-	if (!(prot & KVM_PGTABLE_PROT_R))
+	if (!(prot & KVM_PGTABLE_PROT_R) || (prot & KVM_PGTABLE_PROT_NONE))
 		return -EINVAL;
 
 	if (prot & KVM_PGTABLE_PROT_X) {
@@ -489,6 +502,13 @@ static int stage2_map_set_prot_attr(enum kvm_pgtable_prot prot,
 			    PAGE_S2_MEMATTR(NORMAL);
 	u32 sh = KVM_PTE_LEAF_ATTR_LO_S2_SH_IS;
 
+	if (prot & KVM_PGTABLE_PROT_NONE) {
+		if (prot != KVM_PGTABLE_PROT_NONE)
+			return -EINVAL;
+		attr |= KVM_PTE_LEAF_SW_BIT_PROT_NONE;
+		goto out;
+	}
+
 	if (!(prot & KVM_PGTABLE_PROT_X))
 		attr |= KVM_PTE_LEAF_ATTR_HI_S2_XN;
 	else if (device)
@@ -502,6 +522,8 @@ static int stage2_map_set_prot_attr(enum kvm_pgtable_prot prot,
 
 	attr |= FIELD_PREP(KVM_PTE_LEAF_ATTR_LO_S2_SH, sh);
 	attr |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
+
+out:
 	data->attr = attr;
 	return 0;
 }
