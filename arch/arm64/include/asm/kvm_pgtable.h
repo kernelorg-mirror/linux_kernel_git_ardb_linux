@@ -97,6 +97,16 @@ enum kvm_pgtable_prot {
 #define PAGE_HYP_DEVICE		(PAGE_HYP | KVM_PGTABLE_PROT_DEVICE)
 
 /**
+ * struct kvm_mem_range - Range of Intermediate Physical Addresses
+ * @start:	Start of the range.
+ * @end:	End of the range.
+ */
+struct kvm_mem_range {
+	u64 start;
+	u64 end;
+};
+
+/**
  * enum kvm_pgtable_walk_flags - Flags to control a depth-first page-table walk.
  * @KVM_PGTABLE_WALK_LEAF:		Visit leaf entries, including invalid
  *					entries.
@@ -379,4 +389,31 @@ int kvm_pgtable_stage2_flush(struct kvm_pgtable *pgt, u64 addr, u64 size);
 int kvm_pgtable_walk(struct kvm_pgtable *pgt, u64 addr, u64 size,
 		     struct kvm_pgtable_walker *walker);
 
+/**
+ * kvm_pgtable_stage2_idmap_greedy() - Identity-map an Intermediate Physical
+ *				       Address with a leaf entry at the highest
+ *				       possible level.
+ * @pgt:	Page-table structure initialised by kvm_pgtable_*_init().
+ * @addr:	Input address to identity-map.
+ * @prot:	Permissions and attributes for the mapping.
+ * @range:	Boundaries of the maximum memory region to map.
+ * @mc:		Cache of pre-allocated memory from which to allocate page-table
+ *		pages.
+ *
+ * This function attempts to install high-level identity-mappings covering @addr
+ * without overriding existing mappings with incompatible permissions or
+ * attributes. An existing table entry may be coalesced into a block mapping
+ * if and only if it covers @addr and all its leafs are either invalid and/or
+ * have permissions and attributes strictly matching @prot. The mapping is
+ * guaranteed to be contained within the boundaries specified by @range at call
+ * time. If only a subset of the memory specified by @range is mapped (because
+ * of e.g. alignment issues or existing incompatible mappings), @range will be
+ * updated accordingly.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int kvm_pgtable_stage2_idmap_greedy(struct kvm_pgtable *pgt, u64 addr,
+				    enum kvm_pgtable_prot prot,
+				    struct kvm_mem_range *range,
+				    void *mc);
 #endif	/* __ARM64_KVM_PGTABLE_H__ */

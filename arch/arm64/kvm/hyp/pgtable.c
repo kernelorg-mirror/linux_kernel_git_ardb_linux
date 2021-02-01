@@ -987,3 +987,122 @@ void kvm_pgtable_stage2_destroy(struct kvm_pgtable *pgt)
 	pgt->mm_ops->free_pages_exact(pgt->pgd, pgd_sz);
 	pgt->pgd = NULL;
 }
+
+struct stage2_reduce_range_data {
+	kvm_pte_t attr;
+	u64 target_addr;
+	u32 start_level;
+	struct kvm_mem_range *range;
+};
+
+static int __stage2_reduce_range(struct stage2_reduce_range_data *data, u64 addr)
+{
+	u32 level = data->start_level;
+
+	for (; level < KVM_PGTABLE_MAX_LEVELS; level++) {
+		u64 granule = kvm_granule_size(level);
+		u64 start = ALIGN_DOWN(data->target_addr, granule);
+		u64 end = start + granule;
+
+		/*
+		 * The pinned address is in the current range, try one level
+		 * deeper.
+		 */
+		if (start == ALIGN_DOWN(addr, granule))
+			continue;
+
+		/*
+		 * Make sure the current range is a reduction of the existing
+		 * range before updating it.
+		 */
+		if (data->range->start <= start && end <= data->range->end) {
+			data->start_level = level;
+			data->range->start = start;
+			data->range->end = end;
+			return 0;
+		}
+	}
+
+	return -EINVAL;
+}
+
+#define KVM_PTE_LEAF_S2_COMPAT_MASK	(KVM_PTE_LEAF_ATTR_S2_PERMS | \
+					 KVM_PTE_LEAF_ATTR_LO_S2_MEMATTR | \
+					 KVM_PTE_LEAF_SW_BIT_PROT_NONE)
+
+static int stage2_reduce_range_walker(u64 addr, u64 end, u32 level,
+				      kvm_pte_t *ptep,
+				      enum kvm_pgtable_walk_flags flag,
+				      void * const arg)
+{
+	struct stage2_reduce_range_data *data = arg;
+	kvm_pte_t attr;
+	int ret;
+
+	if (addr < data->range->start || addr >= data->range->end)
+		return 0;
+
+	attr = *ptep & KVM_PTE_LEAF_S2_COMPAT_MASK;
+	if (!attr || attr == data->attr)
+		return 0;
+
+	/*
+	 * An existing mapping with incompatible protection attributes is
+	 * 'pinned', so reduce the range if we hit one.
+	 */
+	ret = __stage2_reduce_range(data, addr);
+	if (ret)
+		return ret;
+
+	return -EAGAIN;
+}
+
+static int stage2_reduce_range(struct kvm_pgtable *pgt, u64 addr,
+			       enum kvm_pgtable_prot prot,
+			       struct kvm_mem_range *range)
+{
+	struct stage2_reduce_range_data data = {
+		.start_level	= pgt->start_level,
+		.range		= range,
+		.target_addr	= addr,
+	};
+	struct kvm_pgtable_walker walker = {
+		.cb		= stage2_reduce_range_walker,
+		.flags		= KVM_PGTABLE_WALK_LEAF,
+		.arg		= &data,
+	};
+	int ret;
+
+	data.attr = stage2_get_prot_attr(prot) & KVM_PTE_LEAF_S2_COMPAT_MASK;
+	if (!data.attr)
+		return -EINVAL;
+
+	/* Reduce the kvm_mem_range to a granule size */
+	ret = __stage2_reduce_range(&data, range->end);
+	if (ret)
+		return ret;
+
+	/* Walk the range to check permissions and reduce further if needed */
+	do {
+		ret = kvm_pgtable_walk(pgt, range->start, range->end, &walker);
+	} while (ret == -EAGAIN);
+
+	return ret;
+}
+
+int kvm_pgtable_stage2_idmap_greedy(struct kvm_pgtable *pgt, u64 addr,
+				    enum kvm_pgtable_prot prot,
+				    struct kvm_mem_range *range,
+				    void *mc)
+{
+	u64 size;
+	int ret;
+
+	ret = stage2_reduce_range(pgt, addr, prot, range);
+	if (ret)
+		return ret;
+
+	size = range->end - range->start;
+	return kvm_pgtable_stage2_map(pgt, range->start, size, range->start,
+				      prot, mc);
+}
