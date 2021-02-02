@@ -9,6 +9,7 @@
 #include <linux/acpi.h>
 #include <linux/arm-smccc.h>
 #include <linux/cpuidle.h>
+#include <linux/efi.h>
 #include <linux/errno.h>
 #include <linux/linkage.h>
 #include <linux/of.h>
@@ -23,6 +24,7 @@
 
 #include <asm/cpuidle.h>
 #include <asm/cputype.h>
+#include <asm/efi.h>
 #include <asm/hypervisor.h>
 #include <asm/system_misc.h>
 #include <asm/smp_plat.h>
@@ -125,6 +127,42 @@ static unsigned long __invoke_psci_fn_smc(unsigned long function_id,
 
 	arm_smccc_smc(function_id, arg0, arg1, arg2, 0, 0, 0, 0, &res);
 	return res.a0;
+}
+
+static unsigned long __invoke_psci_fn_efi(unsigned long function_id,
+			unsigned long arg0, unsigned long arg1,
+			unsigned long arg2)
+{
+	unsigned long flags, ret;
+
+	switch (function_id) {
+	case PSCI_0_2_FN_PSCI_VERSION:
+		return PSCI_VERSION(0, 2);
+	case PSCI_0_2_FN_MIGRATE_INFO_TYPE:
+		return PSCI_0_2_TOS_MP;
+	case PSCI_0_2_FN_CPU_SUSPEND:
+	case PSCI_0_2_FN_CPU_OFF:
+	case PSCI_0_2_FN_CPU_ON:
+	case PSCI_0_2_FN_AFFINITY_INFO:
+	case PSCI_0_2_FN64_CPU_SUSPEND:
+	case PSCI_0_2_FN64_CPU_ON:
+	case PSCI_0_2_FN64_AFFINITY_INFO:
+		if (WARN_ON_ONCE(!efi_psci.psci_handler ||
+				 !efi_enabled(EFI_RUNTIME_SERVICES)))
+	default:
+			return PSCI_RET_NOT_SUPPORTED;
+		break;
+	}
+
+	raw_local_irq_save(flags);
+	efi_set_pgd(&efi_mm);
+
+	ret = efi_psci.psci_handler(function_id, arg0, arg1, arg2);
+
+	efi_set_pgd(current->active_mm);
+	raw_local_irq_restore(flags);
+
+	return ret;
 }
 
 static int psci_to_linux_errno(int errno)
@@ -267,6 +305,12 @@ static void set_conduit(enum arm_smccc_conduit conduit)
 	case SMCCC_CONDUIT_SMC:
 		invoke_psci_fn = __invoke_psci_fn_smc;
 		break;
+	case SMCCC_CONDUIT_EFI:
+		if (IS_ENABLED(CONFIG_EFI)) {
+			invoke_psci_fn = __invoke_psci_fn_efi;
+			break;
+		}
+		fallthrough;
 	default:
 		WARN(1, "Unexpected PSCI conduit %d\n", conduit);
 	}
@@ -289,6 +333,8 @@ static int get_set_conduit_method(struct device_node *np)
 		set_conduit(SMCCC_CONDUIT_HVC);
 	} else if (!strcmp("smc", method)) {
 		set_conduit(SMCCC_CONDUIT_SMC);
+	} else if (!strcmp("efi", method)) {
+		set_conduit(SMCCC_CONDUIT_EFI);
 	} else {
 		pr_warn("invalid \"method\" property: %s\n", method);
 		return -EINVAL;
