@@ -22,6 +22,8 @@
 
 #include <asm/efi.h>
 
+struct efi_psci_handler efi_psci __ro_after_init;
+
 static int __init is_memory(efi_memory_desc_t *md)
 {
 	if (md->attribute & (EFI_MEMORY_WB|EFI_MEMORY_WT|EFI_MEMORY_WC))
@@ -53,10 +55,12 @@ static phys_addr_t __init efi_to_phys(unsigned long addr)
 
 static __initdata unsigned long screen_info_table = EFI_INVALID_TABLE_ADDR;
 static __initdata unsigned long cpu_state_table = EFI_INVALID_TABLE_ADDR;
+static __initdata unsigned long efi_psci_handler_table = EFI_INVALID_TABLE_ADDR;
 
 static const efi_config_table_type_t arch_tables[] __initconst = {
 	{LINUX_EFI_ARM_SCREEN_INFO_TABLE_GUID, &screen_info_table},
 	{LINUX_EFI_ARM_CPU_STATE_TABLE_GUID, &cpu_state_table},
+	{LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID, &efi_psci_handler_table},
 	{}
 };
 
@@ -119,8 +123,7 @@ static int __init uefi_init(u64 efi_system_table)
 		goto out;
 	}
 	retval = efi_config_parse_tables(config_tables, systab->nr_tables,
-					 IS_ENABLED(CONFIG_ARM) ? arch_tables
-								: NULL);
+					 arch_tables);
 
 	early_memunmap(config_tables, table_size);
 out:
@@ -247,6 +250,16 @@ void __init efi_init(void)
 			 PAGE_ALIGN(data.size + (data.phys_map & ~PAGE_MASK)));
 
 	init_screen_info();
+
+	if (efi_psci_handler_table != EFI_INVALID_TABLE_ADDR) {
+		struct efi_psci_handler *h;
+
+		h = early_memremap_ro(efi_psci_handler_table, sizeof(*h));
+		if (h) {
+			efi_psci.psci_handler = h->psci_handler;
+			early_memunmap(h, sizeof(*h));
+		}
+	}
 
 #ifdef CONFIG_ARM
 	/* ARM does not permit early mappings to persist across paging_init() */
