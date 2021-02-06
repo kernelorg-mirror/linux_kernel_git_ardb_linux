@@ -1113,7 +1113,7 @@ retry:
 		reg->bus.is_iomem = true;
 
 		/* Some BARs do not support being ioremapped WC */
-		if (drm->client.device.info.family >= NV_DEVICE_INFO_V0_TESLA &&
+		if (1 || //drm->client.device.info.family >= NV_DEVICE_INFO_V0_TESLA &&
 		    mmu->type[drm->ttm.type_vram].type & NVIF_MEM_UNCACHED)
 			reg->bus.caching = ttm_uncached;
 		else
