@@ -12,6 +12,7 @@
 #include <linux/set_memory.h>
 #include <linux/slab.h>
 
+#include <asm/kvm_host.h>
 #include <asm/mmu_context.h>
 #include <asm/pgalloc.h>
 #include <asm/page.h>

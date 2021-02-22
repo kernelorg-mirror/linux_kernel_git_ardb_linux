@@ -12,6 +12,7 @@
 
 #include <asm/fixmap.h>
 #include <asm/kernel-pgtable.h>
+#include <asm/kvm_host.h>
 #include <asm/mmu_context.h>
 #include <asm/pgalloc.h>
 #include <asm/tlbflush.h>
@@ -57,6 +58,14 @@ pte_t xchg_ro_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte)
 	pte_pa = __pa(ptep);
 	BUG_ON(in_kernel_text_or_rodata(pte_pa));
 
+	if (static_branch_likely(&kvm_protected_mode_initialized)) {
+		/* invoke the hypervisor to perform the update on our behalf */
+		pte_val(ret) = kvm_call_hyp_nvhe(__pkvm_xchg_ro_pte,
+						 mm ? __pa(mm->pgd) : 0x0,
+						 pte_pa, pte_val(pte));
+		return ret;
+	}
+
 	raw_spin_lock_irqsave(&patch_pte_lock, flags);
 	p = (pte_t *)set_fixmap_offset(FIX_TEXT_POKE_PTE, pte_pa);
 	pte_val(ret) = xchg_relaxed(&pte_val(*p), pte_val(pte));
@@ -73,9 +82,17 @@ pte_t cmpxchg_ro_pte(struct mm_struct *mm, pte_t *ptep, pte_t old, pte_t new)
 	pte_t *p;
 
 	BUG_ON(!virt_addr_valid(ptep));
+	BUG_ON((pte_val(old) ^ pte_val(new)) & ~(PTE_DIRTY|PTE_WRITE|PTE_AF|PTE_RDONLY));
 
 	pte_pa = __pa(ptep);
 	BUG_ON(in_kernel_text_or_rodata(pte_pa));
+
+	if (static_branch_likely(&kvm_protected_mode_initialized)) {
+		/* invoke the hypervisor to perform the update on our behalf */
+		pte_val(ret) = kvm_call_hyp_nvhe(__pkvm_cmpxchg_ro_pte, pte_pa,
+						 pte_val(old), pte_val(new));
+		return ret;
+	}
 
 	raw_spin_lock_irqsave(&patch_pte_lock, flags);
 	p = (pte_t *)set_fixmap_offset(FIX_TEXT_POKE_PTE, pte_pa);
