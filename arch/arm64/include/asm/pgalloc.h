@@ -49,7 +49,7 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmdp)
 
 	pudval |= (mm == &init_mm) ? PUD_TABLE_UXN : PUD_TABLE_PXN;
 	if (page_tables_are_ro())
-		xchg_ro_pte(mm, (pte_t *)pudp,
+		xchg_ro_pte(mm, ULONG_MAX, (pte_t *)pudp,
 			    __pte(__phys_to_pud_val(__pa(pmdp) | pudval)));
 	else
 		__pud_populate(pudp, __pa(pmdp), pudval);
@@ -77,7 +77,7 @@ static inline void p4d_populate(struct mm_struct *mm, p4d_t *p4dp, pud_t *pudp)
 
 	p4dval |= (mm == &init_mm) ? P4D_TABLE_UXN : P4D_TABLE_PXN;
 	if (page_tables_are_ro())
-		xchg_ro_pte(mm, (pte_t *)p4dp,
+		xchg_ro_pte(mm, ULONG_MAX, (pte_t *)p4dp,
 			    __pte(__phys_to_p4d_val(__pa(pudp) | p4dval)));
 	else
 		__p4d_populate(p4dp, __pa(pudp), p4dval);
@@ -109,7 +109,7 @@ pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmdp, pte_t *ptep)
 
 	VM_BUG_ON(mm != &init_mm);
 	if (page_tables_are_ro())
-		xchg_ro_pte(mm, (pte_t *)pmdp,
+		xchg_ro_pte(mm, ULONG_MAX, (pte_t *)pmdp,
 			    __pte(__phys_to_pmd_val(__pa(ptep) | pmdval)));
 	else
 		__pmd_populate(pmdp, __pa(ptep), pmdval);
@@ -122,7 +122,7 @@ pmd_populate(struct mm_struct *mm, pmd_t *pmdp, pgtable_t ptep)
 
 	VM_BUG_ON(mm == &init_mm);
 	if (page_tables_are_ro())
-		xchg_ro_pte(mm, (pte_t *)pmdp,
+		xchg_ro_pte(mm, ULONG_MAX, (pte_t *)pmdp,
 			    __pte(__phys_to_pmd_val(page_to_phys(ptep) | pmdval)));
 	else
 		__pmd_populate(pmdp, page_to_phys(ptep), pmdval);

@@ -41,7 +41,7 @@ static bool in_kernel_text_or_rodata(phys_addr_t pa)
 	return pa >= __pa_symbol(_stext) && pa < __pa_symbol(__init_begin);
 }
 
-pte_t xchg_ro_pte(struct mm_struct *mm, pte_t *ptep, pte_t pte)
+pte_t xchg_ro_pte(struct mm_struct *mm, u64 address, pte_t *ptep, pte_t pte)
 {
 	unsigned long flags;
 	u64 pte_pa;
