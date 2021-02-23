@@ -248,7 +248,7 @@ static void handle_host_sysreg(struct kvm_cpu_context *host_ctxt, u64 esr)
 		write_sysreg(regval, SCTLR_EL1);
 		break;
 	case SYS_TTBR0_EL1:
-		write_sysreg(regval, TTBR0_EL1);
+		pkvm_handle_ttbr0_update(host_ctxt, regval);
 		break;
 	case SYS_TTBR1_EL1:
 		write_sysreg(regval, TTBR1_EL1);
