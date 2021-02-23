@@ -115,7 +115,7 @@ int __pkvm_prot_finalize(void)
 
 	params->vttbr = kvm_get_vttbr(mmu);
 	params->vtcr = host_kvm.arch.vtcr;
-	params->hcr_el2 |= HCR_VM;
+	params->hcr_el2 |= HCR_VM | HCR_TVM;
 	if (cpus_have_const_cap(ARM64_HAS_STAGE2_FWB))
 		params->hcr_el2 |= HCR_FWB;
 	kvm_flush_dcache_to_poc(params, sizeof(*params));
