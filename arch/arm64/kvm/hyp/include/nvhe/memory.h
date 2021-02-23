@@ -9,7 +9,13 @@
 
 struct hyp_page {
 	unsigned short refcount;
-	unsigned short order;
+	unsigned char order;
+
+#define HYP_PAGE_PTP_UNTRACKED	0U
+#define HYP_PAGE_PTP_PGROOT	1U
+#define HYP_PAGE_PTP_PGTABLE	2U
+#define HYP_PAGE_PTP_FLAGS	3U
+	unsigned char ptp_flags;
 };
 
 extern u64 __hyp_vmemmap;
