@@ -31,8 +31,11 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	pgd = (pgd_t *)__get_free_page(gfp);
 	if (!pgd)
 		return NULL;
-	if (page_tables_are_ro())
+	if (page_tables_are_ro()) {
+		if (static_branch_likely(&kvm_protected_mode_initialized))
+			kvm_call_hyp_nvhe(__pkvm_assign_pgroot, __pa(pgd));
 		set_pgtable_ro(pgd);
+	}
 	return pgd;
 }
 
@@ -40,11 +43,15 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
 	if (PGD_SIZE < PAGE_SIZE && !page_tables_are_ro()) {
 		kmem_cache_free(pgd_cache, pgd);
-	} else {
-		if (page_tables_are_ro())
-			set_pgtable_rw(pgd);
-		free_page((unsigned long)pgd);
+		return;
 	}
+
+	if (page_tables_are_ro()) {
+		if (static_branch_likely(&kvm_protected_mode_initialized))
+			kvm_call_hyp_nvhe(__pkvm_release_pgroot, __pa(pgd));
+		set_pgtable_rw(pgd);
+	}
+	free_page((unsigned long)pgd);
 }
 
 void __init pgtable_cache_init(void)

@@ -196,3 +196,29 @@ void handle___pkvm_cmpxchg_ro_pte(struct kvm_cpu_context *host_ctxt)
 	cpu_reg(host_ctxt, 1) = cmpxchg_relaxed(&pte_val(*kern_hyp_va(ptep)),
 						oldval, newval);
 }
+
+void handle___pkvm_assign_pgroot(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pgd_t *, pgdp, host_ctxt, 1);
+	u64 ptaddr = (u64)kern_hyp_va(pgdp) & PAGE_MASK;
+
+	// remap the page as r/o at stage, and tag as a pgd[]
+	if (!kvm_pgtable_stage2_make_pgroot(&host_kvm.pgt, (u64)pgdp)) {
+		inject_external_abort(host_ctxt);
+		return;
+	}
+
+	// create stage1@el2 mapping if needed
+	__pkvm_create_mappings(ptaddr, PAGE_SIZE, (u64)pgdp & PAGE_MASK, PAGE_HYP);
+
+	// wipe the page before first use
+	memset((void *)ptaddr, 0, PAGE_SIZE);
+}
+
+void handle___pkvm_release_pgroot(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(pgd_t *, pgdp, host_ctxt, 1);
+
+	if (!kvm_pgtable_stage2_clear_pgroot(&host_kvm.pgt, (u64)pgdp))
+		inject_external_abort(host_ctxt);
+}
