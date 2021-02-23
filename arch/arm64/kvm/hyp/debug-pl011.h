@@ -153,6 +153,11 @@ static inline void hyp_putc(char c)
 	} while (val & (1U << HYP_PL011_UARTFR_BUSY));
 }
 
+static inline void hyp_puteol(void)
+{
+	hyp_putc('\n');
+}
+
 /*
  * Caller needs to ensure string is mapped. If it lives in .rodata, you should
  * be good as long as we're using PC-relative addressing (probably true).
@@ -161,7 +166,6 @@ static inline void hyp_puts(char *s)
 {
 	while (*s)
 		hyp_putc(*s++);
-	hyp_putc('\n');
 }
 
 static inline void __hyp_putx4(unsigned int x)
@@ -183,8 +187,6 @@ static inline void __hyp_putx4n(unsigned long x, int n)
 
 	while (i--)
 		__hyp_putx4(x >> (4 * i));
-
-	hyp_putc('\n');
 }
 
 static inline void hyp_putx32(unsigned int x)
