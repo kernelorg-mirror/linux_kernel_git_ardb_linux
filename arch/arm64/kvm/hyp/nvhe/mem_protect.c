@@ -371,6 +371,17 @@ unlock:
 	return ret;
 }
 
+void inject_host_exception(struct kvm_cpu_context *host_ctxt, u32 esr)
+{
+	u32 pstate = PSR_MODE_EL1h | PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT;
+
+	write_sysreg(esr, ESR_EL1);
+	write_sysreg(read_sysreg(ELR_EL2), ELR_EL1);
+	write_sysreg(read_sysreg(VBAR_EL1) + 0x200, ELR_EL2);
+	write_sysreg(read_sysreg(SPSR_EL2), SPSR_EL1);
+	write_sysreg(pstate, SPSR_EL2);
+}
+
 void handle_host_mem_abort(struct kvm_cpu_context *host_ctxt)
 {
 	struct kvm_vcpu_fault_info fault;
@@ -379,6 +390,13 @@ void handle_host_mem_abort(struct kvm_cpu_context *host_ctxt)
 
 	esr = read_sysreg_el2(SYS_ESR);
 	BUG_ON(!__get_fault_info(esr, &fault));
+
+	/* valid r/o mappings must remain r/o */
+	if ((esr & ESR_ELx_FSC_TYPE) == ESR_ELx_FSC_PERM) {
+		/* deliver to the host */
+		inject_host_exception(host_ctxt, esr);
+		return;
+	}
 
 	addr = (fault.hpfar_el2 & HPFAR_MASK) << 8;
 	ret = host_stage2_idmap(addr);
