@@ -901,11 +901,6 @@ static inline int p4d_bad(p4d_t p4d)
 }
 #endif  /* CONFIG_PGTABLE_LEVELS > 3 */
 
-static inline unsigned long p4d_index(unsigned long address)
-{
-	return (address >> P4D_SHIFT) & (PTRS_PER_P4D - 1);
-}
-
 #if CONFIG_PGTABLE_LEVELS > 4
 static inline int pgd_present(pgd_t pgd)
 {
