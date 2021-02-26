@@ -1167,7 +1167,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		 * hugepmds and never for establishing regular pmds that
 		 * points to regular pagetables. Use pmd_populate for that
 		 */
-		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
+		set_pmd_at(mm, address, pmd, __pmd(pmd_val(_pmd) | PMD_TYPE_TABLE));
 		spin_unlock(pmd_ptl);
 		anon_vma_unlock_write(vma->anon_vma);
 		result = SCAN_FAIL;
