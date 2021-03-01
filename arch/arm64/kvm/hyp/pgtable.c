@@ -494,8 +494,7 @@ u64 kvm_get_vtcr(u64 mmfr0, u64 mmfr1, u32 phys_shift)
 	return vtcr;
 }
 
-static int stage2_map_set_prot_attr(enum kvm_pgtable_prot prot,
-				    struct stage2_map_data *data)
+static kvm_pte_t stage2_get_prot_attr(enum kvm_pgtable_prot prot)
 {
 	bool device = prot & KVM_PGTABLE_PROT_DEVICE;
 	kvm_pte_t attr = device ? PAGE_S2_MEMATTR(DEVICE_nGnRE) :
@@ -504,15 +503,15 @@ static int stage2_map_set_prot_attr(enum kvm_pgtable_prot prot,
 
 	if (prot & KVM_PGTABLE_PROT_NONE) {
 		if (prot != KVM_PGTABLE_PROT_NONE)
-			return -EINVAL;
+			return 0;
 		attr |= KVM_PTE_LEAF_SW_BIT_PROT_NONE;
-		goto out;
+		return attr;
 	}
 
 	if (!(prot & KVM_PGTABLE_PROT_X))
 		attr |= KVM_PTE_LEAF_ATTR_HI_S2_XN;
 	else if (device)
-		return -EINVAL;
+		return 0;
 
 	if (prot & KVM_PGTABLE_PROT_R)
 		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
@@ -523,9 +522,7 @@ static int stage2_map_set_prot_attr(enum kvm_pgtable_prot prot,
 	attr |= FIELD_PREP(KVM_PTE_LEAF_ATTR_LO_S2_SH, sh);
 	attr |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
 
-out:
-	data->attr = attr;
-	return 0;
+	return attr;
 }
 
 static int stage2_map_walker_try_leaf(u64 addr, u64 end, u32 level,
@@ -708,9 +705,9 @@ int kvm_pgtable_stage2_map(struct kvm_pgtable *pgt, u64 addr, u64 size,
 		.arg		= &map_data,
 	};
 
-	ret = stage2_map_set_prot_attr(prot, &map_data);
-	if (ret)
-		return ret;
+	map_data.attr = stage2_get_prot_attr(prot);
+	if (!map_data.attr)
+		return -EINVAL;
 
 	ret = kvm_pgtable_walk(pgt, addr, size, &walker);
 	dsb(ishst);
