@@ -283,14 +283,11 @@
 
 /*
  * TTBR.
- */
-#ifdef CONFIG_ARM64_PA_BITS_52
-/*
+ *
  * This should be GENMASK_ULL(47, 2).
  * TTBR_ELx[1] is RES0 in this configuration.
  */
 #define TTBR_BADDR_MASK_52	(((UL(1) << 46) - 1) << 2)
-#endif
 
 #ifdef CONFIG_ARM64_VA_BITS_52
 /* Must be at least 64-byte aligned to prevent corruption of the TTBR */

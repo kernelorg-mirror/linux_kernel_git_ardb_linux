@@ -1015,11 +1015,27 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 
 #define update_mmu_cache_pmd(vma, address, pmd) do { } while (0)
 
-#ifdef CONFIG_ARM64_PA_BITS_52
-#define phys_to_ttbr(addr)	(((addr) | ((addr) >> 46)) & TTBR_BADDR_MASK_52)
-#else
-#define phys_to_ttbr(addr)	(addr)
-#endif
+static inline u64 phys_to_ttbr(u64 addr)
+{
+	u64 ttbrval = addr;
+
+	if (IS_ENABLED(CONFIG_ARM64_PA_BITS_52)) {
+		ttbrval &= ~TTBR_ASID_MASK;
+		ttbrval |= (addr >> 46) & TTBR_BADDR_MASK_52;
+	}
+	return ttbrval;
+}
+
+static inline u64 ttbr_to_phys(u64 ttbrval)
+{
+	u64 addr = ttbrval & ~(TTBR_ASID_MASK | TTBR_CNP_BIT);
+
+	if (IS_ENABLED(CONFIG_ARM64_PA_BITS_52)) {
+		addr &= ~TTBR_BADDR_MASK_52;
+		addr |= (ttbrval & TTBR_BADDR_MASK_52) << 46;
+	}
+	return addr;
+}
 
 /*
  * On arm64 without hardware Access Flag, copying from user will fail because
