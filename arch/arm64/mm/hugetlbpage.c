@@ -248,8 +248,8 @@ void set_huge_swap_pte_at(struct mm_struct *mm, unsigned long addr,
 
 	ncontig = num_contig_ptes(sz, &pgsize);
 
-	for (i = 0; i < ncontig; i++, ptep++)
-		set_pte(ptep, pte);
+	for (i = 0; i < ncontig; i++, ptep++, addr += pgsize)
+		set_pte_at(mm, addr, ptep, pte);
 }
 
 pte_t *huge_pte_alloc(struct mm_struct *mm,
