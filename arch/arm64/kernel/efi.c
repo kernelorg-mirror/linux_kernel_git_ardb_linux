@@ -91,7 +91,7 @@ static int __init set_permissions(pte_t *ptep, unsigned long addr, void *data)
 		pte = set_pte_bit(pte, __pgprot(PTE_RDONLY));
 	if (md->attribute & EFI_MEMORY_XP)
 		pte = set_pte_bit(pte, __pgprot(PTE_PXN));
-	set_pte(ptep, pte);
+	set_pte_at(&efi_mm, addr, ptep, pte);
 	return 0;
 }
 
