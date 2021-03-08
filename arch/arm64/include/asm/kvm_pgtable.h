@@ -239,6 +239,27 @@ int kvm_pgtable_stage2_map(struct kvm_pgtable *pgt, u64 addr, u64 size,
 			   void *mc);
 
 /**
+ * kvm_pgtable_stage2_set_owner() - Annotate invalid mappings with metadata
+ *				    encoding the ownership of a page in the
+ *				    IPA space.
+ * @pgt:	Page-table structure initialised by kvm_pgtable_stage2_init().
+ * @addr:	Intermediate physical address at which to place the annotation.
+ * @size:	Size of the IPA range to annotate.
+ * @mc:		Cache of pre-allocated and zeroed memory from which to allocate
+ *		page-table pages.
+ * @owner_id:	Unique identifier for the owner of the page.
+ *
+ * The page-table owner has identifier 0. This function can be used to mark
+ * portions of the IPA space as owned by other entities. When a stage 2 is used
+ * with identity-mappings, these annotations allow to use the page-table data
+ * structure as a simple rmap.
+ *
+ * Return: 0 on success, negative error code on failure.
+ */
+int kvm_pgtable_stage2_set_owner(struct kvm_pgtable *pgt, u64 addr, u64 size,
+				 void *mc, u32 owner_id);
+
+/**
  * kvm_pgtable_stage2_unmap() - Remove a mapping from a guest stage-2 page-table.
  * @pgt:	Page-table structure initialised by kvm_pgtable_stage2_init().
  * @addr:	Intermediate physical address from which to remove the mapping.
