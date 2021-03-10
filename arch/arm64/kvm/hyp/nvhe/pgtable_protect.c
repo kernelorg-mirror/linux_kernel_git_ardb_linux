@@ -366,7 +366,7 @@ void handle___pkvm_xchg_ro_pte(struct kvm_cpu_context *host_ctxt)
 	}
 
 	if (!is_pgtable &&
-	    kvm_pgtable_stage2_is_untracked(&host_kvm.pgt, (u64)ptep)) {
+	    1){//kvm_pgtable_stage2_is_untracked(&host_kvm.pgt, (u64)ptep)) {
 		u64 ptaddr = (u64)kern_hyp_va(ptep) & PAGE_MASK;
 
 		/*

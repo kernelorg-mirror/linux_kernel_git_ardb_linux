@@ -44,6 +44,7 @@ static bool in_kernel_text_or_rodata(phys_addr_t pa)
 pte_t xchg_ro_pte(struct mm_struct *mm, u64 address, pte_t *ptep, pte_t pte)
 {
 	unsigned long flags;
+	u64 pgd_pa = 0;
 	u64 pte_pa;
 	pte_t ret;
 	pte_t *p;
@@ -59,10 +60,17 @@ pte_t xchg_ro_pte(struct mm_struct *mm, u64 address, pte_t *ptep, pte_t pte)
 	BUG_ON(in_kernel_text_or_rodata(pte_pa));
 
 	if (static_branch_likely(&kvm_protected_mode_initialized)) {
+		if (mm)
+			pgd_pa = __is_lm_address(mm->pgd) ? __pa(mm->pgd)
+							  : __pa_symbol(mm->pgd);
+
+		if (address == ULONG_MAX) {
+			pr_err("### 0x%llx 0x%llx 0x%llx\n", (u64)mm, pte_pa, pte_val(pte));
+			WARN_ON(1);
+		}
 		/* invoke the hypervisor to perform the update on our behalf */
-		pte_val(ret) = kvm_call_hyp_nvhe(__pkvm_xchg_ro_pte,
-						 mm ? __pa(mm->pgd) : 0x0,
-						 pte_pa, pte_val(pte));
+		pte_val(ret) = kvm_call_hyp_nvhe(__pkvm_xchg_ro_pte, pgd_pa,
+						 address, pte_pa, pte_val(pte));
 		return ret;
 	}
 
