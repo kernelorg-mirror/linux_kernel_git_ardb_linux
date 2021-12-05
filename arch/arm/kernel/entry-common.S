@@ -130,9 +130,8 @@ ENTRY(ret_from_fork)
 	bl	schedule_tail
 	cmp	r5, #0
 	movne	r0, r4
-	badrne	lr, 1f
-	retne	r5
-1:	get_thread_info tsk
+	bl_r	r5, ne
+	get_thread_info tsk
 	b	ret_slow_syscall
 ENDPROC(ret_from_fork)
 
