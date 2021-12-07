@@ -126,7 +126,7 @@ __v7m_setup_cont:
 	@ SVC to switch to handler mode. Notice that this requires sp to
 	@ point to writeable memory because the processor saves
 	@ some registers to the stack.
-	badr	r1, 1f
+	badr	r1, __handler_entry
 	ldr	r5, [r12, #11 * 4]	@ read the SVC vector entry
 	str	r1, [r12, #11 * 4]	@ write the temporary SVC vector entry
 	dsb
@@ -134,7 +134,8 @@ __v7m_setup_cont:
 	ldr	sp, =init_thread_union + THREAD_START_SP
 	cpsie	i
 	svc	#0
-1:	cpsid	i
+__handler_entry:
+	cpsid	i
 	/* Calculate exc_ret */
 	orr	r10, lr, #EXC_RET_THREADMODE_PROCESSSTACK
 	ldmia	sp, {r0-r3, r12}
