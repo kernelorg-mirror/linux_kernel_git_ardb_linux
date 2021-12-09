@@ -118,6 +118,9 @@ uint32_t fdt_check_mem_start(uint32_t mem_start, const void *fdt)
 		for (endp = reg + (len / sizeof(fdt32_t));
 		     endp - reg >= addr_cells + size_cells;
 		     reg += addr_cells + size_cells) {
+			u64 resbase, ressize;
+			int i;
+
 			size = get_val(reg + addr_cells, size_cells);
 			if (!size)
 				continue;
@@ -129,6 +132,17 @@ uint32_t fdt_check_mem_start(uint32_t mem_start, const void *fdt)
 
 			base = fdt32_ld(reg + addr_cells - 1);
 			end = base + size;
+			for (i = 0;; i++) {
+				/*
+				 * Mask out any /memreserve/ entries covering
+				 * the start of this region
+				 */
+				fdt_get_mem_rsv(fdt, i, &resbase, &ressize);
+				if (!ressize)
+					break;
+				if (base >= resbase && base < resbase + ressize)
+					base = resbase + ressize;
+			}
 			if (usable) {
 				/*
 				 * Clip to usable range, which takes precedence
@@ -139,13 +153,12 @@ uint32_t fdt_check_mem_start(uint32_t mem_start, const void *fdt)
 
 				if (end > usable_end)
 					end = usable_end;
-
-				if (end <= base)
-					continue;
 			} else if (mem_start >= base && mem_start < end) {
 				/* Calculated address is valid, use it */
 				return mem_start;
 			}
+			if (end <= base)
+				continue;
 
 			if (base < fdt_mem_start)
 				fdt_mem_start = base;
