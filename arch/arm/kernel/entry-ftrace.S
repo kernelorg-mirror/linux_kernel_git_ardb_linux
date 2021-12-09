@@ -55,9 +55,8 @@
 
 1: 	mcount_get_lr	r1			@ lr of instrumented func
 	mcount_adjust_addr	r0, lr		@ instrumented function
-	badr	lr, 2f
-	mov	pc, r2
-2:	mcount_exit
+	bl_r	r2
+	mcount_exit
 .endm
 
 #ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
