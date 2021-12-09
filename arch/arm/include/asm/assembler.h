@@ -206,7 +206,9 @@ THUMB(	fpreg	.req	r7	)
 	.irp	c,,eq,ne,cs,cc,mi,pl,vs,vc,hi,ls,ge,lt,gt,le,hs,lo
 	.macro	badr\c, rd, sym
 #ifdef CONFIG_THUMB2_KERNEL
-	adr\c	\rd, \sym + 1
+	.type	\sym, %function
+	.reloc	., R_ARM_THM_ALU_PREL_11_0, \sym
+	adr\c	\rd, .
 #else
 	adr\c	\rd, \sym
 #endif
