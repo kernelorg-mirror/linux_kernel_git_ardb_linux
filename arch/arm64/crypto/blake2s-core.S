@@ -14,119 +14,141 @@
 	// Registers used to hold message words temporarily.  There aren't
 	// enough ARM registers to hold the whole message block, so we have to
 	// load the words on-demand.
-	M_0		.req	w16
-	M_1		.req	w17
-	M_2		.req	w23
-	M_3		.req	w24
-	M_4		.req	w25
-	M_5		.req	w26
-	M_6		.req	w27
-	M_7		.req	w28
+	M_0		.req	w23
+	M_1		.req	w24
+	M_2		.req	w25
+	M_3		.req	w26
+	T_0		.req	w16
+	T_1		.req	w17
+	T_2		.req	w27
+	T_3		.req	w28
 
 // The BLAKE2s initialization vector
 .Lblake2s_IV:
 	.word	0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A
 	.word	0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19
 
-// Execute a half-round of BLAKE2s by mixing four columns or four diagonals.
-.macro _blake2s_halfround  a0, b0, c0, d0,  a1, b1, c1, d1, \
-			   a2, b2, c2, d2,  a3, b3, c3, d3, \
-			   s0, s1, s2, s3, s4, s5, s6, s7
-
+.macro _blake2s_load_words	s0, s1, s2, s3
 	ldr		M_0, [x20, #4 * \s0]
-	ldr		M_1, [x20, #4 * \s2]
-	ldr		M_2, [x20, #4 * \s4]
-	ldr		M_3, [x20, #4 * \s6]
-	ldr		M_4, [x20, #4 * \s1]
-	ldr		M_5, [x20, #4 * \s3]
-	ldr		M_6, [x20, #4 * \s5]
-	ldr		M_7, [x20, #4 * \s7]
+	ldr		M_1, [x20, #4 * \s1]
+	ldr		M_2, [x20, #4 * \s2]
+	ldr		M_3, [x20, #4 * \s3]
 
 CPU_BE(	rev		M_0, M_0	)
 CPU_BE(	rev		M_1, M_1	)
 CPU_BE(	rev		M_2, M_2	)
 CPU_BE(	rev		M_3, M_3	)
-CPU_BE(	rev		M_4, M_4	)
-CPU_BE(	rev		M_5, M_5	)
-CPU_BE(	rev		M_6, M_6	)
-CPU_BE(	rev		M_7, M_7	)
+.endm
+
+// Execute a quarter-round of BLAKE2s by mixing two columns or two diagonals.
+// (a0, b0, c0, d0) and (a1, b1, c1, d1) give the registers containing the two
+// columns/diagonals.  s0-s1 are the word offsets to the message words the first
+// column/diagonal needs, and likewise s2-s3 for the second column/diagonal.
+//
+// Note that to save instructions, the rotations don't happen when the
+// pseudocode says they should, but rather they are delayed until the values are
+// used.  See the comment above _blake2s_round().
+.macro _blake2s_halfround  a0, b0, c0, d0,  a1, b1, c1, d1, \
+			   a2, b2, c2, d2,  a3, b3, c3, d3, \
+			   s0, s1, s2, s3, s4, s5, s6, s7
+
+	_blake2s_load_words	\s0, \s2, \s4, \s6
 
 	// a += b + m[blake2s_sigma[r][2*i + 0]];
+	.if		brot != 0
+	ror		T_0, \b0, #brot
+	ror		T_1, \b1, #brot
+	ror		T_2, \b2, #brot
+	ror		T_3, \b3, #brot
+	add		\a0, \a0, T_0
+	add		\a1, \a1, T_1
+	add		\a2, \a2, T_2
+	add		\a3, \a3, T_3
+	.else
 	add		\a0, \a0, \b0
 	add		\a1, \a1, \b1
 	add		\a2, \a2, \b2
 	add		\a3, \a3, \b3
+	.endif
 	add		\a0, \a0, M_0
 	add		\a1, \a1, M_1
 	add		\a2, \a2, M_2
 	add		\a3, \a3, M_3
 
+	_blake2s_load_words	\s1, \s3, \s5, \s7
+
 	// d = ror32(d ^ a, 16);
-	eor		\d0, \a0, \d0
-	eor		\d1, \a1, \d1
-	eor		\d2, \a2, \d2
-	eor		\d3, \a3, \d3
-	ror		\d0, \d0, #16
-	ror		\d1, \d1, #16
-	ror		\d2, \d2, #16
-	ror		\d3, \d3, #16
+	eor		\d0, \a0, \d0, ror #drot
+	eor		\d1, \a1, \d1, ror #drot
+	eor		\d2, \a2, \d2, ror #drot
+	eor		\d3, \a3, \d3, ror #drot
 
 	// c += d;
-	add		\c0, \c0, \d0
-	add		\c1, \c1, \d1
-	add		\c2, \c2, \d2
-	add		\c3, \c3, \d3
+	ror		T_0, \d0, #16
+	ror		T_1, \d1, #16
+	ror		T_2, \d2, #16
+	ror		T_3, \d3, #16
+	add		\c0, \c0, T_0
+	add		\c1, \c1, T_1
+	add		\c2, \c2, T_2
+	add		\c3, \c3, T_3
 
 	// b = ror32(b ^ c, 12);
-	eor		\b0, \c0, \b0
-	eor		\b1, \c1, \b1
-	eor		\b2, \c2, \b2
-	eor		\b3, \c3, \b3
-	ror		\b0, \b0, #12
-	ror		\b1, \b1, #12
-	ror		\b2, \b2, #12
-	ror		\b3, \b3, #12
+	eor		\b0, \c0, \b0, ror #brot
+	eor		\b1, \c1, \b1, ror #brot
+	eor		\b2, \c2, \b2, ror #brot
+	eor		\b3, \c3, \b3, ror #brot
 
 	// a += b + m[blake2s_sigma[r][2*i + 1]];
-	add		\a0, \a0, \b0
-	add		\a1, \a1, \b1
-	add		\a2, \a2, \b2
-	add		\a3, \a3, \b3
-	add		\a0, \a0, M_4
-	add		\a1, \a1, M_5
-	add		\a2, \a2, M_6
-	add		\a3, \a3, M_7
+	ror		T_0, \b0, #12
+	ror		T_1, \b1, #12
+	ror		T_2, \b2, #12
+	ror		T_3, \b3, #12
+	add		\a0, \a0, T_0
+	add		\a1, \a1, T_1
+	add		\a2, \a2, T_2
+	add		\a3, \a3, T_3
+	add		\a0, \a0, M_0
+	add		\a1, \a1, M_1
+	add		\a2, \a2, M_2
+	add		\a3, \a3, M_3
 
 	// d = ror32(d ^ a, 8);
-	eor		\d0, \a0, \d0
-	eor		\d1, \a1, \d1
-	eor		\d2, \a2, \d2
-	eor		\d3, \a3, \d3
-	ror		\d0, \d0, #8
-	ror		\d1, \d1, #8
-	ror		\d2, \d2, #8
-	ror		\d3, \d3, #8
+	eor		\d0, \a0, \d0, ror#16
+	eor		\d1, \a1, \d1, ror#16
+	eor		\d2, \a2, \d2, ror#16
+	eor		\d3, \a3, \d3, ror#16
 
 	// c += d;
-	add		\c0, \c0, \d0
-	add		\c1, \c1, \d1
-	add		\c2, \c2, \d2
-	add		\c3, \c3, \d3
+	ror		T_0, \d0, #8
+	ror		T_1, \d1, #8
+	ror		T_2, \d2, #8
+	ror		T_3, \d3, #8
+	add		\c0, \c0, T_0
+	add		\c1, \c1, T_1
+	add		\c2, \c2, T_2
+	add		\c3, \c3, T_3
 
 	// b = ror32(b ^ c, 7);
-	eor		\b0, \c0, \b0
-	eor		\b1, \c1, \b1
-	eor		\b2, \c2, \b2
-	eor		\b3, \c3, \b3
-	ror		\b0, \b0, #7
-	ror		\b1, \b1, #7
-	ror		\b2, \b2, #7
-	ror		\b3, \b3, #7
+	eor		\b0, \c0, \b0, ror#12
+	eor		\b1, \c1, \b1, ror#12
+	eor		\b2, \c2, \b2, ror#12
+	eor		\b3, \c3, \b3, ror#12
 .endm
 
 // Execute one round of BLAKE2s by updating the state matrix v[0..15].  The
 // macro arguments s0-s15 give the order in which the message words are used in
 // this round.
+//
+// All rotates are performed using the implicit rotate operand accepted by the
+// 'add' and 'eor' instructions.  This is faster than using explicit rotate
+// instructions.  To make this work, we allow the values in the second and last
+// rows of the BLAKE2s state matrix (rows 'b' and 'd') to temporarily have the
+// wrong rotation amount.  The rotation amount is then fixed up just in time
+// when the values are used.  'brot' is the number of bits the values in row 'b'
+// need to be rotated right to arrive at the correct values, and 'drot'
+// similarly for row 'd'.  (brot, drot) start out as (0, 0) but we make it such
+// that they end up as (7, 8) after every round.
 .macro	_blake2s_round	s0, s1, s2, s3, s4, s5, s6, s7, \
 			s8, s9, s10, s11, s12, s13, s14, s15
 
@@ -136,6 +158,9 @@ CPU_BE(	rev		M_7, M_7	)
 	_blake2s_halfround	w0, w4, w8, w12,  w1, w5, w9, w13, \
 				w2, w6, w10, w14,  w3, w7, w11, w15, \
 				\s0, \s1, \s2, \s3, \s4, \s5, \s6, \s7
+
+	.set brot, 7
+	.set drot, 8
 
 	// Mix diagonals:
 	// (v[0], v[5], v[10], v[15]) and (v[1], v[6], v[11], v[12]).
@@ -190,6 +215,8 @@ SYM_FUNC_START(blake2s_compress_arch)
 
 	// Execute the rounds.  Each round is provided the order in which it
 	// needs to use the message words.
+	.set brot, 0
+	.set drot, 0
 	_blake2s_round	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 	_blake2s_round	14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3
 	_blake2s_round	11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4
@@ -220,14 +247,14 @@ SYM_FUNC_START(blake2s_compress_arch)
 	stp		w2, w3, [x19, #8]	// store new h[0..3]
 	ldp		w0, w1, [x19, #16]	// load old h[4..5]
 	ldp		w2, w3, [x19, #24]	// load old h[6..7]
-	eor		w0, w0, w4
-	eor		w1, w1, w5
-	eor		w2, w2, w6
-	eor		w3, w3, w7
-	eor		w0, w0, w12
-	eor		w1, w1, w13
-	eor		w2, w2, w14
-	eor		w3, w3, w15
+	eor		w0, w0, w4, ror #brot
+	eor		w1, w1, w5, ror #brot
+	eor		w2, w2, w6, ror #brot
+	eor		w3, w3, w7, ror #brot
+	eor		w0, w0, w12, ror #drot
+	eor		w1, w1, w13, ror #drot
+	eor		w2, w2, w14, ror #drot
+	eor		w3, w3, w15, ror #drot
 	stp		w0, w1, [x19, #16]
 	stp		w2, w3, [x19, #24]
 
