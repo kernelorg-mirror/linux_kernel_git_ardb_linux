@@ -14,6 +14,7 @@
 #include <asm/kvm_mmu.h>
 
 #include <nvhe/mem_protect.h>
+#include <nvhe/pgtable_protect.h>
 #include <nvhe/mm.h>
 #include <nvhe/trap_handler.h>
 
@@ -204,6 +205,8 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__vgic_v3_save_aprs),
 	HANDLE_FUNC(__vgic_v3_restore_aprs),
 	HANDLE_FUNC(__pkvm_vcpu_init_traps),
+	HANDLE_FUNC(__pkvm_xchg_ro_pte),
+	HANDLE_FUNC(__pkvm_cmpxchg_ro_pte),
 };
 
 static void handle_host_hcall(struct kvm_cpu_context *host_ctxt)
