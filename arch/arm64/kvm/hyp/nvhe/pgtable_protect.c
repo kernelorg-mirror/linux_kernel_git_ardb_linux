@@ -148,3 +148,27 @@ void handle___pkvm_cmpxchg_ro_pte(struct kvm_cpu_context *host_ctxt)
 						oldval, newval);
 	hyp_fixmap_unmap();
 }
+
+void handle___pkvm_assign_pgroot(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(u64, pgdp, host_ctxt, 1);
+	void *ptaddr;
+
+	// remap the page as r/o at stage, and tag as a pgd[]
+	if (!kvm_pgtable_ptp_make_pgroot(pgdp)) {
+		inject_ptp_host_exception(host_ctxt);
+		return;
+	}
+
+	ptaddr = hyp_fixmap_map(pgdp);
+	memset(ptaddr, 0, PAGE_SIZE);	// wipe the page before first use
+	hyp_fixmap_unmap();
+}
+
+void handle___pkvm_release_pgroot(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(u64, pgdp, host_ctxt, 1);
+
+	if (!kvm_pgtable_ptp_clear_pgroot(pgdp))
+		inject_ptp_host_exception(host_ctxt);
+}

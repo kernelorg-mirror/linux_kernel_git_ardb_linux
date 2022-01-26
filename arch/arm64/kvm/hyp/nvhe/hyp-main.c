@@ -207,6 +207,8 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__pkvm_vcpu_init_traps),
 	HANDLE_FUNC(__pkvm_xchg_ro_pte),
 	HANDLE_FUNC(__pkvm_cmpxchg_ro_pte),
+	HANDLE_FUNC(__pkvm_assign_pgroot),
+	HANDLE_FUNC(__pkvm_release_pgroot),
 };
 
 static void handle_host_hcall(struct kvm_cpu_context *host_ctxt)
