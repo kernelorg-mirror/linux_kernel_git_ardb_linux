@@ -122,6 +122,8 @@ KVM_NVHE_ALIAS(__start_rodata);
 KVM_NVHE_ALIAS(__end_rodata);
 KVM_NVHE_ALIAS(__bss_start);
 KVM_NVHE_ALIAS(__bss_stop);
+KVM_NVHE_ALIAS(idmap_pg_dir);
+KVM_NVHE_ALIAS(reserved_pg_dir);
 
 /* Hyp memory sections */
 KVM_NVHE_ALIAS(__hyp_idmap_text_start);

@@ -151,6 +151,14 @@ void handle___pkvm_cmpxchg_ro_pte(struct kvm_cpu_context *host_ctxt)
 
 void handle___pkvm_assign_pgroot(struct kvm_cpu_context *host_ctxt)
 {
+	/*
+	 * We don't permit the root table's address to be used in TTBRn_EL1 by
+	 * the host unless the page is mapped read-only at stage2, and carries
+	 * the correct annotation (HYP_PAGE_PTP_PGROOT). If the page is not in
+	 * the right state yet, set the correct state and wipe the contents.
+	 * This ensures that a root page table only contains entries that were
+	 * vetted by the HYP api.
+	 */
 	DECLARE_REG(u64, pgdp, host_ctxt, 1);
 	void *ptaddr;
 
@@ -168,7 +176,48 @@ void handle___pkvm_assign_pgroot(struct kvm_cpu_context *host_ctxt)
 void handle___pkvm_release_pgroot(struct kvm_cpu_context *host_ctxt)
 {
 	DECLARE_REG(u64, pgdp, host_ctxt, 1);
+	int i;
+
+	pgdp &= PAGE_MASK;
+
+	hyp_spin_lock(&host_kvm.lock);
+
+	/* check that the root pgtable is not live on any CPU */
+	for (i = 0; i < hyp_nr_cpus; i++) {
+		const struct kvm_cpu_context *ctx;
+
+		ctx = &per_cpu_ptr(&kvm_host_data, i)->host_ctxt;
+		if (pgdp == ttbr_to_phys(ctx->sys_regs[TTBR0_EL1])) {
+			inject_ptp_host_exception(host_ctxt);
+			hyp_spin_unlock(&host_kvm.lock);
+			return;
+		}
+	}
+
+	hyp_spin_unlock(&host_kvm.lock);
 
 	if (!kvm_pgtable_ptp_clear_pgroot(pgdp))
 		inject_ptp_host_exception(host_ctxt);
+}
+
+void pkvm_handle_ttbr0_update(struct kvm_cpu_context *host_ctxt, u64 regval)
+{
+	u64 addr;
+
+	hyp_spin_lock(&host_kvm.lock);
+
+	// TODO stage 2 protection of reserved_pg_dir
+	// TODO elide double trap for pgd switch
+	addr = ttbr_to_phys(regval);
+	if (addr != hyp_virt_to_phys(reserved_pg_dir) &&
+	    addr != hyp_virt_to_phys(idmap_pg_dir) &&
+	    !kvm_pgtable_ptp_is_pgroot(addr)) {
+		inject_ptp_host_exception(host_ctxt);
+		hyp_spin_unlock(&host_kvm.lock);
+		return;
+	}
+	host_ctxt->sys_regs[TTBR0_EL1] = regval;
+	hyp_spin_unlock(&host_kvm.lock);
+
+	write_sysreg(regval, TTBR0_EL1);
 }

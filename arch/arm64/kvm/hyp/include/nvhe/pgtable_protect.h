@@ -15,4 +15,6 @@ void handle___pkvm_cmpxchg_ro_pte(struct kvm_cpu_context *host_ctxt);
 void handle___pkvm_assign_pgroot(struct kvm_cpu_context *host_ctxt);
 void handle___pkvm_release_pgroot(struct kvm_cpu_context *host_ctxt);
 
+void pkvm_handle_ttbr0_update(struct kvm_cpu_context *host_ctxt, u64 regval);
+
 #endif
