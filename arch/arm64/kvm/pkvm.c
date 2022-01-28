@@ -4,6 +4,7 @@
  * Author: Quentin Perret <qperret@google.com>
  */
 
+#include <linux/efi.h>
 #include <linux/kvm_host.h>
 #include <linux/memblock.h>
 #include <linux/sort.h>
@@ -61,6 +62,11 @@ void __init kvm_hyp_reserve(void)
 
 	if (kvm_get_mode() != KVM_MODE_PROTECTED)
 		return;
+
+	if (IS_ENABLED(CONFIG_EFI)) {
+		set_bit(EFI_RUNTIME_SERVICES, &efi.flags);
+		efi.runtime_supported_mask = 0;
+	}
 
 	ret = register_memblock_regions();
 	if (ret) {
