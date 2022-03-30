@@ -23,6 +23,10 @@ SYM_CODE_START(efi_enter_kernel)
 	add	x19, x0, x2		// relocated Image entrypoint
 	mov	x20, x1			// DTB address
 
+	adrp	x3, _text		// just call the entrypoint
+	cmp	x0, x3			// directly if the image was
+	b.eq	2f			// not moved around in memory
+
 	/*
 	 * Clean the copied Image to the PoC, and ensure it is not shadowed by
 	 * stale icache entries from before relocation.
