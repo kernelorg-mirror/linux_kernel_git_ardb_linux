@@ -46,8 +46,10 @@
 u64 idmap_t0sz = TCR_T0SZ(VA_BITS_MIN);
 u64 idmap_ptrs_per_pgd = PTRS_PER_PGD;
 
-u64 __section(".mmuoff.data.write") vabits_actual;
+#if VA_BITS > 48
+u64 vabits_actual __ro_after_init = VA_BITS_MIN;
 EXPORT_SYMBOL(vabits_actual);
+#endif
 
 u64 kimage_vaddr __ro_after_init = (u64)&_text;
 EXPORT_SYMBOL(kimage_vaddr);
@@ -771,6 +773,17 @@ static void __init map_kernel(pgd_t *pgdp)
 void __init paging_init(void)
 {
 	pgd_t *pgdp = pgd_set_fixmap(__pa_symbol(swapper_pg_dir));
+
+#if VA_BITS > 48
+	if (cpuid_feature_extract_unsigned_field(
+				read_sysreg_s(SYS_ID_AA64MMFR2_EL1),
+				ID_AA64MMFR2_LVA_SHIFT))
+		vabits_actual = VA_BITS;
+
+	/* make the variable visible to secondaries with the MMU off */
+	dcache_clean_inval_poc((u64)&vabits_actual,
+			       (u64)&vabits_actual + sizeof(vabits_actual));
+#endif
 
 	map_kernel(pgdp);
 	map_mem(pgdp);
