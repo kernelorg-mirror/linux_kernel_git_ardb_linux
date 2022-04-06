@@ -43,7 +43,7 @@
 #define NO_CONT_MAPPINGS	BIT(1)
 #define NO_EXEC_MAPPINGS	BIT(2)	/* assumes FEAT_HPDS is not used */
 
-u64 idmap_t0sz = TCR_T0SZ(VA_BITS_MIN);
+int idmap_t0sz __ro_after_init;
 u64 idmap_ptrs_per_pgd = PTRS_PER_PGD;
 
 #if VA_BITS > 48
@@ -784,6 +784,9 @@ void __init paging_init(void)
 	dcache_clean_inval_poc((u64)&vabits_actual,
 			       (u64)&vabits_actual + sizeof(vabits_actual));
 #endif
+
+	idmap_t0sz = min(63UL - __fls(__pa_symbol(_end)),
+			 TCR_T0SZ(VA_BITS_MIN));
 
 	map_kernel(pgdp);
 	map_mem(pgdp);
