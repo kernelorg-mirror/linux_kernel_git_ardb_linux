@@ -511,6 +511,12 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	mov	x0, x20
 	bl	switch_to_vhe			// Prefer VHE if possible
 	ldp	x29, x30, [sp], #16
+#ifdef CONFIG_ARM64_WXN
+	ldr_l	x1, sctlr_override + FTR_OVR_VAL_OFFSET
+	tbz	x1, #0, 0f
+	blr	lr
+0:
+#endif
 	bl	start_kernel
 	ASM_BUG()
 SYM_FUNC_END(__primary_switched)
@@ -881,5 +887,25 @@ SYM_FUNC_START_LOCAL(__primary_switch)
 
 	ldr	x8, =__primary_switched
 	adrp	x0, __PHYS_OFFSET
-	br	x8
+	blr	x8
+#ifdef CONFIG_ARM64_WXN
+	/*
+	 * If we return here, we need to disable WXN before we proceed. This
+	 * requires the MMU to be disabled, so it needs to occur while running
+	 * from the ID map.
+	 */
+	mrs	x0, sctlr_el1
+	bic	x1, x0, #SCTLR_ELx_M
+	msr	sctlr_el1, x1
+	isb
+
+	tlbi	vmalle1
+	dsb	nsh
+	isb
+
+	bic	x0, x0, #SCTLR_ELx_WXN
+	msr	sctlr_el1, x0
+	isb
+	ret
+#endif
 SYM_FUNC_END(__primary_switch)

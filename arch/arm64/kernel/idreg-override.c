@@ -94,12 +94,27 @@ static const struct ftr_set_desc kaslr __initconst = {
 	},
 };
 
+#ifdef CONFIG_ARM64_WXN
+asmlinkage struct arm64_ftr_override sctlr_override __ro_after_init;
+static const struct ftr_set_desc sctlr __initconst = {
+	.name		= "sctlr",
+	.override	= &sctlr_override,
+	.fields		= {
+		{ "nowxn", 0 },
+		{}
+	},
+};
+#endif
+
 static const struct ftr_set_desc * const regs[] __initconst = {
 	&mmfr1,
 	&pfr1,
 	&isar1,
 	&isar2,
 	&kaslr,
+#ifdef CONFIG_ARM64_WXN
+	&sctlr,
+#endif
 };
 
 static const struct {
@@ -115,6 +130,7 @@ static const struct {
 	  "id_aa64isar2.gpa3=0 id_aa64isar2.apa3=0"	   },
 	{ "arm64.nomte",		"id_aa64pfr1.mte=0" },
 	{ "nokaslr",			"kaslr.disabled=1" },
+	{ "arm64.nowxn",		"sctlr.nowxn=1" },
 };
 
 static int __init find_field(const char *cmdline,
