@@ -87,7 +87,7 @@
 	 *  x22        create_idmap() .. start_kernel()         ID map VA of the DT blob
 	 *  x23        primary_entry() .. start_kernel()        physical misalignment/KASLR offset
 	 *  x24        __primary_switch()                       linear map KASLR seed
-	 *  x28        create_idmap()                           callee preserved temp register
+	 *  x28        create_idmap(), remap_kernel_text()      callee preserved temp register
 	 */
 SYM_CODE_START(primary_entry)
 	bl	preserve_boot_args
@@ -379,6 +379,66 @@ SYM_FUNC_START_LOCAL(create_kernel_mapping)
 	dsb	ishst				// sync with page table walker
 	ret
 SYM_FUNC_END(create_kernel_mapping)
+
+SYM_FUNC_START_LOCAL(remap_kernel_text)
+	mov	x28, lr
+
+	ldr_l	x1, kimage_vaddr
+	mov	x2, x1
+	ldr_l	x3, .Linitdata_begin
+	adrp	x4, _text
+	bic	x4, x4, #SWAPPER_BLOCK_SIZE - 1
+	mov	x5, SWAPPER_RX_MMUFLAGS
+	mov	x6, #SWAPPER_BLOCK_SHIFT
+	bl	remap_region
+
+#if SWAPPER_BLOCK_SHIFT > PAGE_SHIFT
+	/*
+	 * If the boundary between inittext and initdata happens to be aligned
+	 * sufficiently, we are done here. Otherwise, we have to replace its block
+	 * entry with a table entry, and populate the lower level table accordingly.
+	 */
+	ldr_l	x3, .Linitdata_begin
+	tst	x3, #SWAPPER_BLOCK_SIZE - 1
+	b.eq	0f
+
+	/* First, create a table mapping to replace the block mapping */
+	ldr_l	x1, kimage_vaddr
+	bic	x2, x3, #SWAPPER_BLOCK_SIZE - 1
+	adrp	x4, init_pg_end - PAGE_SIZE
+	mov	x5, #PMD_TYPE_TABLE
+	mov	x6, #SWAPPER_BLOCK_SHIFT
+	bl	remap_region
+
+	/* Apply executable permissions to the first subregion */
+	adrp	x0, init_pg_end - PAGE_SIZE
+	ldr_l	x3, .Linitdata_begin
+	bic	x1, x3, #SWAPPER_BLOCK_SIZE - 1
+	mov	x2, x1
+	adrp	x4, __initdata_begin
+	bic	x4, x4, #SWAPPER_BLOCK_SIZE - 1
+	mov	x5, SWAPPER_RX_MMUFLAGS | PTE_TYPE_PAGE
+	mov	x6, #PAGE_SHIFT
+	bl	remap_region
+
+	/* Apply writable permissions to the second subregion */
+	ldr_l	x2, .Linitdata_begin
+	bic	x1, x2, #SWAPPER_BLOCK_SIZE - 1
+	add	x3, x1, #SWAPPER_BLOCK_SIZE
+	adrp	x4, __initdata_begin
+	mov	x5, SWAPPER_RW_MMUFLAGS | PTE_TYPE_PAGE
+	mov	x6, #PAGE_SHIFT
+	bl	remap_region
+#endif
+0:	dsb	ishst
+	ret	x28
+SYM_FUNC_END(remap_kernel_text)
+
+	__INITDATA
+	.align	3
+.Linitdata_begin:
+	.quad	__initdata_begin
+	.previous
 
 	/*
 	 * Initialize CPU registers with task-specific and cpu-specific context.
@@ -808,12 +868,17 @@ SYM_FUNC_START_LOCAL(__primary_switch)
 #endif
 	bl	clear_page_tables
 	bl	create_kernel_mapping
-
+#ifdef CONFIG_RELOCATABLE
 	adrp	x1, init_pg_dir
 	load_ttbr1 x1, x1, x2
-#ifdef CONFIG_RELOCATABLE
-	bl	__relocate_kernel
+	bl	__relocate_kernel		// preserves x0
+
+	__idmap_cpu_set_reserved_ttbr1 x1, x2
 #endif
+	bl	remap_kernel_text
+	adrp	x1, init_pg_dir
+	load_ttbr1 x1, x1, x2
+
 	ldr	x8, =__primary_switched
 	adrp	x0, __PHYS_OFFSET
 	br	x8
