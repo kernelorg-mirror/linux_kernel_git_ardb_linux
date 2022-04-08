@@ -507,6 +507,14 @@ alternative_endif
 	load_ttbr1 \page_table, \tmp, \tmp2
 	.endm
 
+	.macro		__idmap_cpu_set_reserved_ttbr1, tmp1, tmp2
+	adrp		\tmp1, reserved_pg_dir
+	load_ttbr1 	\tmp1, \tmp1, \tmp2
+	tlbi		vmalle1
+	dsb		nsh
+	isb
+	.endm
+
 /*
  * reset_pmuserenr_el0 - reset PMUSERENR_EL0 if PMUv3 present
  */

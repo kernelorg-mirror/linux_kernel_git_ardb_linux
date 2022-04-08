@@ -310,7 +310,7 @@ SECTIONS
 
 	. = ALIGN(PAGE_SIZE);
 	init_pg_dir = .;
-	. += INIT_DIR_SIZE;
+	. += INIT_DIR_SIZE + PAGE_SIZE;
 	init_pg_end = .;
 
 	. = ALIGN(SEGMENT_ALIGN);
