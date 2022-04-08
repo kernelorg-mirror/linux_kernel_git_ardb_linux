@@ -495,10 +495,16 @@ static void __init __map_memblock(pgd_t *pgdp, phys_addr_t start,
 void __init mark_linear_text_alias_ro(void)
 {
 	/*
-	 * Remove the write permissions from the linear alias of .text/.rodata
+	 * Remove the write permissions from the linear alias of .text/.rodata/ro_after_init
 	 */
 	update_mapping_prot(__pa_symbol(_stext), (unsigned long)lm_alias(_stext),
 			    (unsigned long)__init_begin - (unsigned long)_stext,
+			    PAGE_KERNEL_RO);
+
+	update_mapping_prot(__pa_symbol(__start_ro_after_init),
+			    (unsigned long)lm_alias(__start_ro_after_init),
+			    (unsigned long)__end_ro_after_init -
+			    (unsigned long)__start_ro_after_init,
 			    PAGE_KERNEL_RO);
 }
 
@@ -608,12 +614,10 @@ void mark_rodata_ro(void)
 {
 	unsigned long section_size;
 
-	/*
-	 * mark .rodata as read only. Use __init_begin rather than __end_rodata
-	 * to cover NOTES and EXCEPTION_TABLE.
-	 */
-	section_size = (unsigned long)__init_begin - (unsigned long)__start_rodata;
-	update_mapping_prot(__pa_symbol(__start_rodata), (unsigned long)__start_rodata,
+	section_size = (unsigned long)__end_ro_after_init -
+		       (unsigned long)__start_ro_after_init;
+	update_mapping_prot(__pa_symbol(__start_ro_after_init),
+			    (unsigned long)__start_ro_after_init,
 			    section_size, PAGE_KERNEL_RO);
 
 	debug_checkwx();
@@ -733,18 +737,19 @@ static void __init map_kernel(pgd_t *pgdp)
 		text_prot = __pgprot_modify(text_prot, PTE_GP, PTE_GP);
 
 	/*
-	 * Only rodata will be remapped with different permissions later on,
-	 * all other segments are allowed to use contiguous mappings.
+	 * Only data will be partially remapped with different permissions
+	 * later on, all other segments are allowed to use contiguous mappings.
 	 */
 	map_kernel_segment(pgdp, _stext, _etext, text_prot, &vmlinux_text, 0,
 			   VM_NO_GUARD);
-	map_kernel_segment(pgdp, __start_rodata, __inittext_begin, PAGE_KERNEL,
-			   &vmlinux_rodata, NO_CONT_MAPPINGS, VM_NO_GUARD);
+	map_kernel_segment(pgdp, __start_rodata, __inittext_begin, PAGE_KERNEL_RO,
+			   &vmlinux_rodata, 0, VM_NO_GUARD);
 	map_kernel_segment(pgdp, __inittext_begin, __inittext_end, text_prot,
 			   &vmlinux_inittext, 0, VM_NO_GUARD);
 	map_kernel_segment(pgdp, __initdata_begin, __initdata_end, PAGE_KERNEL,
 			   &vmlinux_initdata, 0, VM_NO_GUARD);
-	map_kernel_segment(pgdp, _data, _end, PAGE_KERNEL, &vmlinux_data, 0, 0);
+	map_kernel_segment(pgdp, _data, _end, PAGE_KERNEL, &vmlinux_data,
+			   NO_CONT_MAPPINGS | NO_BLOCK_MAPPINGS, 0);
 
 	if (!READ_ONCE(pgd_val(*pgd_offset_pgd(pgdp, FIXADDR_START)))) {
 		/*

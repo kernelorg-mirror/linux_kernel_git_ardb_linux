@@ -59,6 +59,7 @@
 
 #define RO_EXCEPTION_TABLE_ALIGN	4
 #define RUNTIME_DISCARD_EXIT
+#define RO_AFTER_INIT_DATA
 
 #include <asm-generic/vmlinux.lds.h>
 #include <asm/cache.h>
@@ -188,29 +189,12 @@ SECTIONS
 	/* everything from this point to __init_begin will be marked RO NX */
 	RO_DATA(PAGE_SIZE)
 
-	HYPERVISOR_DATA_SECTIONS
-
 	/* code sections that are never executed via the kernel mapping */
 	.rodata.text : {
 		TRAMP_TEXT
 		HIBERNATE_TEXT
 		KEXEC_TEXT
-		. = ALIGN(PAGE_SIZE);
 	}
-
-	idmap_pg_dir = .;
-	. += PAGE_SIZE;
-
-#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
-	tramp_pg_dir = .;
-	. += PAGE_SIZE;
-#endif
-
-	reserved_pg_dir = .;
-	. += PAGE_SIZE;
-
-	swapper_pg_dir = .;
-	. += PAGE_SIZE;
 
 	. = ALIGN(SEGMENT_ALIGN);
 	__init_begin = .;
@@ -274,6 +258,30 @@ SECTIONS
 
 	_data = .;
 	_sdata = .;
+
+	__start_ro_after_init = .;
+	idmap_pg_dir = .;
+	. += PAGE_SIZE;
+
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+	tramp_pg_dir = .;
+	. += PAGE_SIZE;
+#endif
+	reserved_pg_dir = .;
+	. += PAGE_SIZE;
+
+	swapper_pg_dir = .;
+	. += PAGE_SIZE;
+
+	HYPERVISOR_DATA_SECTIONS
+
+	.data.ro_after_init : {
+		*(.data..ro_after_init)
+		JUMP_TABLE_DATA
+		. = ALIGN(SEGMENT_ALIGN);
+		__end_ro_after_init = .;
+	}
+
 	RW_DATA(L1_CACHE_BYTES, PAGE_SIZE, THREAD_ALIGN)
 
 	/*
