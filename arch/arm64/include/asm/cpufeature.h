@@ -887,9 +887,17 @@ extern struct arm64_ftr_override id_aa64mmfr1_override;
 extern struct arm64_ftr_override id_aa64pfr1_override;
 extern struct arm64_ftr_override id_aa64isar1_override;
 extern struct arm64_ftr_override id_aa64isar2_override;
+extern struct arm64_ftr_override sctlr_override;
 
 u32 get_kvm_ipa_limit(void);
 void dump_cpu_features(void);
+
+static inline bool arm64_wxn_enabled(void)
+{
+	if (!IS_ENABLED(CONFIG_ARM64_WXN))
+		return false;
+	return (sctlr_override.val & sctlr_override.mask & 0xf) == 0;
+}
 
 #endif /* __ASSEMBLY__ */
 

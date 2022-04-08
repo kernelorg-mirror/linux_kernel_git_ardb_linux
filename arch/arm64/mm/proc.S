@@ -487,6 +487,12 @@ SYM_FUNC_START(__cpu_setup)
 	 * Prepare SCTLR
 	 */
 	mov_q	x0, INIT_SCTLR_EL1_MMU_ON
+#ifdef CONFIG_ARM64_WXN
+	ldr_l	x1, sctlr_override + FTR_OVR_VAL_OFFSET
+	tst	x1, #0x1			// WXN disabled on command line?
+	orr	x1, x0, #SCTLR_ELx_WXN
+	csel	x0, x0, x1, ne
+#endif
 	ret					// return to head.S
 
 	.unreq	mair
