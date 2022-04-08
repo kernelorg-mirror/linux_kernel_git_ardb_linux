@@ -278,15 +278,24 @@ static bool arm64_early_this_cpu_has_e0pd(void)
 						    ID_AA64MMFR2_E0PD_SHIFT);
 }
 
+extern void disable_wxn(void);
+
 static void map_kernel(void *fdt, u64 kaslr_offset, u64 va_offset)
 {
 	pgd_t *pgdp = (void *)init_pg_dir + PAGE_SIZE;
 	pgprot_t text_prot = PAGE_KERNEL_ROX;
 	pgprot_t data_prot = PAGE_KERNEL;
 	pgprot_t prot;
+	bool nowxn = false;
 
-	if (cmdline_has(fdt, "rodata=off"))
+	if (cmdline_has(fdt, "rodata=off")) {
 		text_prot = PAGE_KERNEL_EXEC;
+		nowxn = true;
+	}
+
+	if (IS_ENABLED(CONFIG_ARM64_WXN) &&
+	    (nowxn || cmdline_has(fdt, "arm64.nowxn")))
+		disable_wxn();
 
 	// If we have a CPU that supports BTI and a kernel built for
 	// BTI then mark the kernel executable text as guarded pages

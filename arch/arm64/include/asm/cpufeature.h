@@ -915,6 +915,15 @@ extern struct arm64_ftr_override id_aa64isar2_override;
 u32 get_kvm_ipa_limit(void);
 void dump_cpu_features(void);
 
+extern int arm64_no_wxn;
+
+static inline bool arm64_wxn_enabled(void)
+{
+	if (!IS_ENABLED(CONFIG_ARM64_WXN))
+		return false;
+	return arm64_no_wxn == 0;
+}
+
 #endif /* __ASSEMBLY__ */
 
 #endif

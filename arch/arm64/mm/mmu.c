@@ -73,6 +73,21 @@ long __section(".mmuoff.data.write") __early_cpu_boot_status;
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] __page_aligned_bss;
 EXPORT_SYMBOL(empty_zero_page);
 
+#ifdef CONFIG_ARM64_WXN
+asmlinkage int arm64_no_wxn __ro_after_init;
+
+static int set_arm64_no_wxn(char *str)
+{
+	arm64_no_wxn = 1;
+
+	// Make the value visible to booting secondaries
+	dcache_clean_inval_poc((u64)&arm64_no_wxn,
+			       (u64)&arm64_no_wxn + sizeof(arm64_no_wxn));
+	return 1;
+}
+__setup("arm64.nowxn", set_arm64_no_wxn);
+#endif
+
 static pte_t bm_pte[PTRS_PER_PTE] __page_aligned_bss;
 static pmd_t bm_pmd[PTRS_PER_PMD] __page_aligned_bss __maybe_unused;
 static pud_t bm_pud[PTRS_PER_PUD] __page_aligned_bss __maybe_unused;
@@ -660,15 +675,19 @@ static int __init parse_rodata(char *arg)
 	int ret = strtobool(arg, &rodata_enabled);
 	if (!ret) {
 		rodata_full = false;
-		return 0;
+	} else {
+		/* permit 'full' in addition to boolean options */
+		if (strcmp(arg, "full"))
+			return -EINVAL;
+
+		rodata_enabled = true;
+		rodata_full = true;
 	}
 
-	/* permit 'full' in addition to boolean options */
-	if (strcmp(arg, "full"))
-		return -EINVAL;
-
-	rodata_enabled = true;
-	rodata_full = true;
+#ifdef CONFIG_ARM64_WXN
+	if (!rodata_enabled)
+		set_arm64_no_wxn(NULL);
+#endif
 	return 0;
 }
 early_param("rodata", parse_rodata);

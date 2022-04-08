@@ -498,8 +498,31 @@ SYM_FUNC_START(__cpu_setup)
 	 * Prepare SCTLR
 	 */
 	mov_q	x0, INIT_SCTLR_EL1_MMU_ON
+#ifdef CONFIG_ARM64_WXN
+	ldr_l	w1, arm64_no_wxn, x1
+	tst	w1, #0x1			// WXN disabled on command line?
+	orr	x1, x0, #SCTLR_ELx_WXN
+	csel	x0, x0, x1, ne
+#endif
 	ret					// return to head.S
 
 	.unreq	mair
 	.unreq	tcr
 SYM_FUNC_END(__cpu_setup)
+
+#ifdef CONFIG_ARM64_WXN
+	.align	2
+SYM_CODE_START(__pi_disable_wxn)
+	mrs	x0, sctlr_el1
+	bic	x1, x0, #SCTLR_ELx_M
+	msr	sctlr_el1, x1
+	isb
+	tlbi	vmalle1
+	dsb	nsh
+	isb
+	bic	x0, x0, #SCTLR_ELx_WXN
+	msr	sctlr_el1, x0
+	isb
+	ret
+SYM_CODE_END(__pi_disable_wxn)
+#endif
