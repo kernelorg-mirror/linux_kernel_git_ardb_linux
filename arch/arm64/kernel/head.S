@@ -525,7 +525,7 @@ SYM_FUNC_END(__primary_switched)
  * end early head section, begin head code that is also used for
  * hotplug and needs to have the same protections as the text region
  */
-	.section ".idmap.text","awx"
+	.text
 
 /*
  * Starting from EL2 or EL1, configure the CPU to execute at the highest
@@ -617,6 +617,7 @@ SYM_FUNC_START_LOCAL(set_cpu_boot_mode_flag)
 	ret
 SYM_FUNC_END(set_cpu_boot_mode_flag)
 
+	.section ".idmap.text","awx"
 	/*
 	 * This provides a "holding pen" for platforms to hold all secondary
 	 * cores are held until we're ready for them to initialise.
@@ -658,6 +659,7 @@ SYM_FUNC_START_LOCAL(secondary_startup)
 	br	x8
 SYM_FUNC_END(secondary_startup)
 
+	.text
 SYM_FUNC_START_LOCAL(__secondary_switched)
 	mov	x0, x20
 	bl	set_cpu_boot_mode_flag
@@ -717,6 +719,7 @@ SYM_FUNC_END(__secondary_too_slow)
  * Checks if the selected granule size is supported by the CPU.
  * If it isn't, park the CPU
  */
+	.section ".idmap.text","awx"
 SYM_FUNC_START(__enable_mmu)
 	mrs	x3, ID_AA64MMFR0_EL1
 	ubfx	x3, x3, #ID_AA64MMFR0_TGRAN_SHIFT, 4
