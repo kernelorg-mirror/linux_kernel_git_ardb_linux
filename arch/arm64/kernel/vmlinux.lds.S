@@ -19,6 +19,7 @@
 		__hyp_rodata_start = .;				\
 		*(HYP_SECTION_NAME(.data..ro_after_init))	\
 		*(HYP_SECTION_NAME(.rodata))			\
+		*(HYP_SECTION_NAME(.data.rel.ro))		\
 		. = ALIGN(PAGE_SIZE);				\
 		__hyp_rodata_end = .;				\
 	}
@@ -170,8 +171,6 @@ SECTIONS
 			KPROBES_TEXT
 			HYPERVISOR_TEXT
 			*(.gnu.warning)
-		. = ALIGN(16);
-		*(.got)			/* Global offset table		*/
 	}
 
 	/*
@@ -195,6 +194,8 @@ SECTIONS
 		KEXEC_TEXT
 		IDMAP_TEXT
 	}
+
+	.data.rel.ro : ALIGN(8) { *(.got) *(.data.rel.ro*) }
 
 	. = ALIGN(SEGMENT_ALIGN);
 	__init_begin = .;
@@ -284,6 +285,8 @@ SECTIONS
 
 	RW_DATA(L1_CACHE_BYTES, PAGE_SIZE, THREAD_ALIGN)
 
+	.data.rel : ALIGN(8) { *(.data.rel*) }
+
 	/*
 	 * Data written with the MMU off but read with the MMU on requires
 	 * cache lines to be invalidated, discarding up to a Cache Writeback
@@ -331,9 +334,6 @@ SECTIONS
 		*(.plt) *(.plt.*) *(.iplt) *(.igot .igot.plt)
 	}
 	ASSERT(SIZEOF(.plt) == 0, "Unexpected run-time procedure linkages detected!")
-
-	.data.rel.ro : { *(.data.rel.ro) }
-	ASSERT(SIZEOF(.data.rel.ro) == 0, "Unexpected RELRO detected!")
 }
 
 #include "image-vars.h"
