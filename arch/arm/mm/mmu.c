@@ -39,7 +39,7 @@
 #include "mm.h"
 #include "tcm.h"
 
-extern unsigned long __atags_pointer;
+extern void *initial_boot_params;
 
 /*
  * empty_zero_page is a special page that is used for
@@ -1368,11 +1368,14 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	for (addr = VMALLOC_START; addr < (FIXADDR_TOP & PMD_MASK); addr += PMD_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
-	if (__atags_pointer) {
+	if (IS_ENABLED(CONFIG_OF_FLATTREE) && initial_boot_params) {
 		/* create a read-only mapping of the device tree */
-		map.pfn = __phys_to_pfn(__atags_pointer & SECTION_MASK);
-		map.virtual = FDT_FIXED_BASE;
-		map.length = FDT_FIXED_SIZE;
+		extern unsigned long __atags_pointer;
+		extern unsigned int dtsize;
+
+		map.pfn = __phys_to_pfn(__atags_pointer);
+		map.virtual = (unsigned long)initial_boot_params;
+		map.length = dtsize;
 		map.type = MT_MEMORY_RO;
 		create_mapping(&map);
 	}

@@ -1092,6 +1092,8 @@ static struct notifier_block arm_restart_nb = {
 	.priority = 128,
 };
 
+unsigned int __initdata dtsize;
+
 void __init setup_arch(char **cmdline_p)
 {
 	const struct machine_desc *mdesc = NULL;
@@ -1103,9 +1105,10 @@ void __init setup_arch(char **cmdline_p)
 	setup_processor();
 	if (atags_vaddr) {
 		mdesc = setup_machine_fdt(atags_vaddr);
-		if (mdesc)
-			memblock_reserve(__atags_pointer,
-					 fdt_totalsize(atags_vaddr));
+		if (mdesc) {
+			dtsize = fdt_totalsize(atags_vaddr);
+			memblock_reserve(__atags_pointer, dtsize);
+		}
 	}
 	if (!mdesc)
 		mdesc = setup_machine_tags(atags_vaddr, __machine_arch_type);
