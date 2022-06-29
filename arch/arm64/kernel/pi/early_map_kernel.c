@@ -335,6 +335,10 @@ static void map_kernel(void *fdt, u64 kaslr_offset, u64 va_offset)
 			    text_prot, false);
 		dsb(ishst);
 	}
+
+	// Copy the root page table to its final location
+	memcpy((void *)swapper_pg_dir + va_offset, init_pg_dir, PGD_SIZE);
+	idmap_cpu_replace_ttbr1(swapper_pg_dir);
 }
 
 asmlinkage u64 early_map_kernel(void *fdt)
