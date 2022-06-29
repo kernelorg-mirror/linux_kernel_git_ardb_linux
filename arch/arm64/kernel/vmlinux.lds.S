@@ -257,15 +257,15 @@ SECTIONS
 	HYPERVISOR_RELOC_SECTION
 
 	.rela.dyn : ALIGN(8) {
-		__rela_start = .;
+		__pi_rela_start = .;
 		*(.rela .rela*)
-		__rela_end = .;
+		__pi_rela_end = .;
 	}
 
 	.relr.dyn : ALIGN(8) {
-		__relr_start = .;
+		__pi_relr_start = .;
 		*(.relr.dyn)
-		__relr_end = .;
+		__pi_relr_end = .;
 	}
 
 	. = ALIGN(SEGMENT_ALIGN);
@@ -309,10 +309,13 @@ SECTIONS
 
 	BSS_SECTION(SBSS_ALIGN, 0, 0)
 
-	. = ALIGN(PAGE_SIZE);
+	. = ALIGN(SEGMENT_ALIGN);
 	init_pg_dir = .;
 	. += INIT_DIR_SIZE;
 	init_pg_end = .;
+
+	. += SZ_4K;
+	primary_init_stack = .;
 
 	. = ALIGN(SEGMENT_ALIGN);
 	__pecoff_data_size = ABSOLUTE(. - __initdata_begin);

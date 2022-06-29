@@ -29,5 +29,5 @@ $(obj)/%.pi.o: $(obj)/%.o FORCE
 $(obj)/lib-%.o: $(srctree)/lib/%.c FORCE
 	$(call if_changed_rule,cc_o_c)
 
-obj-y		:= kaslr_early.pi.o lib-fdt.pi.o lib-fdt_ro.pi.o
+obj-y		:= early_map_kernel.pi.o lib-fdt.pi.o lib-fdt_ro.pi.o
 extra-y		:= $(patsubst %.pi.o,%.o,$(obj-y))

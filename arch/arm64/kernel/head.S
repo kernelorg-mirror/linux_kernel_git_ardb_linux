@@ -81,8 +81,6 @@
 	 *  x20        primary_entry() .. __primary_switch()    CPU boot mode
 	 *  x21        primary_entry() .. start_kernel()        FDT pointer passed at boot in x0
 	 *  x22        create_idmap() .. start_kernel()         ID map VA of the DT blob
-	 *  x23        primary_entry() .. start_kernel()        physical misalignment/KASLR offset
-	 *  x24        __primary_switch()                       linear map KASLR seed
 	 *  x25        primary_entry() .. start_kernel()        supported VA size
 	 *  x28        create_idmap()                           callee preserved temp register
 	 */
@@ -152,17 +150,6 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
 	b	dcache_inval_poc		// tail call
 0:	ret
 SYM_CODE_END(preserve_boot_args)
-
-SYM_FUNC_START_LOCAL(clear_page_tables)
-	/*
-	 * Clear the init page tables.
-	 */
-	adrp	x0, init_pg_dir
-	adrp	x1, init_pg_end
-	sub	x2, x1, x0
-	mov	x1, xzr
-	b	__pi_memset			// tail call
-SYM_FUNC_END(clear_page_tables)
 
 /*
  * Macro to populate page table entries, these entries can be pointers to the next level
@@ -365,7 +352,7 @@ SYM_FUNC_START_LOCAL(create_idmap)
 	/* Remap the kernel page tables r/w in the ID map */
 	adrp	x1, _text
 	adrp	x2, init_pg_dir
-	adrp	x3, init_pg_end
+	adrp	x3, _end
 	bic	x4, x2, #SWAPPER_BLOCK_SIZE - 1
 	mov	x5, SWAPPER_RW_MMUFLAGS
 	mov	x6, #SWAPPER_BLOCK_SHIFT
@@ -395,22 +382,6 @@ SYM_FUNC_START_LOCAL(create_idmap)
 	bl	dcache_inval_poc
 0:	ret	x28
 SYM_FUNC_END(create_idmap)
-
-SYM_FUNC_START_LOCAL(create_kernel_mapping)
-	adrp	x0, init_pg_dir
-	mov_q	x5, KIMAGE_VADDR		// compile time __va(_text)
-	add	x5, x5, x23			// add KASLR displacement
-	adrp	x6, _end			// runtime __pa(_end)
-	adrp	x3, _text			// runtime __pa(_text)
-	sub	x6, x6, x3			// _end - _text
-	add	x6, x6, x5			// runtime __va(_end)
-	mov	x7, SWAPPER_RW_MMUFLAGS
-
-	map_memory x0, x1, x5, x6, x7, x3, (VA_BITS - PGDIR_SHIFT), x10, x11, x12, x13, x14
-
-	dsb	ishst				// sync with page table walker
-	ret
-SYM_FUNC_END(create_kernel_mapping)
 
 	/*
 	 * Initialize CPU registers with task-specific and cpu-specific context.
@@ -445,6 +416,7 @@ SYM_FUNC_END(create_kernel_mapping)
  * The following fragment of code is executed with the MMU enabled.
  *
  *   x0 = __pa(KERNEL_START)
+ *   w1 = memstart_offset_seed
  */
 SYM_FUNC_START_LOCAL(__primary_switched)
 	adr_l	x4, init_task
@@ -453,6 +425,11 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	adr_l	x8, vectors			// load VBAR_EL1 with virtual
 	msr	vbar_el1, x8			// vector table address
 	isb
+
+#ifdef CONFIG_RANDOMIZE_BASE
+	adrp	x5, memstart_offset_seed	// Save KASLR linear map seed
+	strh	w1, [x5, :lo12:memstart_offset_seed]
+#endif
 
 	stp	x29, x30, [sp, #-16]!
 	mov	x29, sp
@@ -478,11 +455,6 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	adr_l	x8, vabits_actual		// Set this early so KASAN early init
 	str	x25, [x8]			// ... observes the correct value
 	dc	civac, x8			// Make visible to booting secondaries
-#endif
-
-#ifdef CONFIG_RANDOMIZE_BASE
-	adrp	x5, memstart_offset_seed	// Save KASLR linear map seed
-	strh	w24, [x5, :lo12:memstart_offset_seed]
 #endif
 #if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
 	bl	kasan_early_init
@@ -747,123 +719,18 @@ SYM_FUNC_START_LOCAL(__no_granule_support)
 	b	1b
 SYM_FUNC_END(__no_granule_support)
 
-#ifdef CONFIG_RELOCATABLE
-SYM_FUNC_START_LOCAL(__relocate_kernel)
-	/*
-	 * Iterate over each entry in the relocation table, and apply the
-	 * relocations in place.
-	 */
-	adr_l	x9, __rela_start
-	adr_l	x10, __rela_end
-	mov_q	x11, KIMAGE_VADDR		// default virtual offset
-	add	x11, x11, x23			// actual virtual offset
-
-0:	cmp	x9, x10
-	b.hs	1f
-	ldp	x12, x13, [x9], #24
-	ldr	x14, [x9, #-8]
-	cmp	w13, #R_AARCH64_RELATIVE
-	b.ne	0b
-	add	x14, x14, x23			// relocate
-	str	x14, [x12, x23]
-	b	0b
-
-1:
-#ifdef CONFIG_RELR
-	/*
-	 * Apply RELR relocations.
-	 *
-	 * RELR is a compressed format for storing relative relocations. The
-	 * encoded sequence of entries looks like:
-	 * [ AAAAAAAA BBBBBBB1 BBBBBBB1 ... AAAAAAAA BBBBBB1 ... ]
-	 *
-	 * i.e. start with an address, followed by any number of bitmaps. The
-	 * address entry encodes 1 relocation. The subsequent bitmap entries
-	 * encode up to 63 relocations each, at subsequent offsets following
-	 * the last address entry.
-	 *
-	 * The bitmap entries must have 1 in the least significant bit. The
-	 * assumption here is that an address cannot have 1 in lsb. Odd
-	 * addresses are not supported. Any odd addresses are stored in the RELA
-	 * section, which is handled above.
-	 *
-	 * Excluding the least significant bit in the bitmap, each non-zero
-	 * bit in the bitmap represents a relocation to be applied to
-	 * a corresponding machine word that follows the base address
-	 * word. The second least significant bit represents the machine
-	 * word immediately following the initial address, and each bit
-	 * that follows represents the next word, in linear order. As such,
-	 * a single bitmap can encode up to 63 relocations in a 64-bit object.
-	 *
-	 * In this implementation we store the address of the next RELR table
-	 * entry in x9, the address being relocated by the current address or
-	 * bitmap entry in x13 and the address being relocated by the current
-	 * bit in x14.
-	 */
-	adr_l	x9, __relr_start
-	adr_l	x10, __relr_end
-
-2:	cmp	x9, x10
-	b.hs	7f
-	ldr	x11, [x9], #8
-	tbnz	x11, #0, 3f			// branch to handle bitmaps
-	add	x13, x11, x23
-	ldr	x12, [x13]			// relocate address entry
-	add	x12, x12, x23
-	str	x12, [x13], #8			// adjust to start of bitmap
-	b	2b
-
-3:	mov	x14, x13
-4:	lsr	x11, x11, #1
-	cbz	x11, 6f
-	tbz	x11, #0, 5f			// skip bit if not set
-	ldr	x12, [x14]			// relocate bit
-	add	x12, x12, x23
-	str	x12, [x14]
-
-5:	add	x14, x14, #8			// move to next bit's address
-	b	4b
-
-6:	/*
-	 * Move to the next bitmap's address. 8 is the word size, and 63 is the
-	 * number of significant bits in a bitmap entry.
-	 */
-	add	x13, x13, #(8 * 63)
-	b	2b
-
-7:
-#endif
-	ret
-
-SYM_FUNC_END(__relocate_kernel)
-#endif
-
 SYM_FUNC_START_LOCAL(__primary_switch)
 	adrp	x1, reserved_pg_dir
 	adrp	x2, init_idmap_pg_dir
 	bl	__enable_mmu
-#ifdef CONFIG_RELOCATABLE
-	adrp	x23, KERNEL_START
-	and	x23, x23, MIN_KIMG_ALIGN - 1
-#ifdef CONFIG_RANDOMIZE_BASE
-	mov	x0, x22
-	adrp	x1, init_pg_end
+
+	adrp	x1, primary_init_stack
 	mov	sp, x1
 	mov	x29, xzr
-	bl	__pi_kaslr_early_init
-	and	x24, x0, #SZ_2M - 1		// capture memstart offset seed
-	bic	x0, x0, #SZ_2M - 1
-	orr	x23, x23, x0			// record kernel offset
-#endif
-#endif
-	bl	clear_page_tables
-	bl	create_kernel_mapping
+	mov	x0, x22				// pass FDT pointer
+	bl	__pi_early_map_kernel
+	mov	w1, w0				// capture memstart offset seed
 
-	adrp	x1, init_pg_dir
-	load_ttbr1 x1, x1, x2
-#ifdef CONFIG_RELOCATABLE
-	bl	__relocate_kernel
-#endif
 	ldr	x8, =__primary_switched
 	adrp	x0, KERNEL_START		// __pa(KERNEL_START)
 	br	x8

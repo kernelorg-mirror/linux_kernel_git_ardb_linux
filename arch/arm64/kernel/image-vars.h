@@ -54,6 +54,22 @@ PROVIDE(__pi___memcpy			= __pi_memcpy);
 PROVIDE(__pi___memmove			= __pi_memmove);
 PROVIDE(__pi___memset			= __pi_memset);
 
+/*
+ * The symbols below are used by the early C kernel mapping code.
+ */
+PROVIDE(__pi_init_pg_dir		= init_pg_dir);
+PROVIDE(__pi_init_pg_end		= init_pg_end);
+
+PROVIDE(__pi__text			= _text);
+PROVIDE(__pi__stext               	= _stext);
+PROVIDE(__pi__etext               	= _etext);
+PROVIDE(__pi___start_rodata       	= __start_rodata);
+PROVIDE(__pi___inittext_begin     	= __inittext_begin);
+PROVIDE(__pi___inittext_end       	= __inittext_end);
+PROVIDE(__pi___initdata_begin     	= __initdata_begin);
+PROVIDE(__pi___initdata_end       	= __initdata_end);
+PROVIDE(__pi__data                	= _data);
+
 #ifdef CONFIG_KVM
 
 /*
