@@ -73,7 +73,7 @@ extern void mark_linear_text_alias_ro(void);
 extern bool kaslr_requires_kpti(void);
 
 #define INIT_MM_CONTEXT(name)	\
-	.pgd = init_pg_dir,
+	.pgd = swapper_pg_dir,
 
 #endif	/* !__ASSEMBLY__ */
 #endif

@@ -198,7 +198,8 @@ static void __init map_kernel(u64 kaslr_offset, u64 va_offset)
 	map_segment(&pgdp, va_offset, __start_rodata, __inittext_begin, data_prot, false);
 	map_segment(&pgdp, va_offset, __inittext_begin, __inittext_end, prot, false);
 	map_segment(&pgdp, va_offset, __initdata_begin, __initdata_end, data_prot, false);
-	map_segment(&pgdp, va_offset, _data, _end, data_prot, true);
+	map_segment(&pgdp, va_offset, _data, init_pg_dir, data_prot, true);
+	/* omit [init_pg_dir, _end] - it doesn't need a kernel mapping */
 	dsb(ishst);
 
 	idmap_cpu_replace_ttbr1(init_pg_dir);
@@ -233,8 +234,12 @@ static void __init map_kernel(u64 kaslr_offset, u64 va_offset)
 		map_segment(NULL, va_offset, _stext, _etext, text_prot, true);
 		map_segment(NULL, va_offset, __inittext_begin, __inittext_end,
 			    text_prot, false);
-		dsb(ishst);
 	}
+
+	/* Copy the root page table to its final location */
+	memcpy((void *)swapper_pg_dir + va_offset, init_pg_dir, PGD_SIZE);
+	dsb(ishst);
+	idmap_cpu_replace_ttbr1(swapper_pg_dir);
 }
 
 asmlinkage void __init early_map_kernel(u64 boot_status, void *fdt)
