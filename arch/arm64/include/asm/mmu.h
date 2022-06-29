@@ -72,7 +72,7 @@ extern void *fixmap_remap_fdt(phys_addr_t dt_phys, int *size, pgprot_t prot);
 extern void mark_linear_text_alias_ro(void);
 
 #define INIT_MM_CONTEXT(name)	\
-	.pgd = init_pg_dir,
+	.pgd = swapper_pg_dir,
 
 #endif	/* !__ASSEMBLY__ */
 #endif
