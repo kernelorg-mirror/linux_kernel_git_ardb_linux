@@ -58,6 +58,8 @@ EXPORT_SYMBOL(kimage_voffset);
 
 u32 __boot_cpu_mode[] = { BOOT_CPU_MODE_EL2, BOOT_CPU_MODE_EL1 };
 
+static bool rodata_is_rw __ro_after_init = true;
+
 /*
  * The booting CPU updates the failed status @__early_cpu_boot_status,
  * with MMU turned off.
@@ -78,9 +80,20 @@ static pud_t bm_pud[PTRS_PER_PUD] __page_aligned_bss __maybe_unused;
 static DEFINE_SPINLOCK(swapper_pgdir_lock);
 static DEFINE_MUTEX(fixmap_lock);
 
-void set_swapper_pgd(pgd_t *pgdp, pgd_t pgd)
+void noinstr set_swapper_pgd(pgd_t *pgdp, pgd_t pgd)
 {
 	pgd_t *fixmap_pgdp;
+
+	/*
+	 * Don't bother with the fixmap if swapper_pg_dir is still mapped
+	 * writable in the kernel mapping.
+	 */
+	if (rodata_is_rw) {
+		WRITE_ONCE(*pgdp, pgd);
+		dsb(ishst);
+		isb();
+		return;
+	}
 
 	spin_lock(&swapper_pgdir_lock);
 	fixmap_pgdp = pgd_set_fixmap(__pa_symbol(pgdp));
@@ -615,6 +628,7 @@ void mark_rodata_ro(void)
 	 * to cover NOTES and EXCEPTION_TABLE.
 	 */
 	section_size = (unsigned long)__init_begin - (unsigned long)__start_rodata;
+	WRITE_ONCE(rodata_is_rw, false);
 	update_mapping_prot(__pa_symbol(__start_rodata), (unsigned long)__start_rodata,
 			    section_size, PAGE_KERNEL_RO);
 
