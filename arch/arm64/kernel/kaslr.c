@@ -8,6 +8,7 @@
 #include <linux/init.h>
 #include <linux/libfdt.h>
 #include <linux/mm_types.h>
+#include <linux/moduleparam.h>
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/pgtable.h>
@@ -23,7 +24,8 @@
 u64 __ro_after_init module_alloc_base;
 u16 __initdata memstart_offset_seed;
 
-struct arm64_ftr_override kaslr_feature_override __initdata;
+static bool nokaslr;
+core_param(nokaslr, nokaslr, bool, 0);
 
 static int __init kaslr_init(void)
 {
@@ -36,7 +38,7 @@ static int __init kaslr_init(void)
 	 */
 	module_alloc_base = (u64)_etext - MODULES_VSIZE;
 
-	if (kaslr_feature_override.val & kaslr_feature_override.mask & 0xf) {
+	if (nokaslr) {
 		pr_info("KASLR disabled on command line\n");
 		return 0;
 	}

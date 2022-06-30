@@ -81,25 +81,11 @@ static const struct ftr_set_desc isar2 __initconst = {
 	},
 };
 
-extern struct arm64_ftr_override kaslr_feature_override;
-
-static const struct ftr_set_desc kaslr __initconst = {
-	.name		= "kaslr",
-#ifdef CONFIG_RANDOMIZE_BASE
-	.override	= &kaslr_feature_override,
-#endif
-	.fields		= {
-		{ "disabled", 0 },
-		{}
-	},
-};
-
 static const struct ftr_set_desc * const regs[] __initconst = {
 	&mmfr1,
 	&pfr1,
 	&isar1,
 	&isar2,
-	&kaslr,
 };
 
 static const struct {
@@ -114,7 +100,6 @@ static const struct {
 	  "id_aa64isar1.api=0 id_aa64isar1.apa=0 "
 	  "id_aa64isar2.gpa3=0 id_aa64isar2.apa3=0"	   },
 	{ "arm64.nomte",		"id_aa64pfr1.mte=0" },
-	{ "nokaslr",			"kaslr.disabled=1" },
 };
 
 static int __init find_field(const char *cmdline,
