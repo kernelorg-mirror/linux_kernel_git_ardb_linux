@@ -416,11 +416,7 @@ void efi_native_runtime_setup(void);
 /*
  * This GUID may be installed onto the kernel image's handle as a NULL protocol
  * to signal to the stub that the placement of the image should be respected,
- * and moving the image in physical memory is undesirable. To ensure
- * compatibility with 64k pages kernels with virtually mapped stacks, and to
- * avoid defeating physical randomization, this protocol should only be
- * installed if the image was placed at a randomized 128k aligned address in
- * memory.
+ * and moving the image in physical memory is undesirable.
  */
 #define LINUX_EFI_LOADED_IMAGE_FIXED_GUID	EFI_GUID(0xf5a37b6d, 0x3344, 0x42a5,  0xb6, 0xbb, 0x97, 0x86, 0x48, 0xc1, 0x89, 0x0a)
 

@@ -396,6 +396,9 @@ SYM_FUNC_END(create_kernel_mapping)
 	msr	sp_el0, \tsk
 
 	ldr	\tmp1, [\tsk, #TSK_STACK]
+#if THREAD_ALIGN > SEGMENT_ALIGN
+	bic	\tmp1, \tmp1, #THREAD_ALIGN - 1
+#endif
 	add	sp, \tmp1, #THREAD_SIZE
 	sub	sp, sp, #PT_REGS_SIZE
 

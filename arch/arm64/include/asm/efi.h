@@ -58,13 +58,6 @@ efi_status_t __efi_rt_asm_wrapper(void *, const char *, ...);
 /* arch specific definitions used by the stub code */
 
 /*
- * In some configurations (e.g. VMAP_STACK && 64K pages), stacks built into the
- * kernel need greater alignment than we require the segments to be padded to.
- */
-#define EFI_KIMG_ALIGN	\
-	(SEGMENT_ALIGN > THREAD_ALIGN ? SEGMENT_ALIGN : THREAD_ALIGN)
-
-/*
  * On arm64, we have to ensure that the initrd ends up in the linear region,
  * which is a 1 GB aligned region of size '1UL << (VA_BITS_MIN - 1)' that is
  * guaranteed to cover the kernel Image.

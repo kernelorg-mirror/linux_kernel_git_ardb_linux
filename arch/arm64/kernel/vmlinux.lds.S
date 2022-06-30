@@ -274,7 +274,16 @@ SECTIONS
 
 	_data = .;
 	_sdata = .;
-	RW_DATA(L1_CACHE_BYTES, PAGE_SIZE, THREAD_ALIGN)
+#if THREAD_ALIGN > SEGMENT_ALIGN
+	/*
+	 * Add some padding for the init stack so we can fix up any potential
+	 * misalignment at runtime. In practice, this can only occur on 64k
+	 * pages configurations with CONFIG_VMAP_STACK=y.
+	 */
+	. += THREAD_ALIGN - SEGMENT_ALIGN;
+	ASSERT(. == init_stack, "init_stack not at start of RW_DATA as expected")
+#endif
+	RW_DATA(L1_CACHE_BYTES, PAGE_SIZE, SEGMENT_ALIGN)
 
 	/*
 	 * Data written with the MMU off but read with the MMU on requires
