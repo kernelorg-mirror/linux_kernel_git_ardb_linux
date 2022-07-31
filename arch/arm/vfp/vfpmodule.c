@@ -721,11 +721,11 @@ void kernel_neon_begin(void)
 	u32 fpexc;
 
 	/*
-	 * Kernel mode NEON is only allowed outside of interrupt context
+	 * Kernel mode NEON is only allowed outside of hardirq context
 	 * with preemption disabled. This will make sure that the kernel
 	 * mode NEON register contents never need to be preserved.
 	 */
-	BUG_ON(in_interrupt());
+	BUG_ON(in_irq());
 	local_bh_disable();
 	cpu = __smp_processor_id();
 
