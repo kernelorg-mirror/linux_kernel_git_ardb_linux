@@ -1607,7 +1607,7 @@ has_useable_cnp(const struct arm64_cpu_capabilities *entry, int scope)
  * state once the SMP CPUs are up and thus make the switch to non-global
  * mappings if required.
  */
-bool kaslr_requires_kpti(void)
+static bool kaslr_requires_kpti(void)
 {
 	/*
 	 * E0PD does a similar job to KPTI so can be used instead
