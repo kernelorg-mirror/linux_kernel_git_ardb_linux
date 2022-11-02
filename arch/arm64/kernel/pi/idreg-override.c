@@ -20,7 +20,7 @@
 #define FTR_ALIAS_NAME_LEN	30
 #define FTR_ALIAS_OPTION_LEN	116
 
-static u64 __boot_status __initdata;
+static u64 __boot_status;
 
 struct ftr_set_desc {
 	s32		override_offset; 	// must remain first

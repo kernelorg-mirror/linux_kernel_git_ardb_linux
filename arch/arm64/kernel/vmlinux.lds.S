@@ -317,10 +317,8 @@ SECTIONS
 	init_pg_dir = .;
 	. += INIT_DIR_SIZE;
 	init_pg_end = .;
-#ifdef CONFIG_RELOCATABLE
-	. += SZ_4K;		/* stack for the early relocation code */
+	. += SZ_4K;		/* stack for the early C runtime */
 	early_init_stack = .;
-#endif
 
 	. = ALIGN(SEGMENT_ALIGN);
 	__pecoff_data_size = ABSOLUTE(. - __initdata_begin);

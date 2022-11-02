@@ -439,9 +439,6 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 #if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
 	bl	kasan_early_init
 #endif
-	mov	x0, x20				// pass the full boot status
-	mov	x1, x22				// pass the low FDT mapping
-	bl	__pi_init_feature_override	// Parse cpu feature overrides
 #ifdef CONFIG_UNWIND_PATCH_PAC_INTO_SCS
 	bl	scs_patch_vmlinux
 #endif
@@ -698,12 +695,16 @@ SYM_FUNC_START_LOCAL(__primary_switch)
 	bl	__pi_memset
 	dsb	ishst				// Make zero page visible to PTW
 
-#ifdef CONFIG_RELOCATABLE
-	adrp	x23, KERNEL_START
-	and	x23, x23, MIN_KIMG_ALIGN - 1
 	adrp	x1, early_init_stack
 	mov	sp, x1
 	mov	x29, xzr
+	mov	x0, x20				// pass the full boot status
+	mov	x1, x22				// pass the low FDT mapping
+	bl	__pi_init_feature_override	// Parse cpu feature overrides
+
+#ifdef CONFIG_RELOCATABLE
+	adrp	x23, KERNEL_START
+	and	x23, x23, MIN_KIMG_ALIGN - 1
 #ifdef CONFIG_RANDOMIZE_BASE
 	mov	x0, x22
 	bl	__pi_kaslr_early_init
