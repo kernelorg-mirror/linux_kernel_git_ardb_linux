@@ -124,9 +124,9 @@ jiffies = jiffies_64;
 #ifdef CONFIG_UNWIND_TABLES
 #define UNWIND_DATA_SECTIONS				\
 	.eh_frame : {					\
-		__eh_frame_start = .;			\
+		__pi___eh_frame_start = .;		\
 		*(.eh_frame)				\
-		__eh_frame_end = .;			\
+		__pi___eh_frame_end = .;		\
 	}
 #else
 #define UNWIND_DATA_SECTIONS
@@ -313,7 +313,7 @@ SECTIONS
 
 	BSS_SECTION(SBSS_ALIGN, 0, 0)
 
-	. = ALIGN(PAGE_SIZE);
+	. = ALIGN(SEGMENT_ALIGN);
 	init_pg_dir = .;
 	. += INIT_DIR_SIZE;
 	init_pg_end = .;
