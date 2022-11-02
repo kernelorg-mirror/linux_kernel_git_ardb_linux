@@ -170,6 +170,7 @@ static int __init find_field(const char *cmdline, char *opt, int len,
 			     const struct ftr_set_desc *reg, int f, u64 *v)
 {
 	int flen = strlen(reg->fields[f].name);
+	const char *p;
 
 	// append '<fieldname>=' to obtain '<name>.<fieldname>='
 	memcpy(opt + len, reg->fields[f].name, flen);
@@ -179,7 +180,31 @@ static int __init find_field(const char *cmdline, char *opt, int len,
 	if (memcmp(cmdline, opt, len))
 		return -1;
 
-	return kstrtou64(cmdline + len, 0, v);
+	p = cmdline + len;
+
+	// skip "0x" if it comes next
+	if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+		p += 2;
+
+	// check whether the RHS is a single non-whitespace character
+	if (*p == '\0' || (p[1] && !isspace(p[1])))
+		return -1;
+
+	// only accept a single hex character as the value
+	switch (*p) {
+	case '0' ... '9':
+		*v = *p - '0';
+		break;
+	case 'a' ... 'f':
+		*v = *p - 'a' + 10;
+		break;
+	case 'A' ... 'F':
+		*v = *p - 'A' + 10;
+		break;
+	default:
+		return -1;
+	}
+	return 0;
 }
 
 static const void * __init get_filter(const struct ftr_set_desc *reg, int idx)
