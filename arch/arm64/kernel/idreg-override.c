@@ -166,14 +166,15 @@ static const struct {
 	{ "nokaslr",			"arm64_sw.nokaslr=1" },
 };
 
-static int __init find_field(const char *cmdline,
+static int __init find_field(const char *cmdline, char *opt, int len,
 			     const struct ftr_set_desc *reg, int f, u64 *v)
 {
-	char opt[FTR_DESC_NAME_LEN + FTR_DESC_FIELD_LEN + 2];
-	int len;
+	int flen = strlen(reg->fields[f].name);
 
-	len = snprintf(opt, ARRAY_SIZE(opt), "%s.%s=",
-		       reg->name, reg->fields[f].name);
+	// append '<fieldname>=' to obtain '<name>.<fieldname>='
+	memcpy(opt + len, reg->fields[f].name, flen);
+	len += flen;
+	opt[len++] = '=';
 
 	if (memcmp(cmdline, opt, len))
 		return -1;
@@ -190,11 +191,17 @@ static const void * __init get_filter(const struct ftr_set_desc *reg, int idx)
 
 static void __init match_options(const char *cmdline)
 {
+	char opt[FTR_DESC_NAME_LEN + FTR_DESC_FIELD_LEN + 2];
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(regs); i++) {
 		const struct ftr_set_desc *reg = offset_to_ptr(&regs[i]);
+		int len = strlen(reg->name);
 		int f;
+
+		// set opt[] to '<name>.'
+		memcpy(opt, reg->name, len);
+		opt[len++] = '.';
 
 		for (f = 0; reg->fields[f].name[0] != '\0'; f++) {
 			u64 shift = reg->fields[f].shift;
@@ -203,7 +210,7 @@ static void __init match_options(const char *cmdline)
 			bool (*filter)(u64) = get_filter(reg, f);
 			u64 v;
 
-			if (find_field(cmdline, reg, f, &v))
+			if (find_field(cmdline, opt, len, reg, f, &v))
 				continue;
 
 			/*
