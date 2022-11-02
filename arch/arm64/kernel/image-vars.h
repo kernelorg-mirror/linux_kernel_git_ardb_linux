@@ -41,6 +41,8 @@ PROVIDE(__pi___memcpy			= __pi_memcpy);
 PROVIDE(__pi___memmove			= __pi_memmove);
 PROVIDE(__pi___memset			= __pi_memset);
 
+PROVIDE(__pi_memstart_offset_seed	= memstart_offset_seed);
+
 PROVIDE(__pi_id_aa64isar1_override	= id_aa64isar1_override);
 PROVIDE(__pi_id_aa64isar2_override	= id_aa64isar2_override);
 PROVIDE(__pi_id_aa64mmfr1_override	= id_aa64mmfr1_override);

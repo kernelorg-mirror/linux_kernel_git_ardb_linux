@@ -15,6 +15,8 @@
 #include <asm/archrandom.h>
 #include <asm/memory.h>
 
+extern u16 memstart_offset_seed;
+
 static u64 __init get_kaslr_seed(void *fdt)
 {
 	static char const chosen_str[] __initconst = "chosen";
@@ -51,6 +53,8 @@ asmlinkage u64 __init kaslr_early_init(void *fdt)
 			return 0;
 	}
 
+	memstart_offset_seed = seed & U16_MAX;
+
 	/*
 	 * OK, so we are proceeding with KASLR enabled. Calculate a suitable
 	 * kernel image offset from the seed. Let's place the kernel in the
@@ -58,5 +62,5 @@ asmlinkage u64 __init kaslr_early_init(void *fdt)
 	 * the lower and upper quarters to avoid colliding with other
 	 * allocations.
 	 */
-	return BIT(VA_BITS_MIN - 3) + (seed & GENMASK(VA_BITS_MIN - 3, 0));
+	return BIT(VA_BITS_MIN - 3) + (seed & GENMASK(VA_BITS_MIN - 3, 16));
 }

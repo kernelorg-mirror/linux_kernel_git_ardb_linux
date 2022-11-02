@@ -21,7 +21,7 @@
 #include <asm/setup.h>
 
 u64 __ro_after_init module_alloc_base;
-u16 __initdata memstart_offset_seed;
+u16 memstart_offset_seed;
 
 static int __init kaslr_init(void)
 {
