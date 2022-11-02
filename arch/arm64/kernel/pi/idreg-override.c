@@ -133,6 +133,7 @@ DEFINE_OVERRIDE(5, smfr0, "id_aa64smfr0", id_aa64smfr0_override,
 
 DEFINE_OVERRIDE(6, sw_features, "arm64_sw", arm64_sw_feature_override,
 		FIELD("nokaslr", ARM64_SW_FEATURE_OVERRIDE_NOKASLR),
+		FIELD("rodataoff", ARM64_SW_FEATURE_OVERRIDE_RODATA_OFF),
 		{});
 
 /*
@@ -164,6 +165,7 @@ static const struct {
 	  "id_aa64isar2.gpa3=0 id_aa64isar2.apa3=0"	   },
 	{ "arm64.nomte",		"id_aa64pfr1.mte=0" },
 	{ "nokaslr",			"arm64_sw.nokaslr=1" },
+	{ "rodata=off",			"arm64_sw.rodataoff=1" },
 };
 
 static int __init find_field(const char *cmdline, char *opt, int len,
