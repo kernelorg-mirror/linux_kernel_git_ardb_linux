@@ -242,6 +242,25 @@ static void __init map_kernel(u64 kaslr_offset, u64 va_offset)
 	idmap_cpu_replace_ttbr1(swapper_pg_dir);
 }
 
+static void noinline __section(".idmap.text") disable_wxn(void)
+{
+	u64 sctlr = read_sysreg(sctlr_el1) & ~SCTLR_ELx_WXN;
+
+	/*
+	 * We cannot safely clear the WXN bit while the MMU and caches are on,
+	 * so turn the MMU off, flush the TLBs and turn it on again but with
+	 * the WXN bit cleared this time.
+	 */
+	asm("	msr	sctlr_el1, %0		;"
+	    "	isb				;"
+	    "	tlbi    vmalle1			;"
+	    "	dsb     nsh			;"
+	    "	isb				;"
+	    "	msr     sctlr_el1, %1		;"
+	    "	isb				;"
+	    ::	"r"(sctlr & ~SCTLR_ELx_M), "r"(sctlr));
+}
+
 asmlinkage void __init early_map_kernel(u64 boot_status, void *fdt)
 {
 	static char const chosen_str[] __initconst = "/chosen";
@@ -254,6 +273,11 @@ asmlinkage void __init early_map_kernel(u64 boot_status, void *fdt)
 
 	/* Parse the command line for CPU feature overrides */
 	init_feature_override(boot_status, fdt, chosen);
+
+	if (IS_ENABLED(CONFIG_ARM64_WXN) &&
+	    cpuid_feature_extract_unsigned_field(arm64_sw_feature_override.val,
+						 ARM64_SW_FEATURE_OVERRIDE_NOWXN))
+		disable_wxn();
 
 	/*
 	 * The virtual KASLR displacement modulo 2MiB is decided by the

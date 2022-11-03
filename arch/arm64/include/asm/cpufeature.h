@@ -17,6 +17,7 @@
 
 #define ARM64_SW_FEATURE_OVERRIDE_NOKASLR	0
 #define ARM64_SW_FEATURE_OVERRIDE_RODATA_OFF	4
+#define ARM64_SW_FEATURE_OVERRIDE_NOWXN		8
 
 #ifndef __ASSEMBLY__
 
@@ -918,6 +919,15 @@ extern struct arm64_ftr_override id_aa64isar1_override;
 extern struct arm64_ftr_override id_aa64isar2_override;
 
 extern struct arm64_ftr_override arm64_sw_feature_override;
+
+static inline bool arm64_wxn_enabled(void)
+{
+	if (!IS_ENABLED(CONFIG_ARM64_WXN) ||
+	    cpuid_feature_extract_unsigned_field(arm64_sw_feature_override.val,
+						 ARM64_SW_FEATURE_OVERRIDE_NOWXN))
+		return false;
+	return true;
+}
 
 u32 get_kvm_ipa_limit(void);
 void dump_cpu_features(void);
