@@ -15,8 +15,8 @@
 #include <asm/cpufeature.h>
 #include <asm/setup.h>
 
-#define FTR_DESC_NAME_LEN	20
-#define FTR_DESC_FIELD_LEN	10
+#define FTR_DESC_NAME_LEN	20	// must remain multiple of 4
+#define FTR_DESC_FIELD_LEN	10	// must remain multiple of 4 +/- 2
 #define FTR_ALIAS_NAME_LEN	30
 #define FTR_ALIAS_OPTION_LEN	116
 
@@ -26,16 +26,20 @@ struct ftr_set_desc {
 	s32		override_offset; 	// must remain first
 	char 		name[FTR_DESC_NAME_LEN];
 	struct {
+		s32	filter_offset;		// must remain first
 		char	name[FTR_DESC_FIELD_LEN];
 		u8	shift;
 		u8	width;
-		bool	(*filter)(u64 val);
 	} 		fields[];
 };
 
 static_assert(offsetof(struct ftr_set_desc, override_offset) == 0);
+static_assert(offsetof(struct ftr_set_desc, fields[0].filter_offset) ==
+	      4 + FTR_DESC_NAME_LEN);
+static_assert(offsetof(struct ftr_set_desc, fields[1].filter_offset) ==
+	      4 + FTR_DESC_NAME_LEN + 4 + FTR_DESC_FIELD_LEN + 2);
 
-#define FIELD(n, s, f)	{ .name = n, .shift = s, .width = 4, .filter = f }
+#define FIELD(n, s)	{ .name = n, .shift = s, .width = 4 }
 
 #define DEFINE_OVERRIDE(__idx, __id, __name, __ovr, ...)		\
 	asmlinkage const struct ftr_set_desc __initconst __id = {	\
@@ -46,7 +50,12 @@ static_assert(offsetof(struct ftr_set_desc, override_offset) == 0);
 	    ".reloc " #__id ", R_AARCH64_PREL32, " #__ovr "; "		\
 	    ".reloc regs + (4 * " #__idx "), R_AARCH64_PREL32, " #__id)
 
-static bool __init mmfr1_vh_filter(u64 val)
+#define DEFINE_OVERRIDE_FILTER(__id, __idx, __filter)			      \
+	asm(".reloc " #__id " + 4 + " __stringify(FTR_DESC_NAME_LEN)	      \
+	    "  + " #__idx " * (4 + " __stringify(FTR_DESC_FIELD_LEN) " + 2)," \
+	    "R_AARCH64_PREL32, " #__filter)
+
+asmlinkage bool __init mmfr1_vh_filter(u64 val)
 {
 	/*
 	 * If we ever reach this point while running VHE, we're
@@ -59,10 +68,11 @@ static bool __init mmfr1_vh_filter(u64 val)
 }
 
 DEFINE_OVERRIDE(0, mmfr1, "id_aa64mmfr1", id_aa64mmfr1_override,
-		FIELD("vh", ID_AA64MMFR1_EL1_VH_SHIFT, mmfr1_vh_filter),
+		FIELD("vh", ID_AA64MMFR1_EL1_VH_SHIFT),
 		{});
+DEFINE_OVERRIDE_FILTER(mmfr1, 0, mmfr1_vh_filter);
 
-static bool __init pfr0_sve_filter(u64 val)
+asmlinkage bool __init pfr0_sve_filter(u64 val)
 {
 	/*
 	 * Disabling SVE also means disabling all the features that
@@ -78,10 +88,11 @@ static bool __init pfr0_sve_filter(u64 val)
 }
 
 DEFINE_OVERRIDE(1, pfr0, "id_aa64pfr0", id_aa64pfr0_override,
-	        FIELD("sve", ID_AA64PFR0_EL1_SVE_SHIFT, pfr0_sve_filter),
+	        FIELD("sve", ID_AA64PFR0_EL1_SVE_SHIFT),
 		{});
+DEFINE_OVERRIDE_FILTER(pfr0, 0, pfr0_sve_filter);
 
-static bool __init pfr1_sme_filter(u64 val)
+asmlinkage bool __init pfr1_sme_filter(u64 val)
 {
 	/*
 	 * Similarly to SVE, disabling SME also means disabling all
@@ -97,30 +108,31 @@ static bool __init pfr1_sme_filter(u64 val)
 }
 
 DEFINE_OVERRIDE(2, pfr1, "id_aa64pfr1", id_aa64pfr1_override,
-		FIELD("bt", ID_AA64PFR1_EL1_BT_SHIFT, NULL ),
-		FIELD("mte", ID_AA64PFR1_EL1_MTE_SHIFT, NULL),
-		FIELD("sme", ID_AA64PFR1_EL1_SME_SHIFT, pfr1_sme_filter),
+		FIELD("bt", ID_AA64PFR1_EL1_BT_SHIFT ),
+		FIELD("mte", ID_AA64PFR1_EL1_MTE_SHIFT),
+		FIELD("sme", ID_AA64PFR1_EL1_SME_SHIFT),
 		{});
+DEFINE_OVERRIDE_FILTER(pfr1, 2, pfr1_sme_filter);
 
 DEFINE_OVERRIDE(3, isar1, "id_aa64isar1", id_aa64isar1_override,
-		FIELD("gpi", ID_AA64ISAR1_EL1_GPI_SHIFT, NULL),
-		FIELD("gpa", ID_AA64ISAR1_EL1_GPA_SHIFT, NULL),
-		FIELD("api", ID_AA64ISAR1_EL1_API_SHIFT, NULL),
-		FIELD("apa", ID_AA64ISAR1_EL1_APA_SHIFT, NULL),
+		FIELD("gpi", ID_AA64ISAR1_EL1_GPI_SHIFT),
+		FIELD("gpa", ID_AA64ISAR1_EL1_GPA_SHIFT),
+		FIELD("api", ID_AA64ISAR1_EL1_API_SHIFT),
+		FIELD("apa", ID_AA64ISAR1_EL1_APA_SHIFT),
 		{});
 
 DEFINE_OVERRIDE(4, isar2, "id_aa64isar2", id_aa64isar2_override,
-		FIELD("gpa3", ID_AA64ISAR2_EL1_GPA3_SHIFT, NULL),
-		FIELD("apa3", ID_AA64ISAR2_EL1_APA3_SHIFT, NULL),
+		FIELD("gpa3", ID_AA64ISAR2_EL1_GPA3_SHIFT),
+		FIELD("apa3", ID_AA64ISAR2_EL1_APA3_SHIFT),
 		{});
 
 DEFINE_OVERRIDE(5, smfr0, "id_aa64smfr0", id_aa64smfr0_override,
 		/* FA64 is a one bit field... :-/ */
-		{ "fa64", ID_AA64SMFR0_EL1_FA64_SHIFT, 1, },
+		{ 0, "fa64", ID_AA64SMFR0_EL1_FA64_SHIFT, 1, },
 		{});
 
 DEFINE_OVERRIDE(6, sw_features, "arm64_sw", arm64_sw_feature_override,
-		FIELD("nokaslr", ARM64_SW_FEATURE_OVERRIDE_NOKASLR, NULL),
+		FIELD("nokaslr", ARM64_SW_FEATURE_OVERRIDE_NOKASLR),
 		{});
 
 /*
@@ -169,6 +181,13 @@ static int __init find_field(const char *cmdline,
 	return kstrtou64(cmdline + len, 0, v);
 }
 
+static const void * __init get_filter(const struct ftr_set_desc *reg, int idx)
+{
+	const s32 *offset = &reg->fields[idx].filter_offset;
+
+	return *offset ? offset_to_ptr(offset) : NULL;
+}
+
 static void __init match_options(const char *cmdline)
 {
 	int i;
@@ -181,6 +200,7 @@ static void __init match_options(const char *cmdline)
 			u64 shift = reg->fields[f].shift;
 			u64 width = reg->fields[f].width ?: 4;
 			u64 mask = GENMASK_ULL(shift + width - 1, shift);
+			bool (*filter)(u64) = get_filter(reg, f);
 			u64 v;
 
 			if (find_field(cmdline, reg, f, &v))
@@ -191,8 +211,7 @@ static void __init match_options(const char *cmdline)
 			 * it by setting the value to the all-ones while
 			 * clearing the mask... Yes, this is fragile.
 			 */
-			if (reg->fields[f].filter &&
-			    !reg->fields[f].filter(v)) {
+			if (filter && !filter(v)) {
 				reg_override(i)->val  |= mask;
 				reg_override(i)->mask &= ~mask;
 				continue;
