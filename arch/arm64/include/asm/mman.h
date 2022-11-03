@@ -35,6 +35,22 @@ static inline unsigned long arch_calc_vm_flag_bits(unsigned long flags)
 }
 #define arch_calc_vm_flag_bits(flags) arch_calc_vm_flag_bits(flags)
 
+static inline bool arch_deny_write_exec(void)
+{
+	if (!arm64_wxn_enabled())
+		return false;
+
+	/*
+	 * When we are running with SCTLR_ELx.WXN==1, writable mappings are
+	 * implicitly non-executable. This means we should reject such mappings
+	 * when user space attempts to create them using mmap() or mprotect().
+	 */
+	pr_info_ratelimited("process %s (%d) attempted to create PROT_WRITE+PROT_EXEC mapping\n",
+			    current->comm, current->pid);
+	return true;
+}
+#define arch_deny_write_exec arch_deny_write_exec
+
 static inline bool arch_validate_prot(unsigned long prot,
 	unsigned long addr __always_unused)
 {
