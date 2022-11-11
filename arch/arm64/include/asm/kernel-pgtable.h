@@ -19,27 +19,12 @@
  * 64K (section size = 512M).
  */
 #ifdef CONFIG_ARM64_4K_PAGES
-#define ARM64_KERNEL_USES_PMD_MAPS 1
+#define INIT_IDMAP_USES_PMD_MAPS	1
+#define INIT_IDMAP_TABLE_LEVELS		(CONFIG_PGTABLE_LEVELS - 1)
 #else
-#define ARM64_KERNEL_USES_PMD_MAPS 0
+#define INIT_IDMAP_USES_PMD_MAPS	0
+#define INIT_IDMAP_TABLE_LEVELS		(CONFIG_PGTABLE_LEVELS)
 #endif
-
-/*
- * The idmap and swapper page tables need some space reserved in the kernel
- * image. Both require pgd, pud (4 levels only) and pmd tables to (section)
- * map the kernel. With the 64K page configuration, swapper and idmap need to
- * map to pte level. The swapper also maps the FDT (see __create_page_tables
- * for more information). Note that the number of ID map translation levels
- * could be increased on the fly if system RAM is out of reach for the default
- * VA range, so pages required to map highest possible PA are reserved in all
- * cases.
- */
-#if ARM64_KERNEL_USES_PMD_MAPS
-#define SWAPPER_PGTABLE_LEVELS	(CONFIG_PGTABLE_LEVELS - 1)
-#else
-#define SWAPPER_PGTABLE_LEVELS	(CONFIG_PGTABLE_LEVELS)
-#endif
-
 
 /*
  * If KASLR is enabled, then an offset K is added to the kernel address
@@ -69,14 +54,14 @@
 
 #define EARLY_PGDS(vstart, vend, add) (EARLY_ENTRIES(vstart, vend, PGDIR_SHIFT, add))
 
-#if SWAPPER_PGTABLE_LEVELS > 3
+#if INIT_IDMAP_TABLE_LEVELS > 3
 #define EARLY_PUDS(vstart, vend, add) (EARLY_ENTRIES(vstart, vend, PUD_SHIFT, add))
 #else
 #define EARLY_PUDS(vstart, vend, add) (0)
 #endif
 
-#if SWAPPER_PGTABLE_LEVELS > 2
-#define EARLY_PMDS(vstart, vend, add) (EARLY_ENTRIES(vstart, vend, SWAPPER_TABLE_SHIFT, add))
+#if INIT_IDMAP_TABLE_LEVELS > 2
+#define EARLY_PMDS(vstart, vend, add) (EARLY_ENTRIES(vstart, vend, INIT_IDMAP_TABLE_SHIFT, add))
 #else
 #define EARLY_PMDS(vstart, vend, add) (0)
 #endif
@@ -93,23 +78,23 @@
 #else
 #define INIT_IDMAP_DIR_SIZE	(INIT_IDMAP_DIR_PAGES * PAGE_SIZE)
 #endif
-#define INIT_IDMAP_DIR_PAGES	EARLY_PAGES(KIMAGE_VADDR, _end + MAX_FDT_SIZE + SWAPPER_BLOCK_SIZE, 1)
+#define INIT_IDMAP_DIR_PAGES	EARLY_PAGES(KIMAGE_VADDR, _end + MAX_FDT_SIZE + INIT_IDMAP_BLOCK_SIZE, 1)
 
 /* Initial memory map size */
-#if ARM64_KERNEL_USES_PMD_MAPS
-#define SWAPPER_BLOCK_SHIFT	PMD_SHIFT
-#define SWAPPER_BLOCK_SIZE	PMD_SIZE
-#define SWAPPER_TABLE_SHIFT	PUD_SHIFT
+#if INIT_IDMAP_USES_PMD_MAPS
+#define INIT_IDMAP_BLOCK_SHIFT	PMD_SHIFT
+#define INIT_IDMAP_BLOCK_SIZE	PMD_SIZE
+#define INIT_IDMAP_TABLE_SHIFT	PUD_SHIFT
 #else
-#define SWAPPER_BLOCK_SHIFT	PAGE_SHIFT
-#define SWAPPER_BLOCK_SIZE	PAGE_SIZE
-#define SWAPPER_TABLE_SHIFT	PMD_SHIFT
+#define INIT_IDMAP_BLOCK_SHIFT	PAGE_SHIFT
+#define INIT_IDMAP_BLOCK_SIZE	PAGE_SIZE
+#define INIT_IDMAP_TABLE_SHIFT	PMD_SHIFT
 #endif
 
 /* The number of segments in the kernel image (text, rodata, inittext, initdata, data+bss) */
 #define KERNEL_SEGMENT_COUNT	5
 
-#if SWAPPER_BLOCK_SIZE > SEGMENT_ALIGN
+#if INIT_IDMAP_BLOCK_SIZE > SEGMENT_ALIGN
 #define EARLY_SEGMENT_EXTRA_PAGES (KERNEL_SEGMENT_COUNT + 1)
 #else
 #define EARLY_SEGMENT_EXTRA_PAGES 0
@@ -118,15 +103,12 @@
 /*
  * Initial memory map attributes.
  */
-#define SWAPPER_PTE_FLAGS	(PTE_TYPE_PAGE | PTE_AF | PTE_SHARED)
-#define SWAPPER_PMD_FLAGS	(PMD_TYPE_SECT | PMD_SECT_AF | PMD_SECT_S)
-
-#if ARM64_KERNEL_USES_PMD_MAPS
-#define SWAPPER_RW_MMUFLAGS	(PMD_ATTRINDX(MT_NORMAL) | SWAPPER_PMD_FLAGS)
-#define SWAPPER_RX_MMUFLAGS	(SWAPPER_RW_MMUFLAGS | PMD_SECT_RDONLY)
+#if INIT_IDMAP_USES_PMD_MAPS
+#define INIT_IDMAP_RW_MMUFLAGS	(PMD_ATTRINDX(MT_NORMAL) | PMD_TYPE_SECT | PMD_SECT_AF | PMD_SECT_S)
+#define INIT_IDMAP_RX_MMUFLAGS	(INIT_IDMAP_RW_MMUFLAGS | PMD_SECT_RDONLY)
 #else
-#define SWAPPER_RW_MMUFLAGS	(PTE_ATTRINDX(MT_NORMAL) | SWAPPER_PTE_FLAGS)
-#define SWAPPER_RX_MMUFLAGS	(SWAPPER_RW_MMUFLAGS | PTE_RDONLY)
+#define INIT_IDMAP_RW_MMUFLAGS	(PTE_ATTRINDX(MT_NORMAL) | PTE_TYPE_PAGE | PTE_AF | PTE_SHARED)
+#define INIT_IDMAP_RX_MMUFLAGS	(INIT_IDMAP_RW_MMUFLAGS | PTE_RDONLY)
 #endif
 
 /*

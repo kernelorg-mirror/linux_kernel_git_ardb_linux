@@ -214,23 +214,23 @@ SYM_CODE_END(preserve_boot_args)
 	populate_entries \tbl, \rtbl, \istart, \iend, #PMD_TYPE_TABLE, #PAGE_SIZE, \tmp
 	mov \tbl, \sv
 
-#if SWAPPER_PGTABLE_LEVELS > 3
+#if INIT_IDMAP_TABLE_LEVELS > 3
 	compute_indices \vstart, \vend, #PUD_SHIFT, #(PAGE_SHIFT - 3), \istart, \iend, \count
 	mov \sv, \rtbl
 	populate_entries \tbl, \rtbl, \istart, \iend, #PMD_TYPE_TABLE, #PAGE_SIZE, \tmp
 	mov \tbl, \sv
 #endif
 
-#if SWAPPER_PGTABLE_LEVELS > 2
-	compute_indices \vstart, \vend, #SWAPPER_TABLE_SHIFT, #(PAGE_SHIFT - 3), \istart, \iend, \count
+#if INIT_IDMAP_TABLE_LEVELS > 2
+	compute_indices \vstart, \vend, #INIT_IDMAP_TABLE_SHIFT, #(PAGE_SHIFT - 3), \istart, \iend, \count
 	mov \sv, \rtbl
 	populate_entries \tbl, \rtbl, \istart, \iend, #PMD_TYPE_TABLE, #PAGE_SIZE, \tmp
 	mov \tbl, \sv
 #endif
 
-	compute_indices \vstart, \vend, #SWAPPER_BLOCK_SHIFT, #(PAGE_SHIFT - 3), \istart, \iend, \count
-	bic \rtbl, \phys, #SWAPPER_BLOCK_SIZE - 1
-	populate_entries \tbl, \rtbl, \istart, \iend, \flags, #SWAPPER_BLOCK_SIZE, \tmp
+	compute_indices \vstart, \vend, #INIT_IDMAP_BLOCK_SHIFT, #(PAGE_SHIFT - 3), \istart, \iend, \count
+	bic \rtbl, \phys, #INIT_IDMAP_BLOCK_SIZE - 1
+	populate_entries \tbl, \rtbl, \istart, \iend, \flags, #INIT_IDMAP_BLOCK_SIZE, \tmp
 	.endm
 
 /*
@@ -317,8 +317,8 @@ SYM_FUNC_START_LOCAL(create_idmap)
 #endif
 	adrp	x0, init_idmap_pg_dir
 	adrp	x3, _text
-	adrp	x6, _end + MAX_FDT_SIZE + SWAPPER_BLOCK_SIZE
-	mov	x7, SWAPPER_RX_MMUFLAGS
+	adrp	x6, _end + MAX_FDT_SIZE + INIT_IDMAP_BLOCK_SIZE
+	mov	x7, INIT_IDMAP_RX_MMUFLAGS
 
 	map_memory x0, x1, x3, x6, x7, x3, IDMAP_PGD_ORDER, x10, x11, x12, x13, x14, EXTRA_SHIFT
 
@@ -326,20 +326,20 @@ SYM_FUNC_START_LOCAL(create_idmap)
 	adrp	x1, _text
 	adrp	x2, __bss_start
 	adrp	x3, _end
-	bic	x4, x2, #SWAPPER_BLOCK_SIZE - 1
-	mov	x5, SWAPPER_RW_MMUFLAGS
-	mov	x6, #SWAPPER_BLOCK_SHIFT
+	bic	x4, x2, #INIT_IDMAP_BLOCK_SIZE - 1
+	mov	x5, INIT_IDMAP_RW_MMUFLAGS
+	mov	x6, #INIT_IDMAP_BLOCK_SHIFT
 	bl	remap_region
 
 	/* Remap the FDT after the kernel image */
 	adrp	x1, _text
-	adrp	x22, _end + SWAPPER_BLOCK_SIZE
-	bic	x2, x22, #SWAPPER_BLOCK_SIZE - 1
-	bfi	x22, x21, #0, #SWAPPER_BLOCK_SHIFT		// remapped FDT address
-	add	x3, x2, #MAX_FDT_SIZE + SWAPPER_BLOCK_SIZE
-	bic	x4, x21, #SWAPPER_BLOCK_SIZE - 1
-	mov	x5, SWAPPER_RW_MMUFLAGS
-	mov	x6, #SWAPPER_BLOCK_SHIFT
+	adrp	x22, _end + INIT_IDMAP_BLOCK_SIZE
+	bic	x2, x22, #INIT_IDMAP_BLOCK_SIZE - 1
+	bfi	x22, x21, #0, #INIT_IDMAP_BLOCK_SHIFT		// remapped FDT address
+	add	x3, x2, #MAX_FDT_SIZE + INIT_IDMAP_BLOCK_SIZE
+	bic	x4, x21, #INIT_IDMAP_BLOCK_SIZE - 1
+	mov	x5, INIT_IDMAP_RW_MMUFLAGS
+	mov	x6, #INIT_IDMAP_BLOCK_SHIFT
 	bl	remap_region
 
 	/*

@@ -206,7 +206,7 @@ SYM_FUNC_ALIAS(__pi_idmap_cpu_replace_ttbr1, idmap_cpu_replace_ttbr1)
 
 #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 
-#define KPTI_NG_PTE_FLAGS	(PTE_ATTRINDX(MT_NORMAL) | SWAPPER_PTE_FLAGS)
+#define KPTI_NG_PTE_FLAGS  (PTE_ATTRINDX(MT_NORMAL) | PTE_TYPE_PAGE | PTE_AF | PTE_SHARED)
 
 	.pushsection ".idmap.text", "awx"
 
