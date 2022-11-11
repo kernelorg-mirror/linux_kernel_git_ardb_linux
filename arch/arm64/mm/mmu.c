@@ -1196,7 +1196,12 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 
 	WARN_ON((start < VMEMMAP_START) || (end > VMEMMAP_END));
 
-	if (!ARM64_KERNEL_USES_PMD_MAPS)
+	/*
+	 * Use page mappings for the vmemmap region if the area taken up by a
+	 * struct page array covering a single section is smaller than the area
+	 * covered by a PMD.
+	 */
+	if (SECTION_SIZE_BITS - VMEMMAP_SHIFT < PMD_SHIFT)
 		return vmemmap_populate_basepages(start, end, node, altmap);
 
 	do {
