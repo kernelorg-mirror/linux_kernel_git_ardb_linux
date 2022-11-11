@@ -40,11 +40,12 @@ enum fixed_addresses {
 	 * maximum supported size, and put it at the top of the fixmap region.
 	 * The additional space ensures that any FDT that does not exceed
 	 * MAX_FDT_SIZE can be mapped regardless of whether it crosses any
-	 * 2 MB alignment boundaries.
+	 * 2 MB alignment boundaries on 4k pages configurations.
 	 *
 	 * Keep this at the top so it remains 2 MB aligned.
 	 */
-#define FIX_FDT_SIZE		(MAX_FDT_SIZE + SZ_2M)
+#define FIX_FDT_BSIZE		(MAX_FDT_SIZE >= PMD_SIZE ? PMD_SIZE : PAGE_SIZE)
+#define FIX_FDT_SIZE		(MAX_FDT_SIZE + FIX_FDT_BSIZE)
 	FIX_FDT_END,
 	FIX_FDT = FIX_FDT_END + FIX_FDT_SIZE / PAGE_SIZE - 1,
 

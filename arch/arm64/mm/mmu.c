@@ -1373,22 +1373,23 @@ void *__init fixmap_remap_fdt(phys_addr_t dt_phys, int *size, pgprot_t prot)
 	 * allocate additional translation table pages, so that it is safe
 	 * to call create_mapping_noalloc() this early.
 	 *
-	 * On 64k pages, the FDT will be mapped using PTEs, so we need to
-	 * be in the same PMD as the rest of the fixmap.
-	 * On 4k pages, we'll use section mappings for the FDT so we only
-	 * have to be in the same PUD.
+	 * On 4k pages, the entire level 3 fixmap only covers 2 MiB, so we'll
+	 * need to use section mappings for the FDT, and these must be covered
+	 * by the same statically allocated PUD (bm_pud). Otherwise, the FDT
+	 * will be mapped using PTEs, so the entire mappings needs to fit into
+	 * a single PMD (bm_pmd).
 	 */
-	BUILD_BUG_ON(dt_virt_base % SZ_2M);
+	BUILD_BUG_ON(dt_virt_base % FIX_FDT_BSIZE);
 
-	BUILD_BUG_ON(__fix_to_virt(FIX_FDT_END) >> SWAPPER_TABLE_SHIFT !=
-		     __fix_to_virt(FIX_BTMAP_BEGIN) >> SWAPPER_TABLE_SHIFT);
+	BUILD_BUG_ON((__fix_to_virt(FIX_FDT_END) ^ __fix_to_virt(FIX_BTMAP_BEGIN))
+		     & ~((FIX_FDT_BSIZE << (PAGE_SHIFT - 3)) - 1));
 
-	offset = dt_phys % SWAPPER_BLOCK_SIZE;
+	offset = dt_phys % FIX_FDT_BSIZE;
 	dt_virt = (void *)dt_virt_base + offset;
 
 	/* map the first chunk so we can read the size from the header */
-	create_mapping_noalloc(round_down(dt_phys, SWAPPER_BLOCK_SIZE),
-			dt_virt_base, SWAPPER_BLOCK_SIZE, prot);
+	create_mapping_noalloc(round_down(dt_phys, FIX_FDT_BSIZE),
+			       dt_virt_base, FIX_FDT_BSIZE, prot);
 
 	if (fdt_magic(dt_virt) != FDT_MAGIC)
 		return NULL;
@@ -1397,9 +1398,9 @@ void *__init fixmap_remap_fdt(phys_addr_t dt_phys, int *size, pgprot_t prot)
 	if (*size > MAX_FDT_SIZE)
 		return NULL;
 
-	if (offset + *size > SWAPPER_BLOCK_SIZE)
-		create_mapping_noalloc(round_down(dt_phys, SWAPPER_BLOCK_SIZE), dt_virt_base,
-			       round_up(offset + *size, SWAPPER_BLOCK_SIZE), prot);
+	if (offset + *size > FIX_FDT_BSIZE)
+		create_mapping_noalloc(round_down(dt_phys, FIX_FDT_BSIZE), dt_virt_base,
+				       round_up(offset + *size, FIX_FDT_BSIZE), prot);
 
 	return dt_virt;
 }
