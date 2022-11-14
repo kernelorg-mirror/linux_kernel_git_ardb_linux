@@ -920,7 +920,9 @@ static inline unsigned int get_vmid_bits(u64 mmfr1)
 
 struct arm64_ftr_reg *get_arm64_ftr_reg(u32 sys_id);
 
+extern struct arm64_ftr_override id_aa64mmfr0_override;
 extern struct arm64_ftr_override id_aa64mmfr1_override;
+extern struct arm64_ftr_override id_aa64mmfr2_override;
 extern struct arm64_ftr_override id_aa64pfr0_override;
 extern struct arm64_ftr_override id_aa64pfr1_override;
 extern struct arm64_ftr_override id_aa64zfr0_override;
@@ -994,6 +996,8 @@ static inline bool cpu_has_lva(void)
 	u64 mmfr2;
 
 	mmfr2 = read_sysreg_s(SYS_ID_AA64MMFR2_EL1);
+	mmfr2 &= ~id_aa64mmfr2_override.mask;
+	mmfr2 |= id_aa64mmfr2_override.val;
 	return cpuid_feature_extract_unsigned_field(mmfr2,
 						    ID_AA64MMFR2_EL1_VARange_SHIFT);
 }
