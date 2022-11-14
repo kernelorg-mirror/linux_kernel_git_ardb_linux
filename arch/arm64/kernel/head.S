@@ -80,7 +80,6 @@
 	 *  x19        primary_entry() .. start_kernel()        whether we entered with the MMU on
 	 *  x20        primary_entry() .. __primary_switch()    CPU boot mode
 	 *  x21        primary_entry() .. start_kernel()        FDT pointer passed at boot in x0
-	 *  x25        primary_entry() .. start_kernel()        supported VA size
 	 */
 SYM_CODE_START(primary_entry)
 	bl	record_mmu_state
@@ -125,14 +124,6 @@ SYM_CODE_START(primary_entry)
 	 * On return, the CPU will be ready for the MMU to be turned on and
 	 * the TCR will have been set.
 	 */
-#if VA_BITS > 48
-	mrs_s	x0, SYS_ID_AA64MMFR2_EL1
-	tst	x0, #0xf << ID_AA64MMFR2_EL1_VARange_SHIFT
-	mov	x0, #VA_BITS
-	mov	x25, #VA_BITS_MIN
-	csel	x25, x25, x0, eq
-	mov	x0, x25
-#endif
 	bl	__cpu_setup			// initialise processor
 	b	__primary_switch
 SYM_CODE_END(primary_entry)
@@ -242,11 +233,6 @@ SYM_FUNC_START_LOCAL(__primary_switched)
 	mov	x0, x20
 	bl	set_cpu_boot_mode_flag
 
-#if VA_BITS > 48
-	adr_l	x8, vabits_actual		// Set this early so KASAN early init
-	str	x25, [x8]			// ... observes the correct value
-	dc	civac, x8			// Make visible to booting secondaries
-#endif
 #if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
 	bl	kasan_early_init
 #endif
@@ -375,9 +361,6 @@ SYM_FUNC_START_LOCAL(secondary_startup)
 	 */
 	mov	x20, x0				// preserve boot mode
 	bl	__cpu_secondary_check52bitva
-#if VA_BITS > 48
-	ldr_l	x0, vabits_actual
-#endif
 	bl	__cpu_setup			// initialise processor
 	adrp	x1, swapper_pg_dir
 	adrp	x2, idmap_pg_dir
@@ -482,10 +465,9 @@ SYM_FUNC_END(__enable_mmu)
 
 SYM_FUNC_START(__cpu_secondary_check52bitva)
 #if VA_BITS > 48
-	ldr_l	x0, vabits_actual
-	cmp	x0, #52
-	b.ne	2f
-
+alternative_if_not ARM64_HAS_VA52
+	ret
+alternative_else_nop_endif
 	mrs_s	x0, SYS_ID_AA64MMFR2_EL1
 	and	x0, x0, #(0xf << ID_AA64MMFR2_EL1_VARange_SHIFT)
 	cbnz	x0, 2f
