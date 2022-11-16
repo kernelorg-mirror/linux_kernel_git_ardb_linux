@@ -345,7 +345,7 @@ static void __init ptdump_initialize(void)
 				pg_level[i].mask |= pg_level[i].bits[j].mask;
 }
 
-static struct ptdump_info kernel_ptdump_info = {
+static struct ptdump_info kernel_ptdump_info __ro_after_init = {
 	.mm		= &init_mm,
 	.markers	= address_markers,
 	.base_addr	= PAGE_OFFSET,
@@ -364,7 +364,7 @@ void ptdump_check_wx(void)
 		.ptdump = {
 			.note_page = note_page,
 			.range = (struct ptdump_range[]) {
-				{PAGE_OFFSET, ~0UL},
+				{_PAGE_OFFSET(vabits_actual), ~0UL},
 				{0, 0}
 			}
 		}
@@ -388,8 +388,9 @@ static int __init ptdump_init(void)
 	address_markers[VMALLOC_END_NR].start_address = VMALLOC_END;
 	ptdump_initialize();
 	if (vabits_actual < VA_BITS) {
+		kernel_ptdump_info.base_addr = _PAGE_OFFSET(vabits_actual);
 		address_markers[VMEMMAP_START_NR].start_address =
-			(unsigned long)virt_to_page(_PAGE_OFFSET(vabits_actual));
+			(unsigned long)virt_to_page(kernel_ptdump_info.base_addr);
 	}
 	ptdump_debugfs_register(&kernel_ptdump_info, "kernel_page_tables");
 	return 0;
