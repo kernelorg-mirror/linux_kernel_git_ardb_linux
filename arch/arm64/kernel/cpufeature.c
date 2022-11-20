@@ -1729,6 +1729,9 @@ kpti_install_ng_mappings(const struct arm64_cpu_capabilities *__unused)
 	pgd_t *kpti_ng_temp_pgd;
 	u64 alloc = 0;
 
+	if (levels == 5 && !pgtable_l5_enabled())
+		levels = 4;
+
 	if (__this_cpu_read(this_cpu_vector) == vectors) {
 		const char *v = arm64_get_bp_hardening_vector(EL1_VECTOR_KPTI);
 
@@ -1756,9 +1759,9 @@ kpti_install_ng_mappings(const struct arm64_cpu_capabilities *__unused)
 		//
 		// The physical pages are laid out as follows:
 		//
-		// +--------+-/-------+-/------ +-\\--------+
-		// :  PTE[] : | PMD[] : | PUD[] : || PGD[]  :
-		// +--------+-\-------+-\------ +-//--------+
+		// +--------+-/-------+-/------ +-/------ +-\\\--------+
+		// :  PTE[] : | PMD[] : | PUD[] : | P4D[] : ||| PGD[]  :
+		// +--------+-\-------+-\------ +-\------ +-///--------+
 		//      ^
 		// The first page is mapped into this hierarchy at a PMD_SHIFT
 		// aligned virtual address, so that we can manipulate the PTE
