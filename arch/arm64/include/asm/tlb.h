@@ -94,7 +94,8 @@ static inline void __pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmdp,
 static inline void __pud_free_tlb(struct mmu_gather *tlb, pud_t *pudp,
 				  unsigned long addr)
 {
-	tlb_remove_table(tlb, virt_to_page(pudp));
+	if (pgtable_l4_enabled())
+		tlb_remove_table(tlb, virt_to_page(pudp));
 }
 #endif
 

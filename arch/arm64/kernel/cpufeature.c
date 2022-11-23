@@ -1731,6 +1731,8 @@ kpti_install_ng_mappings(const struct arm64_cpu_capabilities *__unused)
 
 	if (levels == 5 && !pgtable_l5_enabled())
 		levels = 4;
+	else if (levels == 4 && !pgtable_l4_enabled())
+		levels = 3;
 
 	if (__this_cpu_read(this_cpu_vector) == vectors) {
 		const char *v = arm64_get_bp_hardening_vector(EL1_VECTOR_KPTI);
