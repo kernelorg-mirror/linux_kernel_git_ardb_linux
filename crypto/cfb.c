@@ -3,6 +3,7 @@
  * CFB: Cipher FeedBack mode
  *
  * Copyright (c) 2018 James.Bottomley@HansenPartnership.com
+ * Copyright (c) 2023 Google LLC
  *
  * CFB is a stream cipher mode which is layered on to a block
  * encryption scheme.  It works very much like a one time pad where
@@ -28,174 +29,105 @@
 #include <linux/module.h>
 #include <linux/string.h>
 
-static unsigned int crypto_cfb_bsize(struct crypto_skcipher *tfm)
+static void crypto_cfb_encrypt_one(struct crypto_cipher *tfm, u8 *dst,
+				   const u8 *src, unsigned int bs,
+				   unsigned int alignmask)
 {
-	return crypto_cipher_blocksize(skcipher_cipher_simple(tfm));
+	/*
+	 * 'dst' is always sufficiently aligned, so if 'src' does not meet the
+	 * alignment constraint of the underlying cipher, copy the block into
+	 * 'dst' first, and perform the encryption in place.
+	 */
+	if (unlikely(alignmask > 0 &&
+		     !IS_ALIGNED((unsigned long)src, alignmask + 1))) {
+
+		BUG_ON(!IS_ALIGNED((unsigned long)dst, alignmask + 1));
+		src = memcpy(dst, src, bs);
+	}
+
+	crypto_cipher_alg(tfm)->cia_encrypt(crypto_cipher_tfm(tfm), dst, src);
 }
 
-static void crypto_cfb_encrypt_one(struct crypto_skcipher *tfm,
-					  const u8 *src, u8 *dst)
+/*
+ * Aligning a stack allocation to 16 bytes may not work as expected
+ * on x86, so increase the alignment to 32 bytes in that case.
+ */
+#if defined(CONFIG_X86) && (MAX_CIPHER_ALIGNMASK == 15)
+#define CIPHER_ALIGN	32
+#else
+#define CIPHER_ALIGN	(MAX_CIPHER_ALIGNMASK + 1)
+#endif
+
+static int crypto_cfb_crypt(struct skcipher_request *req, bool decrypt)
 {
-	crypto_cipher_encrypt_one(skcipher_cipher_simple(tfm), dst, src);
-}
+	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(req);
+	struct crypto_cipher *cipher = skcipher_cipher_simple(tfm);
+	unsigned long alignmask = crypto_cipher_alignmask(cipher);
+	unsigned int bs = crypto_cipher_blocksize(cipher);
+	u8 __aligned(CIPHER_ALIGN) ks[2][MAX_CIPHER_BLOCKSIZE];
+	struct skcipher_walk walk;
+	int err, i = 0;
 
-/* final encrypt and decrypt is the same */
-static void crypto_cfb_final(struct skcipher_walk *walk,
-			     struct crypto_skcipher *tfm)
-{
-	const unsigned long alignmask = crypto_skcipher_alignmask(tfm);
-	u8 tmp[MAX_CIPHER_BLOCKSIZE + MAX_CIPHER_ALIGNMASK];
-	u8 *stream = PTR_ALIGN(tmp + 0, alignmask + 1);
-	u8 *src = walk->src.virt.addr;
-	u8 *dst = walk->dst.virt.addr;
-	u8 *iv = walk->iv;
-	unsigned int nbytes = walk->nbytes;
+	/* ensure that both ks[] slots are sufficiently aligned */
+	static_assert((MAX_CIPHER_BLOCKSIZE & MAX_CIPHER_ALIGNMASK) == 0);
 
-	crypto_cfb_encrypt_one(tfm, iv, stream);
-	crypto_xor_cpy(dst, stream, src, nbytes);
-}
+	err = skcipher_walk_virt(&walk, req, false);
 
-static int crypto_cfb_encrypt_segment(struct skcipher_walk *walk,
-				      struct crypto_skcipher *tfm)
-{
-	const unsigned int bsize = crypto_cfb_bsize(tfm);
-	unsigned int nbytes = walk->nbytes;
-	u8 *src = walk->src.virt.addr;
-	u8 *dst = walk->dst.virt.addr;
-	u8 *iv = walk->iv;
+	crypto_cfb_encrypt_one(cipher, ks[0], walk.iv, bs, alignmask);
 
-	do {
-		crypto_cfb_encrypt_one(tfm, iv, dst);
-		crypto_xor(dst, src, bsize);
-		iv = dst;
+	while (walk.nbytes > 0) {
+		bool last = (walk.nbytes == walk.total);
+		const u8 *src = walk.src.virt.addr;
+		u8 *dst = walk.dst.virt.addr;
+		unsigned int nbytes = walk.nbytes;
 
-		src += bsize;
-		dst += bsize;
-	} while ((nbytes -= bsize) >= bsize);
+		/*
+		 * The only difference between CFB encryption and decryption is
+		 * the order of the XOR and AES operations, as it involves
+		 * using the preceding block of ciphertext to generate a key
+		 * stream.
+		 */
+		do {
+			unsigned int l = min(nbytes, bs);
 
-	memcpy(walk->iv, iv, bsize);
+			if (!decrypt)
+				crypto_xor_cpy(dst, src, ks[i], l);
 
-	return nbytes;
-}
+			if (nbytes > bs || !last) {
+				const u8 *ctxt = decrypt ? src : dst;
 
-static int crypto_cfb_encrypt_inplace(struct skcipher_walk *walk,
-				      struct crypto_skcipher *tfm)
-{
-	const unsigned int bsize = crypto_cfb_bsize(tfm);
-	unsigned int nbytes = walk->nbytes;
-	u8 *src = walk->src.virt.addr;
-	u8 *iv = walk->iv;
-	u8 tmp[MAX_CIPHER_BLOCKSIZE];
+				/*
+				 * Create the keystream for the next iteration
+				 * from the current iteration's ciphertext.
+				 */
+				crypto_cfb_encrypt_one(cipher, ks[!i], ctxt,
+						       bs, alignmask);
+			}
 
-	do {
-		crypto_cfb_encrypt_one(tfm, iv, tmp);
-		crypto_xor(src, tmp, bsize);
-		iv = src;
+			if (decrypt)
+				crypto_xor_cpy(dst, src, ks[i], l);
 
-		src += bsize;
-	} while ((nbytes -= bsize) >= bsize);
+			dst += l;
+			src += l;
+			nbytes -= l;
+			i ^= 1;
+		} while (nbytes >= bs || (last && nbytes > 0));
 
-	memcpy(walk->iv, iv, bsize);
+		err = skcipher_walk_done(&walk, nbytes);
+	}
 
-	return nbytes;
+	memzero_explicit(ks, sizeof(ks));
+	return err;
 }
 
 static int crypto_cfb_encrypt(struct skcipher_request *req)
 {
-	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(req);
-	struct skcipher_walk walk;
-	unsigned int bsize = crypto_cfb_bsize(tfm);
-	int err;
-
-	err = skcipher_walk_virt(&walk, req, false);
-
-	while (walk.nbytes >= bsize) {
-		if (walk.src.virt.addr == walk.dst.virt.addr)
-			err = crypto_cfb_encrypt_inplace(&walk, tfm);
-		else
-			err = crypto_cfb_encrypt_segment(&walk, tfm);
-		err = skcipher_walk_done(&walk, err);
-	}
-
-	if (walk.nbytes) {
-		crypto_cfb_final(&walk, tfm);
-		err = skcipher_walk_done(&walk, 0);
-	}
-
-	return err;
-}
-
-static int crypto_cfb_decrypt_segment(struct skcipher_walk *walk,
-				      struct crypto_skcipher *tfm)
-{
-	const unsigned int bsize = crypto_cfb_bsize(tfm);
-	unsigned int nbytes = walk->nbytes;
-	u8 *src = walk->src.virt.addr;
-	u8 *dst = walk->dst.virt.addr;
-	u8 *iv = walk->iv;
-
-	do {
-		crypto_cfb_encrypt_one(tfm, iv, dst);
-		crypto_xor(dst, src, bsize);
-		iv = src;
-
-		src += bsize;
-		dst += bsize;
-	} while ((nbytes -= bsize) >= bsize);
-
-	memcpy(walk->iv, iv, bsize);
-
-	return nbytes;
-}
-
-static int crypto_cfb_decrypt_inplace(struct skcipher_walk *walk,
-				      struct crypto_skcipher *tfm)
-{
-	const unsigned int bsize = crypto_cfb_bsize(tfm);
-	unsigned int nbytes = walk->nbytes;
-	u8 *src = walk->src.virt.addr;
-	u8 * const iv = walk->iv;
-	u8 tmp[MAX_CIPHER_BLOCKSIZE];
-
-	do {
-		crypto_cfb_encrypt_one(tfm, iv, tmp);
-		memcpy(iv, src, bsize);
-		crypto_xor(src, tmp, bsize);
-		src += bsize;
-	} while ((nbytes -= bsize) >= bsize);
-
-	return nbytes;
-}
-
-static int crypto_cfb_decrypt_blocks(struct skcipher_walk *walk,
-				     struct crypto_skcipher *tfm)
-{
-	if (walk->src.virt.addr == walk->dst.virt.addr)
-		return crypto_cfb_decrypt_inplace(walk, tfm);
-	else
-		return crypto_cfb_decrypt_segment(walk, tfm);
+	return crypto_cfb_crypt(req, false);
 }
 
 static int crypto_cfb_decrypt(struct skcipher_request *req)
 {
-	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(req);
-	struct skcipher_walk walk;
-	const unsigned int bsize = crypto_cfb_bsize(tfm);
-	int err;
-
-	err = skcipher_walk_virt(&walk, req, false);
-
-	while (walk.nbytes >= bsize) {
-		err = crypto_cfb_decrypt_blocks(&walk, tfm);
-		err = skcipher_walk_done(&walk, err);
-	}
-
-	if (walk.nbytes) {
-		crypto_cfb_final(&walk, tfm);
-		err = skcipher_walk_done(&walk, 0);
-	}
-
-	return err;
+	return crypto_cfb_crypt(req, true);
 }
 
 static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
@@ -209,6 +141,9 @@ static int crypto_cfb_create(struct crypto_template *tmpl, struct rtattr **tb)
 		return PTR_ERR(inst);
 
 	alg = skcipher_ialg_simple(inst);
+
+	/* don't propagate cipher alignmask to the caller */
+	inst->alg.base.cra_alignmask = 0;
 
 	/* CFB mode is a stream cipher. */
 	inst->alg.base.cra_blocksize = 1;
