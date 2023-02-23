@@ -31,7 +31,12 @@ enum address_markers_idx {
 	PAGE_END_NR,
 #if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
 	KASAN_START_NR,
+	KASAN_END_NR,
 #endif
+	MODULES_NR,
+	MODULES_END_NR,
+	VMALLOC_START_NR,
+	VMALLOC_END_NR,
 };
 
 static struct addr_marker address_markers[] = {
@@ -44,7 +49,7 @@ static struct addr_marker address_markers[] = {
 	{ MODULES_VADDR,		"Modules start" },
 	{ MODULES_END,			"Modules end" },
 	{ VMALLOC_START,		"vmalloc() area" },
-	{ VMALLOC_END,			"vmalloc() end" },
+	{ 0,				"vmalloc() end" },
 	{ VMEMMAP_START,		"vmemmap start" },
 	{ VMEMMAP_START + VMEMMAP_SIZE,	"vmemmap end" },
 	{ PCI_IO_START,			"PCI I/O start" },
@@ -379,6 +384,7 @@ static int __init ptdump_init(void)
 #if defined(CONFIG_KASAN_GENERIC) || defined(CONFIG_KASAN_SW_TAGS)
 	address_markers[KASAN_START_NR].start_address = KASAN_SHADOW_START;
 #endif
+	address_markers[VMALLOC_END_NR].start_address = VMALLOC_END;
 	ptdump_initialize();
 	ptdump_debugfs_register(&kernel_ptdump_info, "kernel_page_tables");
 	return 0;
