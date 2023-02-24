@@ -37,6 +37,7 @@ enum address_markers_idx {
 	MODULES_END_NR,
 	VMALLOC_START_NR,
 	VMALLOC_END_NR,
+	VMEMMAP_START_NR,
 };
 
 static struct addr_marker address_markers[] = {
@@ -386,6 +387,10 @@ static int __init ptdump_init(void)
 #endif
 	address_markers[VMALLOC_END_NR].start_address = VMALLOC_END;
 	ptdump_initialize();
+	if (vabits_actual < VA_BITS) {
+		address_markers[VMEMMAP_START_NR].start_address =
+			(unsigned long)virt_to_page(_PAGE_OFFSET(vabits_actual));
+	}
 	ptdump_debugfs_register(&kernel_ptdump_info, "kernel_page_tables");
 	return 0;
 }
