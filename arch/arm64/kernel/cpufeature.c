@@ -1609,21 +1609,11 @@ has_useable_cnp(const struct arm64_cpu_capabilities *entry, int scope)
  */
 bool kaslr_requires_kpti(void)
 {
-	if (!IS_ENABLED(CONFIG_RANDOMIZE_BASE))
-		return false;
-
 	/*
 	 * E0PD does a similar job to KPTI so can be used instead
 	 * where available.
 	 */
-	if (IS_ENABLED(CONFIG_ARM64_E0PD)) {
-		u64 mmfr2 = read_sysreg_s(SYS_ID_AA64MMFR2_EL1);
-		if (cpuid_feature_extract_unsigned_field(mmfr2,
-						ID_AA64MMFR2_EL1_E0PD_SHIFT))
-			return false;
-	}
-
-	return kaslr_enabled();
+	return kaslr_enabled() && !cpu_has_e0pd();
 }
 
 static bool __meltdown_safe = true;

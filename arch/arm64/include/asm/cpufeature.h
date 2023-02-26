@@ -933,6 +933,62 @@ extern struct arm64_ftr_override arm64_sw_feature_override;
 u32 get_kvm_ipa_limit(void);
 void dump_cpu_features(void);
 
+static inline bool cpu_has_bti(void)
+{
+	u64 pfr1;
+
+	if (!IS_ENABLED(CONFIG_ARM64_BTI))
+		return false;
+
+	pfr1 = read_cpuid(ID_AA64PFR1_EL1);
+	pfr1 &= ~id_aa64pfr1_override.mask;
+	pfr1 |= id_aa64pfr1_override.val;
+
+	return cpuid_feature_extract_unsigned_field(pfr1,
+						    ID_AA64PFR1_EL1_BT_SHIFT);
+}
+
+static inline bool cpu_has_e0pd(void)
+{
+	u64 mmfr2;
+
+	if (!IS_ENABLED(CONFIG_ARM64_E0PD))
+		return false;
+
+	mmfr2 = read_sysreg_s(SYS_ID_AA64MMFR2_EL1);
+	return cpuid_feature_extract_unsigned_field(mmfr2,
+						    ID_AA64MMFR2_EL1_E0PD_SHIFT);
+}
+
+static inline bool cpu_has_pac(void)
+{
+	u64 isar1, isar2;
+	u8 feat;
+
+	if (!IS_ENABLED(CONFIG_ARM64_PTR_AUTH))
+		return false;
+
+	isar1 = read_cpuid(ID_AA64ISAR1_EL1);
+	isar1 &= ~id_aa64isar1_override.mask;
+	isar1 |= id_aa64isar1_override.val;
+	feat = cpuid_feature_extract_unsigned_field(isar1,
+						    ID_AA64ISAR1_EL1_APA_SHIFT);
+	if (feat)
+		return true;
+
+	feat = cpuid_feature_extract_unsigned_field(isar1,
+						    ID_AA64ISAR1_EL1_API_SHIFT);
+	if (feat)
+		return true;
+
+	isar2 = read_sysreg_s(SYS_ID_AA64ISAR2_EL1);
+	isar2 &= ~id_aa64isar2_override.mask;
+	isar2 |= id_aa64isar2_override.val;
+	feat = cpuid_feature_extract_unsigned_field(isar2,
+						    ID_AA64ISAR2_EL1_APA3_SHIFT);
+	return feat;
+}
+
 #endif /* __ASSEMBLY__ */
 
 #endif
