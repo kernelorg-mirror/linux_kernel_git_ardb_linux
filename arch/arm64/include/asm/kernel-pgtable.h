@@ -53,7 +53,7 @@
  * address is just pushed over a boundary and the start address isn't).
  */
 
-#ifdef CONFIG_RANDOMIZE_BASE
+#ifdef CONFIG_RELOCATABLE
 #define EARLY_KASLR	(1)
 #else
 #define EARLY_KASLR	(0)
