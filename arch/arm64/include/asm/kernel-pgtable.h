@@ -35,6 +35,8 @@
 #define SWAPPER_PGTABLE_LEVELS	(CONFIG_PGTABLE_LEVELS)
 #endif
 
+#define IDMAP_LEVELS		ARM64_HW_PGTABLE_LEVELS(48)
+#define IDMAP_ROOT_LEVEL	(4 - IDMAP_LEVELS)
 
 /*
  * If KASLR is enabled, then an offset K is added to the kernel address
