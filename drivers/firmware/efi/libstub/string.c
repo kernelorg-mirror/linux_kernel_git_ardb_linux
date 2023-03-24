@@ -16,7 +16,7 @@
  * strlen - Find the length of a string
  * @s: The string to be sized
  */
-size_t strlen(const char *s)
+size_t __weak strlen(const char *s)
 {
 	const char *sc;
 
@@ -32,7 +32,7 @@ size_t strlen(const char *s)
  * @s: The string to be sized
  * @count: The maximum number of bytes to search
  */
-size_t strnlen(const char *s, size_t count)
+size_t __weak strnlen(const char *s, size_t count)
 {
 	const char *sc;
 
@@ -70,7 +70,7 @@ char *strstr(const char *s1, const char *s2)
  * @cs: One string
  * @ct: Another string
  */
-int strcmp(const char *cs, const char *ct)
+int __weak strcmp(const char *cs, const char *ct)
 {
 	unsigned char c1, c2;
 
@@ -170,7 +170,7 @@ long simple_strtol(const char *cp, char **endp, unsigned int base)
  * @s: The string to be searched
  * @c: The character to search for
  */
-char *strrchr(const char *s, int c)
+char * __weak strrchr(const char *s, int c)
 {
 	const char *last = NULL;
 	do {
@@ -180,6 +180,7 @@ char *strrchr(const char *s, int c)
 	return (char *)last;
 }
 #endif
+
 #ifndef EFI_HAVE_MEMCHR
 /**
  * memchr - Find a character in an area of memory.
@@ -190,7 +191,7 @@ char *strrchr(const char *s, int c)
  * returns the address of the first occurrence of @c, or %NULL
  * if @c is not found
  */
-void *memchr(const void *s, int c, size_t n)
+void * __weak memchr(const void *s, int c, size_t n)
 {
 	const unsigned char *p = s;
 	while (n-- != 0) {

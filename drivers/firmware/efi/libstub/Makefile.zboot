@@ -29,7 +29,15 @@ zboot-size-len-y                       := 4
 zboot-method-$(CONFIG_KERNEL_GZIP)     := gzip
 zboot-size-len-$(CONFIG_KERNEL_GZIP)   := 0
 
-$(obj)/vmlinuz: $(obj)/vmlinux.bin FORCE
+ifneq ($(CONFIG_ARM),)
+# create some padding to prepend to the binary image to account for TEXT_OFFSET
+$(obj)/vmlinux.prepad: $(objtree)/vmlinux
+	$(Q)truncate -s $$(($(TEXT_OFFSET)%0x200000)) $(@)
+
+prepad := $(obj)/vmlinux.prepad
+endif
+
+$(obj)/vmlinuz: $(prepad) $(obj)/vmlinux.bin FORCE
 	$(call if_changed,$(zboot-method-y))
 
 OBJCOPYFLAGS_vmlinuz.o := -I binary -O $(EFI_ZBOOT_BFD_TARGET) \
@@ -52,11 +60,12 @@ $(obj)/zboot-header.o: $(srctree)/drivers/firmware/efi/libstub/zboot-header.S FO
 ZBOOT_DEPS := $(obj)/zboot-header.o $(objtree)/drivers/firmware/efi/libstub/lib.a
 
 LDFLAGS_vmlinuz.efi.elf := -T $(srctree)/drivers/firmware/efi/libstub/zboot.lds
-$(obj)/vmlinuz.efi.elf: $(obj)/vmlinuz.o $(ZBOOT_DEPS) FORCE
+$(obj)/vmlinuz.efi.elf: $(ZBOOT_DEPS) $(obj)/vmlinuz.o FORCE
 	$(call if_changed,ld)
 
 OBJCOPYFLAGS_vmlinuz.efi := -O binary
 $(obj)/vmlinuz.efi: $(obj)/vmlinuz.efi.elf FORCE
 	$(call if_changed,objcopy)
 
-targets += zboot-header.o vmlinux.bin vmlinuz vmlinuz.o vmlinuz.efi.elf vmlinuz.efi
+targets += zboot-header.o vmlinux.prepad vmlinux.bin vmlinuz vmlinuz.o \
+	   vmlinuz.efi.elf vmlinuz.efi

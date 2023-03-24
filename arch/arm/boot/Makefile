@@ -91,3 +91,9 @@ $(obj)/bootpImage: $(obj)/bootp/bootp FORCE
 	$(call if_changed,objcopy)
 
 subdir-	    := bootp compressed dts
+
+EFI_ZBOOT_PAYLOAD	:= Image
+EFI_ZBOOT_BFD_TARGET	:= elf32-littlearm
+EFI_ZBOOT_MACH_TYPE	:= THUMB
+
+include $(srctree)/drivers/firmware/efi/libstub/Makefile.zboot

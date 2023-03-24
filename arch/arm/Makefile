@@ -254,7 +254,11 @@ boot := arch/arm/boot
 ifeq ($(CONFIG_XIP_KERNEL),y)
 KBUILD_IMAGE := $(boot)/xipImage
 else
+ifneq ($(CONFIG_EFI_ZBOOT),)
+KBUILD_IMAGE := $(boot)/vmlinuz.efi
+else
 KBUILD_IMAGE := $(boot)/zImage
+endif
 endif
 
 ifeq ($(CONFIG_STACKPROTECTOR_PER_TASK),y)
@@ -289,7 +293,7 @@ archprepare:
 # Convert bzImage to zImage
 bzImage: zImage
 
-BOOT_TARGETS	= zImage Image xipImage bootpImage uImage
+BOOT_TARGETS	= zImage Image xipImage bootpImage uImage vmlinuz.efi
 INSTALL_TARGETS	= zinstall uinstall install
 
 PHONY += bzImage $(BOOT_TARGETS) $(INSTALL_TARGETS)

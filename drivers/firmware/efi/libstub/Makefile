@@ -24,9 +24,8 @@ cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ \
 # disable the stackleak plugin
 cflags-$(CONFIG_ARM64)		+= -fpie $(DISABLE_STACKLEAK_PLUGIN) \
 				   -fno-unwind-tables -fno-asynchronous-unwind-tables
-cflags-$(CONFIG_ARM)		+= -DEFI_HAVE_STRLEN -DEFI_HAVE_STRNLEN \
-				   -DEFI_HAVE_MEMCHR -DEFI_HAVE_STRRCHR \
-				   -DEFI_HAVE_STRCMP -fno-builtin -fpic \
+cflags-$(CONFIG_ARM)		+= -fno-builtin -fpic \
+				   -DTEXT_OFFSET=$(TEXT_OFFSET) \
 				   $(call cc-option,-mno-single-pic-base)
 cflags-$(CONFIG_RISCV)		+= -fpic
 cflags-$(CONFIG_LOONGARCH)	+= -fpie
@@ -82,17 +81,28 @@ lib-$(CONFIG_EFI_PARAMS_FROM_FDT) += fdt.o \
 $(obj)/lib-%.o: $(srctree)/lib/%.c FORCE
 	$(call if_changed_rule,cc_o_c)
 
+$(obj)/lib-%.o: $(srctree)/arch/arm/lib/%.S FORCE
+	$(call if_changed_rule,as_o_S)
+
 lib-$(CONFIG_EFI_GENERIC_STUB)	+= efi-stub.o string.o intrinsics.o systable.o \
 				   screen_info.o efi-stub-entry.o
 
-lib-$(CONFIG_ARM)		+= arm32-stub.o
+lib-$(CONFIG_ARM)		+= arm32.o arm32-stub.o
 lib-$(CONFIG_ARM64)		+= arm64.o arm64-stub.o smbios.o
 lib-$(CONFIG_X86)		+= x86-stub.o
 lib-$(CONFIG_RISCV)		+= riscv.o riscv-stub.o
 lib-$(CONFIG_LOONGARCH)		+= loongarch.o loongarch-stub.o
 
-CFLAGS_arm32-stub.o		:= -DTEXT_OFFSET=$(TEXT_OFFSET)
+cflags-zboot-$(CONFIG_ARM)	:= -Defi_zboot_entry=__efistub_efi_zboot_entry
+CFLAGS_zboot.o			:= $(cflags-zboot-y)
 
+cflags-string-$(CONFIG_ARM)	:= -DEFI_HAVE_STRLEN -DEFI_HAVE_STRNLEN \
+				   -DEFI_HAVE_MEMCHR -DEFI_HAVE_STRRCHR \
+				   -DEFI_HAVE_STRCMP
+cflags-string-$(CONFIG_EFI_ZBOOT) :=
+CFLAGS_string.o			+= $(cflags-string-y)
+
+zboot-obj-$(CONFIG_ARM)		:= lib-lib1funcs.o
 zboot-obj-$(CONFIG_RISCV)	:= lib-clz_ctz.o lib-ashldi3.o
 lib-$(CONFIG_EFI_ZBOOT)		+= zboot.o $(zboot-obj-y)
 

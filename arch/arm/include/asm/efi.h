@@ -66,6 +66,11 @@ static inline unsigned long efi_get_max_initrd_addr(unsigned long image_addr)
 	return round_down(image_addr, SZ_4M) + SZ_512M;
 }
 
+static inline unsigned long efi_get_kimg_min_align(void)
+{
+	return SZ_2M;
+}
+
 struct efi_arm_entry_state {
 	u32	cpsr_before_ebs;
 	u32	sctlr_before_ebs;

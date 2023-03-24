@@ -74,13 +74,14 @@ config EFI_GENERIC_STUB
 
 config EFI_ZBOOT
 	bool "Enable the generic EFI decompressor"
-	depends on EFI_GENERIC_STUB && !ARM
+	depends on EFI_GENERIC_STUB
+	depends on !ARM || (CPU_32v6K && !CPU_V6)
 	select HAVE_KERNEL_GZIP
 	select HAVE_KERNEL_LZ4
 	select HAVE_KERNEL_LZMA
 	select HAVE_KERNEL_LZO
 	select HAVE_KERNEL_XZ
-	select HAVE_KERNEL_ZSTD
+	select HAVE_KERNEL_ZSTD if !ARM
 	help
 	  Create the bootable image as an EFI application that carries the
 	  actual kernel image in compressed form, and decompresses it into
