@@ -47,7 +47,8 @@ struct arm64_image_header {
 	__le64 text_offset;
 	__le64 image_size;
 	__le64 flags;
-	__le64 res2;
+	__le32 code_size;
+	__le32 res2;
 	__le64 res3;
 	__le64 res4;
 	__le32 magic;

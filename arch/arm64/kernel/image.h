@@ -34,6 +34,9 @@
 #define DATA_LE32(data) ((data) & 0xffffffff)
 #endif
 
+#define DEFINE_IMAGE_LE32(sym, data)				\
+	sym = DATA_LE32((data) & 0xffffffff)
+
 #define DEFINE_IMAGE_LE64(sym, data)				\
 	sym##_lo32 = DATA_LE32((data) & 0xffffffff);		\
 	sym##_hi32 = DATA_LE32((data) >> 32)
@@ -60,8 +63,9 @@
  * regardless of the endianness of the kernel. While constant values could be
  * endian swapped in head.S, all are done here for consistency.
  */
-#define HEAD_SYMBOLS						\
-	DEFINE_IMAGE_LE64(_kernel_size_le, _end - _text);	\
-	DEFINE_IMAGE_LE64(_kernel_flags_le, __HEAD_FLAGS);
+#define HEAD_SYMBOLS								\
+	DEFINE_IMAGE_LE64(_kernel_size_le, _end - _text);			\
+	DEFINE_IMAGE_LE64(_kernel_flags_le, __HEAD_FLAGS);			\
+	DEFINE_IMAGE_LE32(_kernel_codesize_le, __initdata_begin - _text);
 
 #endif /* __ARM64_KERNEL_IMAGE_H */

@@ -79,7 +79,8 @@ The decompressed kernel image contains a 64-byte header as follows::
   u64 text_offset;		/* Image load offset, little endian */
   u64 image_size;		/* Effective Image size, little endian */
   u64 flags;			/* kernel flags, little endian */
-  u64 res2	= 0;		/* reserved */
+  u32 code_size;		/* Image code size, little endian */
+  u32 res2	= 0;		/* reserved */
   u64 res3	= 0;		/* reserved */
   u64 res4	= 0;		/* reserved */
   u32 magic	= 0x644d5241;	/* Magic number, little endian, "ARM\x64" */
