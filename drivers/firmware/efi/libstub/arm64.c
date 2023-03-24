@@ -9,6 +9,7 @@
 
 #include <linux/efi.h>
 #include <asm/efi.h>
+#include <asm/image.h>
 #include <asm/memory.h>
 #include <asm/sysreg.h>
 
@@ -89,25 +90,38 @@ efi_status_t check_platform_features(void)
 #endif
 
 void efi_cache_sync_image(unsigned long image_base,
-			  unsigned long alloc_size,
-			  unsigned long code_size)
+			  unsigned long alloc_size)
 {
+	struct arm64_image_header *header = (void *)image_base;
+	/*
+	 * In the EFI zboot case, the kernel code size lives in the text_offset
+	 * field of the image header, which is no longer used now that
+	 * TEXT_OFFSET is always 0x0.
+	 */
+	unsigned long code_size = le64_to_cpu(header->text_offset);
 	u32 ctr = read_cpuid_effective_cachetype();
 	u64 lsize = 4 << cpuid_feature_extract_unsigned_field(ctr,
 						CTR_EL0_DminLine_SHIFT);
 
 	/* only perform the cache maintenance if needed for I/D coherency */
 	if (!(ctr & BIT(CTR_EL0_IDC_SHIFT))) {
+		unsigned long base = image_base;
+		unsigned long size = code_size;
+
 		do {
-			asm("dc " DCTYPE ", %0" :: "r"(image_base));
-			image_base += lsize;
-			code_size -= lsize;
-		} while (code_size >= lsize);
+			asm("dc " DCTYPE ", %0" :: "r"(base));
+			base += lsize;
+			size -= lsize;
+		} while (size >= lsize);
 	}
 
 	asm("ic ialluis");
 	dsb(ish);
 	isb();
+
+	header->text_offset = 0x0;
+
+	efi_remap_image(image_base, alloc_size, code_size);
 }
 
 unsigned long __weak primary_entry_offset(void)
