@@ -252,14 +252,24 @@ __create_page_tables:
 	 * kernel.
 	 */
 	add	r0, r4, #KERNEL_OFFSET >> (SECTION_SHIFT - PMD_ENTRY_ORDER)
+#if (TEXT_OFFSET >> SECTION_SHIFT) != 0
+	/*
+	 * If the TEXT_OFFSET reservation covers multiple sections, omit the
+	 * lower ones that are not shared with the swapper page tables and the
+	 * start of kernel text.
+	 */
+	add	r0, r0, #(TEXT_OFFSET >> SECTION_SHIFT) << PMD_ENTRY_ORDER
+#endif
+	lsr	r3, r4, #SECTION_SHIFT		@ round down r4, which points to the
+	lsl	r3, r3, #SECTION_SHIFT		@ pgdir right below the loaded image
 	ldr	r6, =(_end - 1)
 	adr_l	r5, kernel_sec_start		@ _pa(kernel_sec_start)
 #if defined CONFIG_CPU_ENDIAN_BE8 || defined CONFIG_CPU_ENDIAN_BE32
-	str	r8, [r5, #4]			@ Save physical start of kernel (BE)
+	str	r3, [r5, #4]			@ Save physical start of kernel (BE)
 #else
-	str	r8, [r5]			@ Save physical start of kernel (LE)
+	str	r3, [r5]			@ Save physical start of kernel (LE)
 #endif
-	orr	r3, r8, r7			@ Add the MMU flags
+	orr	r3, r3, r7			@ Add the MMU flags
 	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ENTRY_ORDER)
 1:	str	r3, [r0], #1 << PMD_ENTRY_ORDER
 	add	r3, r3, #1 << SECTION_SHIFT
