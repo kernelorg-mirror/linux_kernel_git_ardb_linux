@@ -7928,7 +7928,7 @@ static void __init alloc_node_mem_map(struct pglist_data *pgdat)
 	if (pgdat == NODE_DATA(0)) {
 		mem_map = NODE_DATA(0)->node_mem_map;
 		if (page_to_pfn(mem_map) != pgdat->node_start_pfn)
-			mem_map -= offset;
+			mem_map -= pgdat->node_start_pfn - page_to_pfn(mem_map);
 	}
 #endif
 }
