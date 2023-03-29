@@ -92,12 +92,13 @@ kernel_sec_end:
 	__HEAD
 ENTRY(stext)
  ARM_BE8(setend	be )			@ ensure we are in BE8 mode
+	bl	primary_startup
+ENDPROC(stext)
 
- THUMB(	badr	r9, 1f		)	@ Kernel is always entered in ARM.
- THUMB(	bx	r9		)	@ If this is a Thumb-2 kernel,
+	__INIT
+
  THUMB(	.thumb			)	@ switch to Thumb now.
- THUMB(1:			)
-
+primary_startup:
 #ifdef CONFIG_ARM_VIRT_EXT
 	bl	__hyp_stub_install
 #endif
@@ -170,7 +171,7 @@ ENTRY(stext)
 	add	r12, r12, r10
 	ret	r12
 1:	b	__enable_mmu
-ENDPROC(stext)
+ENDPROC(primary_startup)
 	.ltorg
 
 /*
@@ -512,7 +513,7 @@ ENDPROC(__turn_mmu_on)
 
 
 #ifdef CONFIG_SMP_ON_UP
-	__HEAD
+	__INIT
 __fixup_smp:
 	and	r3, r9, #0x000f0000	@ architecture version
 	teq	r3, #0x000f0000		@ CPU ID supported?

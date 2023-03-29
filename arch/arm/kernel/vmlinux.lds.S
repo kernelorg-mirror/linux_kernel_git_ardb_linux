@@ -48,20 +48,10 @@ SECTIONS
 	}
 
 	. = KERNEL_OFFSET + TEXT_OFFSET;
-	.head.text : {
-		_text = .;
-		HEAD_TEXT
-	}
-
-#ifdef CONFIG_STRICT_KERNEL_RWX
-	. = ALIGN(1<<SECTION_SHIFT);
-#endif
-
-#ifdef CONFIG_ARM_MPU
-	. = ALIGN(PMSAv8_MINALIGN);
-#endif
 	.text : {			/* Real text segment		*/
+		_text = .;
 		_stext = .;		/* Text and read-only data	*/
+		HEAD_TEXT
 		ARM_TEXT
 	}
 

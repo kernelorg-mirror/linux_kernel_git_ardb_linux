@@ -49,13 +49,10 @@ SECTIONS
 	. = XIP_VIRT_ADDR(CONFIG_XIP_PHYS_ADDR);
 	_xiprom = .;			/* XIP ROM area to be mapped */
 
-	.head.text : {
-		_text = .;
-		HEAD_TEXT
-	}
-
 	.text : {			/* Real text segment		*/
+		_text = .;
 		_stext = .;		/* Text and read-only data	*/
+		HEAD_TEXT
 		ARM_TEXT
 	}
 

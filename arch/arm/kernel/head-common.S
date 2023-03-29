@@ -27,7 +27,7 @@
  * and hope for the best (useful if bootloader fails to pass a proper
  * machine ID for example).
  */
-	__HEAD
+	__INIT
 
 /* Determine validity of the r2 atags pointer.  The heuristic requires
  * that the pointer be aligned, in the first 16k of physical RAM and

@@ -42,13 +42,13 @@ ENTRY(stext)
 #else
 	.arm
 ENTRY(stext)
-
- THUMB(	badr	r9, 1f		)	@ Kernel is always entered in ARM.
- THUMB(	bx	r9		)	@ If this is a Thumb-2 kernel,
- THUMB(	.thumb			)	@ switch to Thumb now.
- THUMB(1:			)
 #endif
+	bl	primary_startup
+ENDPROC(stext)
 
+	__INIT
+ THUMB(	.thumb			)	@ switch to Thumb now.
+primary_startup:
 #ifdef CONFIG_ARM_VIRT_EXT
 	bl	__hyp_stub_install
 #endif
@@ -77,7 +77,7 @@ ENTRY(stext)
 	ret	r12
 1:	ldr	lr, =__mmap_switched
 	b	__after_proc_init
-ENDPROC(stext)
+ENDPROC(primary_startup)
 
 #ifdef CONFIG_SMP
 	.text
@@ -249,7 +249,7 @@ ENDPROC(__after_proc_init)
  *
  * r6: Value to be written to DRSR (and IRSR if required) for PMSAv7_RAM_REGION
 */
-	__HEAD
+	__INIT
 
 ENTRY(__setup_mpu)
 

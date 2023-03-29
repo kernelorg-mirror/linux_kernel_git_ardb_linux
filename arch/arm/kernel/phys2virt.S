@@ -27,7 +27,7 @@
  *   r1 = machine no, r2 = atags or dtb,
  *   r8 = phys_offset, r9 = cpuid, r10 = procinfo
  */
-	__HEAD
+	__INIT
 ENTRY(__fixup_pv_table)
 	mov	r0, r8, lsr #PAGE_SHIFT	@ convert to PFN
 	str_l	r0, __pv_phys_pfn_offset, r3
