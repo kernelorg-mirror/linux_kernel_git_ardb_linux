@@ -93,6 +93,8 @@ kernel_sec_end:
 ENTRY(stext)
  ARM_BE8(setend	be )			@ ensure we are in BE8 mode
 	bl	primary_startup
+
+	image_header
 ENDPROC(stext)
 
 	__INIT

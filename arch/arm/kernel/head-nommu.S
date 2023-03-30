@@ -44,6 +44,8 @@ ENTRY(stext)
 ENTRY(stext)
 #endif
 	bl	primary_startup
+
+	image_header
 ENDPROC(stext)
 
 	__INIT

@@ -787,4 +787,16 @@ THUMB(	orr	\reg , \reg , #PSR_T_BIT	)
 	.endif
 	.endm
 
+	.macro		image_header
+	.org		.head.text + 0x8
+	.long		text_offset_le32, 0	@ 0x08: image load offset
+	.long		image_size_le32, 0	@ 0x10: image size in memory
+	.long		0,0			@ reserved
+	.long		0,0			@ reserved
+	.long		0,0			@ reserved
+	.long		0,0			@ reserved
+	.ascii		"ARM\xff"		@ 0x38: magic number
+	.long		0			@ 0x3c: reserved (PE offset)
+	.endm
+
 #endif /* __ASM_ASSEMBLER_H__ */

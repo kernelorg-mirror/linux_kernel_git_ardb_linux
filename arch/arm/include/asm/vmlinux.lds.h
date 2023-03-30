@@ -169,3 +169,13 @@
 		__edtcm_data = .;					\
 	}								\
 	. = __dtcm_start + SIZEOF(.data_dtcm);
+
+#ifdef CONFIG_CPU_BIG_ENDIAN
+#define DATA_LE32(data)				\
+	((((data) & 0x000000ff) << 24) |	\
+	 (((data) & 0x0000ff00) << 8)  |	\
+	 (((data) & 0x00ff0000) >> 8)  |	\
+	 (((data) & 0xff000000) >> 24))
+#else
+#define DATA_LE32(data) ((data) & 0xffffffff)
+#endif

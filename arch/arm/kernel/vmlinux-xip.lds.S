@@ -25,6 +25,9 @@ jiffies = jiffies_64;
 jiffies = jiffies_64 + 4;
 #endif
 
+PROVIDE(text_offset_le32 = DATA_LE32(TEXT_OFFSET));
+PROVIDE(image_size_le32 = DATA_LE32(_end - _text));
+
 SECTIONS
 {
 	/*
