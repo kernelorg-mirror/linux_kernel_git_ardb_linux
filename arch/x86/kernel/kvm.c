@@ -815,8 +815,10 @@ extern bool __raw_callee_save___kvm_vcpu_is_preempted(long);
  * restoring to/from the stack.
  */
 #define PV_VCPU_PREEMPTED_ASM						     \
- "movq   __per_cpu_offset(,%rdi,8), %rax\n\t"				     \
- "cmpb   $0, " __stringify(KVM_STEAL_TIME_preempted) "+steal_time(%rax)\n\t" \
+ ".L0:\n\t"								     \
+ "leaq   .L0(%rip), %rax\n\t"						     \
+ "addq   __per_cpu_offset-.L0(%rax,%rdi,8), %rax\n\t"			     \
+ "cmpb   $0, " __stringify(KVM_STEAL_TIME_preempted) "+steal_time-.L0(%rax)\n\t" \
  "setne  %al\n\t"
 
 DEFINE_ASM_FUNC(__raw_callee_save___kvm_vcpu_is_preempted,
