@@ -171,6 +171,17 @@ else
 	ifeq ($(CONFIG_STACKPROTECTOR_USE_GUARD_SYMBOL),y)
 		KBUILD_CFLAGS += -mstack-protector-guard-symbol=fixed_percpu_data
 	endif
+
+	PIE_CFLAGS := -fpie -mcmodel=small \
+		      -include $(srctree)/include/linux/hidden.h
+
+	ifeq ($(CONFIG_STACKPROTECTOR),y)
+		ifeq ($(CONFIG_SMP),y)
+			PIE_CFLAGS += -mstack-protector-guard-reg=gs
+		endif
+	endif
+
+	export PIE_CFLAGS
 endif
 
 #
