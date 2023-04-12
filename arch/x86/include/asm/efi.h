@@ -214,6 +214,11 @@ efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
 
 /* arch specific definitions used by the stub code */
 
+struct boot_params *efi_alloc_boot_params(void);
+
+efi_status_t efi_x86_stub_common(struct boot_params *boot_params,
+				 efi_handle_t handle);
+
 #ifdef CONFIG_EFI_MIXED
 
 #define ARCH_HAS_EFISTUB_WRAPPERS

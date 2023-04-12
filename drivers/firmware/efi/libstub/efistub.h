@@ -1048,6 +1048,8 @@ asmlinkage void __noreturn efi_enter_kernel(unsigned long entrypoint,
 					    unsigned long fdt_addr,
 					    unsigned long fdt_size);
 
+efi_status_t efi_exit(efi_handle_t handle, efi_status_t status);
+
 void efi_handle_post_ebs_state(void);
 
 enum efi_secureboot_mode efi_get_secureboot(void);
