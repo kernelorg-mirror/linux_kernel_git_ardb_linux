@@ -471,4 +471,9 @@ static inline int efi_runtime_map_copy(void *buf, size_t bufsz)
 
 #endif
 
+static inline unsigned long efi_get_kimg_min_align(void)
+{
+	return SZ_2M;
+}
+
 #endif /* _ASM_X86_EFI_H */

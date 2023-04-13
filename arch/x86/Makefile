@@ -268,24 +268,32 @@ boot := arch/x86/boot
 
 BOOT_TARGETS = bzdisk fdimage fdimage144 fdimage288 hdimage isoimage
 
-PHONY += bzImage $(BOOT_TARGETS)
-
-# Default kernel to build
-all: bzImage
+PHONY += bzImage vmlinuz.efi $(BOOT_TARGETS)
 
 # KBUILD_IMAGE specify target image being built
+ifeq ($(CONFIG_EFI_ZBOOT),)
 KBUILD_IMAGE := $(boot)/bzImage
+else
+KBUILD_IMAGE := arch/x86/zboot/vmlinuz.efi
+endif
+
+# Default kernel to build
+all:	$(notdir $(KBUILD_IMAGE))
 
 bzImage: vmlinux
 ifeq ($(CONFIG_X86_DECODER_SELFTEST),y)
 	$(Q)$(MAKE) $(build)=arch/x86/tools posttest
 endif
-	$(Q)$(MAKE) $(build)=$(boot) $(KBUILD_IMAGE)
+	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$(@)
 	$(Q)mkdir -p $(objtree)/arch/$(UTS_MACHINE)/boot
 	$(Q)ln -fsn ../../x86/boot/bzImage $(objtree)/arch/$(UTS_MACHINE)/boot/$@
 
 $(BOOT_TARGETS): vmlinux
 	$(Q)$(MAKE) $(build)=$(boot) $@
+
+vmlinuz.efi: zboot := arch/x86/zboot
+vmlinuz.efi: vmlinux
+	$(Q)$(MAKE) $(build)=$(zboot) $(zboot)/$@
 
 PHONY += install
 install:

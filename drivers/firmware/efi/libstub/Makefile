@@ -9,6 +9,9 @@
 # non-x86 reuses KBUILD_CFLAGS, x86 does not
 cflags-y			:= $(KBUILD_CFLAGS)
 
+cflags-ibt-$(CONFIG_X86_KERNEL_IBT) := \
+		$(call cc-option,-fcf-protection=branch -fno-jump-tables)
+
 cflags-$(CONFIG_X86_32)		:= -march=i386
 cflags-$(CONFIG_X86_64)		:= -mcmodel=small
 cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ \
@@ -18,7 +21,7 @@ cflags-$(CONFIG_X86)		+= -m$(BITS) -D__KERNEL__ \
 				   $(call cc-disable-warning, address-of-packed-member) \
 				   $(call cc-disable-warning, gnu) \
 				   -fno-asynchronous-unwind-tables \
-				   $(CLANG_FLAGS)
+				   $(CLANG_FLAGS) $(cflags-ibt-y)
 
 # arm64 uses the full KBUILD_CFLAGS so it's necessary to explicitly
 # disable the stackleak plugin
@@ -82,8 +85,8 @@ lib-$(CONFIG_EFI_PARAMS_FROM_FDT) += fdt.o \
 $(obj)/lib-%.o: $(srctree)/lib/%.c FORCE
 	$(call if_changed_rule,cc_o_c)
 
-lib-$(CONFIG_EFI_GENERIC_STUB)	+= efi-stub.o string.o intrinsics.o systable.o \
-				   screen_info.o efi-stub-entry.o
+lib-$(CONFIG_EFI_GENERIC_STUB)	+= efi-stub.o efi-stub-entry.o screen_info.o
+lib-y				+= string.o intrinsics.o systable.o
 
 lib-$(CONFIG_ARM)		+= arm32-stub.o
 lib-$(CONFIG_ARM64)		+= arm64.o arm64-stub.o smbios.o
@@ -91,8 +94,13 @@ lib-$(CONFIG_X86)		+= x86.o x86-stub.o
 lib-$(CONFIG_RISCV)		+= riscv.o riscv-stub.o
 lib-$(CONFIG_LOONGARCH)		+= loongarch.o loongarch-stub.o
 
+cflags-zboot-$(CONFIG_X86)	:= -Defi_zboot_entry=__efistub_efi_zboot_entry
+CFLAGS_zboot.o			:= $(cflags-zboot-y)
+CFLAGS_REMOVE_x86-zboot.o	:= $(cflags-ibt-y)
+
 CFLAGS_arm32-stub.o		:= -DTEXT_OFFSET=$(TEXT_OFFSET)
 
+zboot-obj-$(CONFIG_X86_64)	:= x86-zboot.o
 zboot-obj-$(CONFIG_RISCV)	:= lib-clz_ctz.o lib-ashldi3.o
 lib-$(CONFIG_EFI_ZBOOT)		+= zboot.o $(zboot-obj-y)
 

@@ -29,7 +29,7 @@ zboot-size-len-y                       := 4
 zboot-method-$(CONFIG_KERNEL_GZIP)     := gzip
 zboot-size-len-$(CONFIG_KERNEL_GZIP)   := 0
 
-$(obj)/vmlinuz: $(obj)/vmlinux.bin FORCE
+$(obj)/vmlinuz: $(obj)/vmlinux.bin $(EFI_ZBOOT_PAYLOAD_TRAILER) FORCE
 	$(call if_changed,$(zboot-method-y))
 
 OBJCOPYFLAGS_vmlinuz.o := -I binary -O $(EFI_ZBOOT_BFD_TARGET) \

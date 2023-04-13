@@ -64,6 +64,17 @@ SYM_CODE_START_NOALIGN(startup_64)
 	/* Set up the stack for verify_cpu(), similar to initial_stack below */
 	leaq	(__end_init_task - FRAME_SIZE)(%rip), %rsp
 
+#ifdef CONFIG_EFI_ZBOOT
+	/*
+	 * The generic EFI zboot code expects a __le32 at offset 0x10 of the
+	 * decompressed image describing the size in memory of the kernel
+	 * image. This is typically part of the image header, but we don't have
+	 * such a header on x86 so just put the bare number here, encoded in a
+	 * NOP instruction.
+	 */
+	.org	startup_64 + 0x10 - 3, BYTES_NOP1
+	nopl	(_end - startup_64)(%rax)
+#endif
 	leaq	_text(%rip), %rdi
 
 	/*

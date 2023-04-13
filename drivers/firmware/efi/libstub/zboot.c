@@ -7,7 +7,7 @@
 
 #include "efistub.h"
 
-static unsigned char zboot_heap[SZ_256K] __aligned(64);
+static unsigned char zboot_heap[SZ_256K] __page_aligned_bss;
 static unsigned long free_mem_ptr, free_mem_end_ptr;
 
 #define STATIC static
@@ -65,6 +65,7 @@ asmlinkage efi_status_t __efiapi
 efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 {
 	unsigned long compressed_size = _gzdata_end - _gzdata_start;
+	efi_guid_t loaded_image = LOADED_IMAGE_PROTOCOL_GUID;
 	unsigned long image_base, alloc_size;
 	efi_loaded_image_t *image;
 	efi_status_t status;
@@ -77,7 +78,7 @@ efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 	free_mem_end_ptr = free_mem_ptr + sizeof(zboot_heap);
 
 	status = efi_bs_call(handle_protocol, handle,
-			     &LOADED_IMAGE_PROTOCOL_GUID, (void **)&image);
+			     &loaded_image, (void **)&image);
 	if (status != EFI_SUCCESS) {
 		error("Failed to locate parent's loaded image protocol");
 		return status;
