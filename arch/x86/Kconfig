@@ -2073,6 +2073,7 @@ config PHYSICAL_START
 config RELOCATABLE
 	bool "Build a relocatable kernel" if X86_32
 	default X86_32
+	select RELOCATABLE_PIE if TOOLS_SUPPORT_RELR && X86_64
 	help
 	  This builds a kernel image that retains relocation information so it
 	  can be placed someplace besides the default PAGE_OFFSET + 1MB. This
@@ -2092,6 +2093,9 @@ config RELOCATABLE
 	  Note: If CONFIG_RELOCATABLE=y, then the kernel runs from the address
 	  it has been loaded at and the compile time physical address
 	  (CONFIG_PHYSICAL_START) is used as the minimum location.
+
+config RELOCATABLE_PIE
+	bool
 
 config RANDOMIZE_BASE
 	bool "Randomize the address of the kernel image (KASLR)"

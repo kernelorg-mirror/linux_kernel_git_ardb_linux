@@ -56,6 +56,8 @@ KBUILD_AFLAGS	:= $(KBUILD_CFLAGS) -D__ASSEMBLY__
 KBUILD_CFLAGS	+= -fno-asynchronous-unwind-tables
 KBUILD_CFLAGS	+= $(CONFIG_CC_IMPLICIT_FALLTHROUGH)
 
+KBUILD_CFLAGS_KERNEL := $(filter-out $(PIE_CFLAGS_KERNEL),$(KBUILD_CFLAGS_KERNEL))
+
 $(obj)/bzImage: asflags-y  := $(SVGA_MODE)
 
 quiet_cmd_image = BUILD   $@
