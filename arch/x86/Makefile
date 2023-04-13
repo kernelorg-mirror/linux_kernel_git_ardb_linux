@@ -184,6 +184,8 @@ else
 	export PIE_CFLAGS
 endif
 
+KBUILD_CFLAGS_KERNEL := $(PIE_CFLAGS)
+
 #
 # If the function graph tracer is used with mcount instead of fentry,
 # '-maccumulate-outgoing-args' is needed to prevent a GCC bug

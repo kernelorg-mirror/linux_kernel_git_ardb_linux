@@ -218,6 +218,8 @@ static const char *rel_type(unsigned type)
 		REL_TYPE(R_X86_64_JUMP_SLOT),
 		REL_TYPE(R_X86_64_RELATIVE),
 		REL_TYPE(R_X86_64_GOTPCREL),
+		REL_TYPE(R_X86_64_GOTPCRELX),
+		REL_TYPE(R_X86_64_REX_GOTPCRELX),
 		REL_TYPE(R_X86_64_32),
 		REL_TYPE(R_X86_64_32S),
 		REL_TYPE(R_X86_64_16),
@@ -902,6 +904,19 @@ static int do_reloc64(struct section *sec, Elf_Rel *rel, ElfW(Sym) *sym,
 			add_reloc(&relocs64, offset);
 		else
 			add_reloc(&relocs32, offset);
+		break;
+
+	case R_X86_64_GOTPCREL:
+	case R_X86_64_GOTPCRELX:
+	case R_X86_64_REX_GOTPCRELX:
+		/*
+		 * These relocations by themselves don't require fixing up, as
+		 * they are used to describe a relative reference to the GOT
+		 * entry that holds the absolute address of the symbol in
+		 * question. Whether or not GOT relocations are permitted in
+		 * the first place is a different matter, and this is handled
+		 * elsewhere (i.e., with an ASSERT in the linker script.)
+		 */
 		break;
 
 	default:

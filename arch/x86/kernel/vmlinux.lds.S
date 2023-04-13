@@ -177,6 +177,10 @@ SECTIONS
 		/* rarely changed data like cpu maps */
 		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)
 
+		__got_start = .;
+		*(.got) *(.igot)
+		__got_end = .;
+
 		/* End of data section */
 		_edata = .;
 	} :data
@@ -453,7 +457,7 @@ SECTIONS
 	 * Make sure that the .got.plt is either completely empty or it
 	 * contains only the lazy dispatch entries.
 	 */
-	.got.plt (INFO) : { *(.got.plt) }
+	.got.plt (INFO) : { *(.got.plt) *(.igot.plt) }
 	ASSERT(SIZEOF(.got.plt) == 0 ||
 #ifdef CONFIG_X86_64
 	       SIZEOF(.got.plt) == 0x18,
@@ -466,11 +470,6 @@ SECTIONS
 	 * Sections that should stay zero sized, which is safer to
 	 * explicitly check instead of blindly discarding.
 	 */
-	.got : {
-		*(.got) *(.igot.*)
-	}
-	ASSERT(SIZEOF(.got) == 0, "Unexpected GOT entries detected!")
-
 	.plt : {
 		*(.plt) *(.plt.*) *(.iplt)
 	}

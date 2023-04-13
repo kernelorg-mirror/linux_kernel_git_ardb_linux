@@ -591,6 +591,8 @@ void early_setup_idt(void)
  */
 void __init startup_64_setup_env(void)
 {
+	extern unsigned long __got_start[], __got_end[];
+
 	/* Load GDT */
 	startup_gdt_descr.address = (unsigned long)startup_gdt;
 	native_load_gdt(&startup_gdt_descr);
@@ -601,4 +603,13 @@ void __init startup_64_setup_env(void)
 		     "movl %%eax, %%es\n" : : "a"(__KERNEL_DS) : "memory");
 
 	startup_64_load_idt();
+
+	/*
+	 * If we are using PIE codegen but not PIE linking, we may end
+	 * up with a handful of GOT entries (mostly related to weak
+	 * references) that need to be fixed up explicitly.
+	 */
+	for (unsigned long *p = __got_start; p < __got_end; p++)
+		if (*p)
+			*p += __va_symbol(_text) - __START_KERNEL;
 }
