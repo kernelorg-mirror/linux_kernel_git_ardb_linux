@@ -198,11 +198,23 @@ else
         KBUILD_RUSTFLAGS += -Cno-redzone=y
         KBUILD_RUSTFLAGS += -Ccode-model=kernel
 
+        pie-cflags-y := -fpie -mcmodel=small \
+                        -include $(srctree)/include/linux/hidden.h
+
+        # Always prefer direct symbol references over GOT based ones
+        pie-cflags-$(CONFIG_CC_IS_GCC) += $(call cc-option.-mdirect-extern-access)
+        pie-cflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
+
         ifeq ($(CONFIG_STACKPROTECTOR),y)
             ssp-cflags-y += -mstack-protector-guard-symbol=__ref_stack_chk_guard
             ssp-cflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
             KBUILD_CFLAGS += $(ssp-cflags-y)
+
+            # the 'small' C model defaults to %fs
+            pie-cflags-$(CONFIG_SMP) += -mstack-protector-guard-reg=gs
         endif
+
+        KBUILD_CFLAGS_KERNEL += $(pie-cflags-y)
 endif
 
 #
@@ -257,21 +269,16 @@ endif
 
 KBUILD_LDFLAGS += -m elf_$(UTS_MACHINE)
 
-ifdef CONFIG_X86_NEED_RELOCS
-LDFLAGS_vmlinux := --emit-relocs --discard-none
-else
-LDFLAGS_vmlinux :=
-endif
+ldflags-vmlinux-$(CONFIG_X86_NEED_RELOCS) += --emit-relocs --discard-none
 
 #
 # The 64-bit kernel must be aligned to 2MB.  Pass -z max-page-size=0x200000 to
 # the linker to force 2MB page size regardless of the default page size used
 # by the linker.
 #
-ifdef CONFIG_X86_64
-LDFLAGS_vmlinux += -z max-page-size=0x200000
-endif
+ldflags-vmlinux-$(CONFIG_X86_64) += -z max-page-size=0x200000
 
+LDFLAGS_vmlinux := $(ldflags-vmlinux-y)
 
 archscripts: scripts_basic
 	$(Q)$(MAKE) $(build)=arch/x86/tools relocs
