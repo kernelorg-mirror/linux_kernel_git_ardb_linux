@@ -57,6 +57,8 @@ $(vobjs) : KBUILD_AFLAGS := \
 	$(filter-out $(flags-remove-y),$(KBUILD_AFLAGS)) $(flags-y)
 $(vobjs) : KBUILD_CFLAGS := \
 	$(filter-out $(flags-remove-y),$(KBUILD_CFLAGS)) $(flags-y)
+$(vobjs) : KBUILD_CFLAGS_KERNEL := \
+	$(filter-out $(PIE_CFLAGS_KERNEL),$(KBUILD_CFLAGS_KERNEL))
 
 #
 # The VDSO images are built using a special linker script.

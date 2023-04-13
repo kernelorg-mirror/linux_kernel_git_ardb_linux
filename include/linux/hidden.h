@@ -16,4 +16,6 @@
  * giving them 'hidden' visibility.
  */
 
+#ifndef __BINDGEN__
 #pragma GCC visibility push(hidden)
+#endif

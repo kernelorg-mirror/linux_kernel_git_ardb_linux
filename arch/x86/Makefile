@@ -89,6 +89,8 @@ ifdef CONFIG_CC_IS_GCC
 CC_FLAGS_FPU += -mhard-float
 endif
 
+rustflags-nojumptables := $(if $(call rustc-min-version,109300),-Cjump-tables=n,-Zno-jump-tables)
+
 ifeq ($(CONFIG_X86_KERNEL_IBT),y)
 #
 # Kernel IBT has S_CET.NOTRACK_EN=0, as such the compilers must not generate
@@ -100,7 +102,7 @@ ifeq ($(CONFIG_X86_KERNEL_IBT),y)
 #   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104816
 #
 KBUILD_CFLAGS += $(CONFIG_CC_OPT_CF_PROTECTION_BRANCH)
-KBUILD_RUSTFLAGS += -Zcf-protection=branch $(if $(call rustc-min-version,109300),-Cjump-tables=n,-Zno-jump-tables)
+KBUILD_RUSTFLAGS += -Zcf-protection=branch $(rustflags-nojumptables)
 else
 KBUILD_CFLAGS += $(CONFIG_CC_OPT_CF_PROTECTION_NONE)
 endif
@@ -178,6 +180,25 @@ endif
         KBUILD_RUSTFLAGS += -Ccode-model=kernel
 
         percpu_seg := gs
+
+        pie-ccflags-$(CONFIG_CC_IS_GCC) += -mcmodel=small \
+                                           $(call cc-option,-mdirect-extern-access)
+        pie-ccflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
+
+        # objtool gets confused by unannotated PIC flavor jump tables
+        pie-ccflags-y += $(call cc-option,-fannotate-jump-tables,-fno-jump-tables)
+
+        pie-cflags-$(CONFIG_RELOCATABLE_PIE) := $(pie-ccflags-y) -fpie \
+                                -include $(srctree)/include/linux/hidden.h
+        pie-rustflags-$(CONFIG_RELOCATABLE_PIE) := -Crelocation-model=pie \
+                                -Zdirect-access-external-data=yes \
+                                $(rustflags-nojumptables)
+
+        PIE_CFLAGS_KERNEL := $(pie-cflags-y)
+        export PIE_CFLAGS_KERNEL
+
+        KBUILD_CFLAGS_KERNEL    += $(PIE_CFLAGS_KERNEL)
+        KBUILD_RUSTFLAGS_KERNEL += $(pie-rustflags-y)
 endif
 
 ifeq ($(CONFIG_STACKPROTECTOR),y)
