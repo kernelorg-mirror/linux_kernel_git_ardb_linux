@@ -10,7 +10,6 @@
 #define pr_fmt(fmt)	"SEV: " fmt
 
 #include <linux/sched/debug.h>	/* For show_regs() */
-#include <linux/percpu-defs.h>
 #include <linux/cc_platform.h>
 #include <linux/printk.h>
 #include <linux/mm_types.h>
@@ -28,6 +27,7 @@
 #include <asm/sev.h>
 #include <asm/insn-eval.h>
 #include <asm/fpu/xcr.h>
+#include <asm/percpu.h>
 #include <asm/processor.h>
 #include <asm/realmode.h>
 #include <asm/setup.h>
