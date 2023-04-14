@@ -219,7 +219,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movq	%rax, %cr4
 
 	/* Ensure I am executing from virtual addresses */
-	movq	$1f, %rax
+	movabsq	$1f, %rax
 	ANNOTATE_RETPOLINE_SAFE
 	jmp	*%rax
 1:
