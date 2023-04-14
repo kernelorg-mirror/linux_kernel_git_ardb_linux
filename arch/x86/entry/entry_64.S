@@ -957,7 +957,7 @@ SYM_CODE_START(paranoid_entry)
 	 * loads based on a mispredicted GS base can happen, therefore no LFENCE
 	 * is needed here.
 	 */
-	SAVE_AND_SET_GSBASE scratch_reg=%rax save_reg=%rbx
+	SAVE_AND_SET_GSBASE scratch_reg=%rax scratch2_reg=%r15 save_reg=%rbx
 	jmp .Lparanoid_gsbase_done
 
 .Lparanoid_entry_checkgs:
@@ -1089,7 +1089,8 @@ SYM_CODE_START(error_entry)
 	movl	%ecx, %eax			/* zero extend */
 	cmpq	%rax, RIP+8(%rsp)
 	je	.Lbstep_iret
-	cmpq	$.Lgs_change, RIP+8(%rsp)
+	leaq	.Lgs_change(%rip), %rcx
+	cmpq	%rcx, RIP+8(%rsp)
 	jne	.Lerror_entry_done_lfence
 
 	/*
@@ -1302,10 +1303,10 @@ SYM_CODE_START(asm_exc_nmi)
 	 * resume the outer NMI.
 	 */
 
-	movq	$repeat_nmi, %rdx
+	leaq	repeat_nmi(%rip), %rdx
 	cmpq	8(%rsp), %rdx
 	ja	1f
-	movq	$end_repeat_nmi, %rdx
+	leaq	end_repeat_nmi(%rip), %rdx
 	cmpq	8(%rsp), %rdx
 	ja	nested_nmi_out
 1:
@@ -1359,7 +1360,8 @@ nested_nmi:
 	pushq	%rdx
 	pushfq
 	pushq	$__KERNEL_CS
-	pushq	$repeat_nmi
+	leaq	repeat_nmi(%rip), %rdx
+	pushq	%rdx
 
 	/* Put stack back */
 	addq	$(6*8), %rsp

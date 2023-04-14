@@ -369,9 +369,9 @@ For 32-bit we have the following conventions - kernel is built with
 #endif
 .endm
 
-.macro SAVE_AND_SET_GSBASE scratch_reg:req save_reg:req
+.macro SAVE_AND_SET_GSBASE scratch_reg:req scratch2_reg:req save_reg:req
 	rdgsbase \save_reg
-	GET_PERCPU_BASE \scratch_reg
+	GET_PERCPU_BASE \scratch_reg \scratch2_reg
 	wrgsbase \scratch_reg
 .endm
 
@@ -407,15 +407,16 @@ For 32-bit we have the following conventions - kernel is built with
  * Thus the kernel would consume a guest's TSC_AUX if an NMI arrives
  * while running KVM's run loop.
  */
-.macro GET_PERCPU_BASE reg:req
+.macro GET_PERCPU_BASE reg:req reg2:req
 	LOAD_CPU_AND_NODE_SEG_LIMIT \reg
 	andq	$VDSO_CPUNODE_MASK, \reg
-	movq	__per_cpu_offset(, \reg, 8), \reg
+	leaq	__per_cpu_offset(%rip), \reg2
+	movq	(\reg2, \reg, 8), \reg
 .endm
 
 #else
 
-.macro GET_PERCPU_BASE reg:req
+.macro GET_PERCPU_BASE reg:req reg2:req
 	movq	pcpu_unit_offsets(%rip), \reg
 .endm
 
