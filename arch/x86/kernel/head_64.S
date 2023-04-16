@@ -74,6 +74,10 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 */
 	.org	startup_64 + 0x10 - 3, BYTES_NOP1
 	nopl	(_end - startup_64)(%rax)
+
+	/* put the size of the initial executable mapping at offset 0x20 */
+	.org	startup_64 + 0x20 - 3, BYTES_NOP1
+	nopl	(_einittext - startup_64)(%rax)
 #endif
 	leaq	_text(%rip), %rdi
 

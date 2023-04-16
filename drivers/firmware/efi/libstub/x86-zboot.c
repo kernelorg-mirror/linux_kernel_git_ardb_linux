@@ -60,10 +60,33 @@ efi_status_t efi_handle_cmdline(efi_loaded_image_t *image, char **cmdline_ptr)
 	return status;
 }
 
+static void efi_remap_exec(unsigned long base, unsigned long size)
+{
+	static efi_memory_attribute_protocol_t *memattr = (void *)ULONG_MAX;
+	efi_guid_t guid = EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID;
+	efi_status_t status;
+
+	if (memattr == (void *)ULONG_MAX) {
+		memattr = NULL;
+		status = efi_bs_call(locate_protocol, &guid, NULL,
+				     (void **)&memattr);
+		if (status != EFI_SUCCESS)
+			return;
+	} else if (!memattr) {
+		return;
+	}
+
+	status = memattr->clear_memory_attributes(memattr, base, size,
+						  EFI_MEMORY_XP);
+	if (status != EFI_SUCCESS)
+		efi_warn("Failed to clear NX attribute on code region\n");
+}
+
 void efi_cache_sync_image(unsigned long image_base, unsigned long alloc_size)
 {
 	const u32 payload_size = *(u32 *)(_gzdata_end - 4);
 	const u32 image_size = *(u32 *)(image_base + 0x10);
+	const u32 code_size = *(u32 *)(image_base + 0x20);
 	const s32 *reloc = (s32 *)(image_base + payload_size);
 	u64 va_offset = __START_KERNEL - image_base;
 	u64 range, delta;
@@ -106,6 +129,8 @@ void efi_cache_sync_image(unsigned long image_base, unsigned long alloc_size)
 		*(u64 *)((s64)*reloc - va_offset) += delta;
 
 	efi_free(alloc_size - image_size, image_base + image_size);
+
+	efi_remap_exec(image_base, PAGE_ALIGN(code_size));
 }
 
 static void __naked tmpl_toggle(void *cr3, void *gdt)
@@ -196,6 +221,8 @@ static efi_status_t efi_setup_5level_paging(void)
 	 * instruction at the beginning can be used to locate the immediate.
 	 */
 	*(u32 *)&la57_code[tmpl_size - 6] += (u64)la57_code;
+
+	efi_remap_exec((unsigned long)la57_code, PAGE_SIZE);
 
 	return EFI_SUCCESS;
 }
