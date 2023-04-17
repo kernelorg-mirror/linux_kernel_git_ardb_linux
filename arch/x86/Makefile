@@ -192,6 +192,10 @@ else
         KBUILD_CFLAGS += -mcmodel=kernel
         KBUILD_RUSTFLAGS += -Cno-redzone=y
         KBUILD_RUSTFLAGS += -Ccode-model=kernel
+
+	ifeq ($(CONFIG_STACKPROTECTOR),y)
+		KBUILD_CFLAGS += -mstack-protector-guard-symbol=fixed_percpu_data
+	endif
 endif
 
 #
