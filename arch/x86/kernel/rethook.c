@@ -11,6 +11,10 @@
 
 __visible void arch_rethook_trampoline_callback(struct pt_regs *regs);
 
+#ifdef CONFIG_X86_64
+static __used void * const __arch_rethook_trampoline = &arch_rethook_trampoline;
+#endif
+
 #ifndef ANNOTATE_NOENDBR
 #define ANNOTATE_NOENDBR
 #endif
@@ -27,7 +31,7 @@ asm(
 #ifdef CONFIG_X86_64
 	ANNOTATE_NOENDBR "\n"	/* This is only jumped from ret instruction */
 	/* Push a fake return address to tell the unwinder it's a rethook. */
-	"	pushq $arch_rethook_trampoline\n"
+	"	pushq __arch_rethook_trampoline(%rip)\n"
 	UNWIND_HINT_FUNC
 	"       pushq $" __stringify(__KERNEL_DS) "\n"
 	/* Save the 'sp - 16', this will be fixed later. */
