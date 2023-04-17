@@ -247,6 +247,12 @@ SECTIONS
 		__relr_end = .;
 	}
 
+	.reltab.32s : {
+		__reltab_start = .;
+		*(.reltab.32s)
+		__reltab_end = .;
+	}
+
 	/*
 	 * Section for code used exclusively before alternatives are run. All
 	 * references to such code must be patched out by alternatives, normally

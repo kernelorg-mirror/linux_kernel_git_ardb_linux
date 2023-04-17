@@ -633,4 +633,15 @@ void __init startup_64_setup_env(u64 va_shift)
 			place += 63;
 		}
 	}
+
+	if (IS_ENABLED(CONFIG_X86_64_PIE)) {
+		extern const s32 __reltab_start[], __reltab_end[];
+
+		for (const s32 *r = __reltab_start; r < __reltab_end; r++) {
+			u32 *place = offset_to_ptr(r++);
+			void *sym = offset_to_ptr(r);
+
+			*place = (u64)sym - va_offset + va_shift;
+		}
+	}
 }

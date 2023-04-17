@@ -78,28 +78,37 @@
 #include <asm/asm-offsets.h>
 
 #define CREDIT_CALL_DEPTH					\
-	movq	$-1, PER_CPU_VAR(pcpu_hot + X86_call_depth);
+	ABS_PERCPU_REF 0x5, pcpu_hot + X86_call_depth;		\
+	movq	$-1, %gs:0x0;
 
 #define ASM_CREDIT_CALL_DEPTH					\
-	movq	$-1, PER_CPU_VAR(pcpu_hot + X86_call_depth);
+	ABS_PERCPU_REF 0x5, pcpu_hot + X86_call_depth;		\
+	movq	$-1, %gs:0x0;
 
 #define RESET_CALL_DEPTH					\
 	mov	$0x80, %rax;					\
 	shl	$56, %rax;					\
-	movq	%rax, PER_CPU_VAR(pcpu_hot + X86_call_depth);
+	ABS_PERCPU_REF 0x5, pcpu_hot + X86_call_depth;		\
+	movq	%rax, %gs:0x0;
 
 #define RESET_CALL_DEPTH_FROM_CALL				\
 	mov	$0xfc, %rax;					\
 	shl	$56, %rax;					\
-	movq	%rax, PER_CPU_VAR(pcpu_hot + X86_call_depth);	\
+	ABS_PERCPU_REF 0x5, pcpu_hot + X86_call_depth;		\
+	movq	%rax, %gs:0x0;					\
 	CALL_THUNKS_DEBUG_INC_CALLS
 
 #define INCREMENT_CALL_DEPTH					\
-	sarq	$5, %gs:pcpu_hot + X86_call_depth;		\
+	.pushsection	".reltab.32s","a",@progbits;		\
+	.long	.Lpcp + 0x5 - .;				\
+	.long	pcpu_hot + X86_call_depth - .;			\
+	.popsection;						\
+.Lpcp:	sarq	$5, %gs:0x0;					\
 	CALL_THUNKS_DEBUG_INC_CALLS
 
 #define ASM_INCREMENT_CALL_DEPTH				\
-	sarq	$5, PER_CPU_VAR(pcpu_hot + X86_call_depth);	\
+	ABS_PERCPU_REF 0x5, pcpu_hot + X86_call_depth;		\
+	sarq	$5, %gs:0x0;					\
 	CALL_THUNKS_DEBUG_INC_CALLS
 
 #else
@@ -187,6 +196,18 @@
 	lfence;
 
 #ifdef __ASSEMBLY__
+
+.macro ABS_PERCPU_REF offset, sym
+.Lplace_\@:
+#if defined(CONFIG_X86_64_PIE) && !defined(MODULE)
+	.pushsection	".reltab.32s","a",@progbits
+	.long	.Lplace_\@ + (\offset) - .
+	.long	\sym - .
+	.popsection
+#else
+	.reloc	.Lplace_\@ + (\offset), R_X86_64_32S, \sym
+#endif
+.endm
 
 /*
  * This should be used immediately before an indirect jump/call. It tells
