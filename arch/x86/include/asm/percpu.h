@@ -11,9 +11,11 @@
 #ifdef __ASSEMBLY__
 
 #ifdef CONFIG_SMP
-#define PER_CPU_VAR(var)	%__percpu_seg:var
+#define PER_CPU_VAR(var)	%__percpu_seg:_ASM_RIP((var))
+#define PER_CPU_REF(var)	%__percpu_seg:var
 #else /* ! SMP */
 #define PER_CPU_VAR(var)	var
+#define PER_CPU_REF(var)	var
 #endif	/* SMP */
 
 #ifdef CONFIG_X86_64_SMP
@@ -148,15 +150,6 @@ do {									\
 	(typeof(_var))(unsigned long) pfo_val__;			\
 })
 
-#define percpu_stable_op(size, op, _var)				\
-({									\
-	__pcpu_type_##size pfo_val__;					\
-	asm(__pcpu_op2_##size(op, __percpu_arg(P[var]), "%[val]")	\
-	    : [val] __pcpu_reg_##size("=", pfo_val__)			\
-	    : [var] "p" (&(_var)));					\
-	(typeof(_var))(unsigned long) pfo_val__;			\
-})
-
 /*
  * Add return operation
  */
@@ -219,10 +212,10 @@ do {									\
  * per-thread variables implemented as per-cpu variables and thus
  * stable for the duration of the respective task.
  */
-#define this_cpu_read_stable_1(pcp)	percpu_stable_op(1, "mov", pcp)
-#define this_cpu_read_stable_2(pcp)	percpu_stable_op(2, "mov", pcp)
-#define this_cpu_read_stable_4(pcp)	percpu_stable_op(4, "mov", pcp)
-#define this_cpu_read_stable_8(pcp)	percpu_stable_op(8, "mov", pcp)
+#define this_cpu_read_stable_1(pcp)	percpu_from_op(1, , "mov", pcp)
+#define this_cpu_read_stable_2(pcp)	percpu_from_op(2, , "mov", pcp)
+#define this_cpu_read_stable_4(pcp)	percpu_from_op(4, , "mov", pcp)
+#define this_cpu_read_stable_8(pcp)	percpu_from_op(8, , "mov", pcp)
 #define this_cpu_read_stable(pcp)	__pcpu_size_call_return(this_cpu_read_stable_, pcp)
 
 #define raw_cpu_read_1(pcp)		percpu_from_op(1, , "mov", pcp)
