@@ -2081,7 +2081,7 @@ void syscall_init(void)
 		idt_syscall_init();
 }
 
-#else	/* CONFIG_X86_64 */
+#endif	/* CONFIG_X86_64 */
 
 #ifdef CONFIG_STACKPROTECTOR
 DEFINE_PER_CPU(unsigned long, __stack_chk_guard);
@@ -2089,8 +2089,6 @@ DEFINE_PER_CPU(unsigned long, __stack_chk_guard);
 EXPORT_PER_CPU_SYMBOL(__stack_chk_guard);
 #endif
 #endif
-
-#endif	/* CONFIG_X86_64 */
 
 /*
  * Clear all 6 debug registers:

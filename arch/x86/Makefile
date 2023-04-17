@@ -197,6 +197,12 @@ else
         KBUILD_CFLAGS += -mcmodel=kernel
         KBUILD_RUSTFLAGS += -Cno-redzone=y
         KBUILD_RUSTFLAGS += -Ccode-model=kernel
+
+        ifeq ($(CONFIG_STACKPROTECTOR),y)
+            ssp-cflags-y += -mstack-protector-guard-symbol=__ref_stack_chk_guard
+            ssp-cflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
+            KBUILD_CFLAGS += $(ssp-cflags-y)
+        endif
 endif
 
 #
