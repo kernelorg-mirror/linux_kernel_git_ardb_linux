@@ -410,6 +410,11 @@ config CC_HAS_SANE_STACKPROTECTOR
 	  the compiler produces broken code or if it does not let us control
 	  the segment on 32-bit kernels.
 
+config STACKPROTECTOR_USE_GUARD_SYMBOL
+	bool
+	depends on CC_HAS_SANE_STACKPROTECTOR && 64BIT
+	default $(cc-option, -mstack-protector-guard=tls -mstack-protector-guard-symbol=foo)
+
 menu "Processor type and features"
 
 config SMP

@@ -379,6 +379,7 @@ struct irq_stack {
 
 #ifdef CONFIG_X86_64
 struct fixed_percpu_data {
+#ifndef CONFIG_STACKPROTECTOR_USE_GUARD_SYMBOL
 	/*
 	 * GCC hardcodes the stack canary as %gs:40.  Since the
 	 * irq_stack is the object at %gs:0, we reserve the bottom
@@ -388,6 +389,7 @@ struct fixed_percpu_data {
 	 * support for x86_64 stackprotector, we can get rid of this.
 	 */
 	char		gs_base[40];
+#endif
 	unsigned long	stack_canary;
 };
 
@@ -396,7 +398,7 @@ DECLARE_INIT_PER_CPU(fixed_percpu_data);
 
 static inline unsigned long cpu_kernelmode_gs_base(int cpu)
 {
-	return (unsigned long)per_cpu(fixed_percpu_data.gs_base, cpu);
+	return per_cpu_offset(cpu);
 }
 
 extern asmlinkage void ignore_sysret(void);
