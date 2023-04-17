@@ -65,6 +65,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	/* Set up the stack for verify_cpu(), similar to initial_stack below */
 	leaq	(__end_init_task - FRAME_SIZE)(%rip), %rsp
 
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 	/*
 	 * initial_gs points to initial fixed_percpu_data struct with storage for
 	 * the stack protector canary. Initialize %gs such that the canary can
@@ -75,6 +76,10 @@ SYM_CODE_START_NOALIGN(startup_64)
 	movq	%rax, %rdx
 	shrq	$32,  %rdx
 	wrmsr
+#else
+	xorl	%eax, %eax
+	movw	%ax, %gs		/* clear %gs to clear GS_BASE */
+#endif
 
 	call	startup_64_setup_env
 
@@ -400,7 +405,11 @@ SYM_CODE_END(vc_boot_ghcb)
 	__REFDATA
 	.balign	8
 SYM_DATA(initial_code,	.quad x86_64_start_kernel)
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 SYM_DATA(initial_gs,	.quad INIT_PER_CPU_VAR(fixed_percpu_data))
+#else
+SYM_DATA(initial_gs,	.quad 0x0)
+#endif
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 SYM_DATA(initial_vc_handler,	.quad handle_vc_boot_ghcb)
 #endif

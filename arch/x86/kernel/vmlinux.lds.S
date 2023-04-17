@@ -103,7 +103,7 @@ PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */
 	data PT_LOAD FLAGS(6);          /* RW_ */
 #ifdef CONFIG_X86_64
-#ifdef CONFIG_SMP
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 	percpu PT_LOAD FLAGS(6);        /* RW_ */
 #endif
 	init PT_LOAD FLAGS(7);          /* RWE */
@@ -214,7 +214,7 @@ SECTIONS
 		__init_begin = .; /* paired with __init_end */
 	}
 
-#if defined(CONFIG_X86_64) && defined(CONFIG_SMP)
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 	/*
 	 * percpu offsets are zero-based on SMP.  PERCPU_VADDR() changes the
 	 * output PHDR, so the next output section - .init.text - should
@@ -358,7 +358,7 @@ SECTIONS
 		EXIT_DATA
 	}
 
-#if !defined(CONFIG_X86_64) || !defined(CONFIG_SMP)
+#ifndef CONFIG_ABSOLUTE_PERCPU_SYMS
 	PERCPU_SECTION(INTERNODE_CACHE_BYTES)
 #endif
 
@@ -493,7 +493,7 @@ SECTIONS
 . = ASSERT((_end - LOAD_OFFSET <= KERNEL_IMAGE_SIZE),
 	   "kernel image bigger than KERNEL_IMAGE_SIZE");
 
-#ifdef CONFIG_X86_64
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 /*
  * Per-cpu symbols which need to be offset from __per_cpu_load
  * for the boot processor.
@@ -503,9 +503,7 @@ INIT_PER_CPU(gdt_page);
 INIT_PER_CPU(fixed_percpu_data);
 INIT_PER_CPU(irq_stack_backing_store);
 
-#ifdef CONFIG_SMP
 . = ASSERT((fixed_percpu_data == 0),
            "fixed_percpu_data is not at start of per-cpu area");
-#endif
 
-#endif /* CONFIG_X86_64 */
+#endif /* CONFIG_ABSOLUTE_PERCPU_SYMS */

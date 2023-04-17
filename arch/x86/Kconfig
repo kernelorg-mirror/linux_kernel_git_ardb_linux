@@ -2256,6 +2256,11 @@ config PHYSICAL_ALIGN
 
 	  Don't change this unless you know what you are doing.
 
+config ABSOLUTE_PERCPU_SYMS
+	def_bool y
+	depends on X86_64_SMP
+	depends on STACKPROTECTOR && !STACKPROTECTOR_USE_GUARD_SYMBOL
+
 config DYNAMIC_MEMORY_LAYOUT
 	bool
 	help

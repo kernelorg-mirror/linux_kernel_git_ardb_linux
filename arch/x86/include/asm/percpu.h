@@ -18,7 +18,7 @@
 #define PER_CPU_REF(var)	var
 #endif	/* SMP */
 
-#ifdef CONFIG_X86_64_SMP
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 #define INIT_PER_CPU_VAR(var)  init_per_cpu__##var
 #else
 #define INIT_PER_CPU_VAR(var)  var
@@ -61,7 +61,7 @@
 #define DECLARE_INIT_PER_CPU(var) \
        extern typeof(var) init_per_cpu_var(var)
 
-#ifdef CONFIG_X86_64_SMP
+#ifdef CONFIG_ABSOLUTE_PERCPU_SYMS
 #define init_per_cpu_var(var)  init_per_cpu__##var
 #else
 #define init_per_cpu_var(var)  var
