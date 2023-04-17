@@ -26,8 +26,8 @@ asm(
 	"arch_rethook_trampoline:\n"
 #ifdef CONFIG_X86_64
 	ANNOTATE_NOENDBR	/* This is only jumped from ret instruction */
-	/* Push a fake return address to tell the unwinder it's a rethook. */
-	"	pushq $arch_rethook_trampoline\n"
+	/* Slot for a fake return address to tell the unwinder it's a rethook. */
+	"	pushq $0\n"
 	UNWIND_HINT_FUNC
 	"       pushq $" __stringify(__KERNEL_DS) "\n"
 	/* Save the 'sp - 16', this will be fixed later. */
@@ -41,8 +41,8 @@ asm(
 	"	addq $16, %rsp\n"
 	"	popfq\n"
 #else
-	/* Push a fake return address to tell the unwinder it's a rethook. */
-	"	pushl $arch_rethook_trampoline\n"
+	/* Slot for a fake return address to tell the unwinder it's a rethook. */
+	"	pushl $0\n"
 	UNWIND_HINT_FUNC
 	"	pushl %ss\n"
 	/* Save the 'sp - 8', this will be fixed later. */
@@ -66,17 +66,16 @@ NOKPROBE_SYMBOL(arch_rethook_trampoline);
  */
 __used __visible void arch_rethook_trampoline_callback(struct pt_regs *regs)
 {
-	unsigned long *frame_pointer;
+	unsigned long *frame_pointer = (unsigned long *)(regs + 1);
 
 	/* fixup registers */
+	regs->ip = *frame_pointer = (unsigned long)&arch_rethook_trampoline;
 	regs->cs = __KERNEL_CS;
 #ifdef CONFIG_X86_32
 	regs->gs = 0;
 #endif
-	regs->ip = (unsigned long)&arch_rethook_trampoline;
 	regs->orig_ax = ~0UL;
 	regs->sp += 2*sizeof(long);
-	frame_pointer = (long *)(regs + 1);
 
 	/*
 	 * The return address at 'frame_pointer' is recovered by the
