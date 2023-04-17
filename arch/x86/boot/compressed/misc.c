@@ -330,6 +330,8 @@ static size_t parse_elf(void *output)
 	return ehdr.e_entry - LOAD_PHYSICAL_ADDR;
 }
 
+unsigned long virt_addr = LOAD_PHYSICAL_ADDR;
+
 /*
  * The compressed kernel image (ZO), has been moved so that its position
  * is against the end of the buffer used to hold the uncompressed kernel
@@ -354,7 +356,6 @@ asmlinkage __visible void *extract_kernel(void *rmode, memptr heap,
 				  unsigned long output_len)
 {
 	const unsigned long kernel_total_size = VO__end - VO__text;
-	unsigned long virt_addr = LOAD_PHYSICAL_ADDR;
 	unsigned long needed_size;
 	size_t entry_offset;
 

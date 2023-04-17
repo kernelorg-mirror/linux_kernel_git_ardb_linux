@@ -415,6 +415,11 @@ config STACKPROTECTOR_USE_GUARD_SYMBOL
 	depends on CC_HAS_SANE_STACKPROTECTOR && 64BIT
 	default $(cc-option, -mstack-protector-guard=tls -mstack-protector-guard-symbol=foo)
 
+config X86_64_PIE
+	def_bool y
+	depends on X86_64
+	depends on !STACKPROTECTOR || !SMP || STACKPROTECTOR_USE_GUARD_SYMBOL
+
 menu "Processor type and features"
 
 config SMP
@@ -2228,6 +2233,7 @@ config RANDOMIZE_BASE
 config X86_NEED_RELOCS
 	def_bool y
 	depends on RANDOMIZE_BASE || (X86_32 && RELOCATABLE)
+	depends on !X86_64 || !X86_64_PIE
 
 config PHYSICAL_ALIGN
 	hex "Alignment value to which kernel should be aligned"

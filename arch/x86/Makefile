@@ -184,8 +184,6 @@ else
 	export PIE_CFLAGS
 endif
 
-KBUILD_CFLAGS_KERNEL := $(PIE_CFLAGS)
-
 #
 # If the function graph tracer is used with mcount instead of fentry,
 # '-maccumulate-outgoing-args' is needed to prevent a GCC bug
@@ -239,11 +237,17 @@ KBUILD_LDFLAGS	+= -plugin-opt=-stack-alignment=$(if $(CONFIG_X86_32),4,8)
 endif
 endif
 
-ifdef CONFIG_X86_NEED_RELOCS
+ifdef CONFIG_X86_64_PIE
+KBUILD_CFLAGS_KERNEL		:= $(PIE_CFLAGS)
+ldflags-pie-$(CONFIG_LD_IS_BFD)	:= -z pack-relative-relocs
+ldflags-pie-$(CONFIG_LD_IS_LLD)	:= --pack-dyn-relocs=relr --apply-dynamic-relocs
+LDFLAGS_vmlinux			:= --pie -z notext --relax $(ldflags-pie-y)
+else ifdef CONFIG_X86_NEED_RELOCS
 LDFLAGS_vmlinux := --emit-relocs --discard-none
 else
 LDFLAGS_vmlinux :=
 endif
+
 
 #
 # The 64-bit kernel must be aligned to 2MB.  Pass -z max-page-size=0x200000 to

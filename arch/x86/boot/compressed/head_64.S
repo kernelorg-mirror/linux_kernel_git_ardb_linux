@@ -570,6 +570,7 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
 	movq	%rbp, %r8		/* output target address */
 	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs */
 	call	extract_kernel		/* returns kernel entry point in %rax */
+	movq	virt_addr(%rip), %rdi	/* pass the randomized virtual address */
 	popq	%rsi
 
 /*

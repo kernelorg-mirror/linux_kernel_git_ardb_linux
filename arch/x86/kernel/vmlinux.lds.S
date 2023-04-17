@@ -230,9 +230,22 @@ SECTIONS
 #endif
 
 	INIT_TEXT_SECTION(PAGE_SIZE)
+
 #ifdef CONFIG_X86_64
 	:init
 #endif
+
+	.rela.dyn : {
+		__rela_start = .;
+		*(.rela.*) *(.rela_*)
+		__rela_end = .;
+	}
+
+	.relr.dyn : {
+		__relr_start = .;
+		*(.relr.*)
+		__relr_end = .;
+	}
 
 	/*
 	 * Section for code used exclusively before alternatives are run. All
@@ -453,6 +466,11 @@ SECTIONS
 
 	DISCARDS
 
+	/DISCARD/ : {
+		*(.dynsym .gnu.hash .hash .dynamic .dynstr)
+		*(.interp .dynbss .eh_frame .sframe)
+	}
+
 	/*
 	 * Make sure that the .got.plt is either completely empty or it
 	 * contains only the lazy dispatch entries.
@@ -480,10 +498,11 @@ SECTIONS
 	}
 	ASSERT(SIZEOF(.rel.dyn) == 0, "Unexpected run-time relocations (.rel) detected!")
 
-	.rela.dyn : {
-		*(.rela.*) *(.rela_*)
-	}
+#ifndef CONFIG_X86_64_PIE
+	ASSERT(__got_start == __got_end, "Unexpected GOT entries detected!")
 	ASSERT(SIZEOF(.rela.dyn) == 0, "Unexpected run-time relocations (.rela) detected!")
+	ASSERT(SIZEOF(.relr.dyn) == 0, "Unexpected run-time relocations (.relr) detected!")
+#endif
 }
 
 /*

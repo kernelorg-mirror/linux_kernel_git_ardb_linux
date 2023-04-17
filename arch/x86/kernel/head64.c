@@ -32,6 +32,7 @@
 #include <asm/kdebug.h>
 #include <asm/e820/api.h>
 #include <asm/bios_ebda.h>
+#include <asm/boot.h>
 #include <asm/bootparam_utils.h>
 #include <asm/microcode.h>
 #include <asm/kasan.h>
@@ -589,9 +590,9 @@ void early_setup_idt(void)
 /*
  * Setup boot CPU state needed before kernel switches to virtual addresses.
  */
-void __init startup_64_setup_env(void)
+void __init startup_64_setup_env(u64 va_shift)
 {
-	extern unsigned long __got_start[], __got_end[];
+	u64 va_offset = (u64)_text - __START_KERNEL;
 
 	/* Load GDT */
 	startup_gdt_descr.address = (unsigned long)startup_gdt;
@@ -604,12 +605,32 @@ void __init startup_64_setup_env(void)
 
 	startup_64_load_idt();
 
-	/*
-	 * If we are using PIE codegen but not PIE linking, we may end
-	 * up with a handful of GOT entries (mostly related to weak
-	 * references) that need to be fixed up explicitly.
-	 */
-	for (unsigned long *p = __got_start; p < __got_end; p++)
-		if (*p)
-			*p += __va_symbol(_text) - __START_KERNEL;
+	va_shift -= LOAD_PHYSICAL_ADDR;
+
+	if (IS_ENABLED(CONFIG_X86_64_PIE) && va_shift != 0) {
+		extern const Elf64_Rela __rela_start[], __rela_end[];
+		extern const u64 __relr_start[], __relr_end[];
+		u64 *place = NULL;
+
+		for (const Elf64_Rela *r = __rela_start; r < __rela_end; r++) {
+			if (ELF64_R_TYPE(r->r_info) != R_X86_64_RELATIVE)
+				continue;
+
+			place = (u64 *)(r->r_offset + va_offset);
+			*place += va_shift;
+		}
+
+		for (const u64 *rel = __relr_start; rel < __relr_end; rel++) {
+			if ((*rel & 1) == 0) {
+				place = (u64 *)(*rel + va_offset);
+				*place++ += va_shift;
+				continue;
+			}
+
+			for (u64 *p = place, r = *rel >> 1; r; p++, r >>= 1)
+				if (r & 1)
+					*p += va_shift;
+			place += 63;
+		}
+	}
 }
