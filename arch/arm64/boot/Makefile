@@ -39,8 +39,29 @@ $(obj)/Image.lzo: $(obj)/Image FORCE
 $(obj)/Image.zst: $(obj)/Image FORCE
 	$(call if_changed,zstd)
 
-EFI_ZBOOT_PAYLOAD	:= Image
+EFI_ZBOOT_PAYLOAD	:= Image.zboot
 EFI_ZBOOT_BFD_TARGET	:= elf64-littleaarch64
 EFI_ZBOOT_MACH_TYPE	:= ARM64
+
+#
+# The EFI zboot logic needs to know the size of the executable region in the
+# image, so let's poke that into the text_offset field of the image header of
+# the zboot payload, as that field is no longer used and can thus be repurposed
+# for other, purely internal uses.
+#
+quiet_cmd_copy_and_poke = $(quiet_cmd_objcopy)
+      cmd_copy_and_poke = $(cmd_objcopy) && /bin/echo -ne "$(POKE_DATA)" | dd bs=1 \
+				status=none conv=notrunc seek=$(POKE_OFFSET) of=$@
+
+# grab the code size and convert it into something we can echo
+$(obj)/$(EFI_ZBOOT_PAYLOAD): POKE_DATA = $(shell $(NM) $<|grep _kernel_codesize|\
+				sed -E 's/0+(..)(..)(..)(..) .+/\\x\4\\x\3\\x\2\\x\1/')
+$(obj)/$(EFI_ZBOOT_PAYLOAD): POKE_OFFSET := 8
+$(obj)/$(EFI_ZBOOT_PAYLOAD): vmlinux FORCE
+	$(call if_changed,copy_and_poke)
+
+OBJCOPYFLAGS_$(EFI_ZBOOT_PAYLOAD) := $(OBJCOPYFLAGS_Image)
+
+targets += $(EFI_ZBOOT_PAYLOAD)
 
 include $(srctree)/drivers/firmware/efi/libstub/Makefile.zboot
