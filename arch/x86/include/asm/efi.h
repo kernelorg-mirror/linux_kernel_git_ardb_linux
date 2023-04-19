@@ -223,9 +223,11 @@ efi_status_t efi_x86_stub_common(struct boot_params *boot_params,
 
 #define ARCH_HAS_EFISTUB_WRAPPERS
 
-static inline bool efi_is_64bit(void)
+#define EFI_ALLOC_LIMIT		(efi_is_64bit() ? ULONG_MAX : U32_MAX)
+
+static inline bool __attribute_const__ efi_is_64bit(void)
 {
-	extern const bool efi_is64;
+	extern bool efi_is64;
 
 	return efi_is64;
 }

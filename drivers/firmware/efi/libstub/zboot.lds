@@ -4,6 +4,9 @@ ENTRY(__efistub_efi_zboot_header);
 
 SECTIONS
 {
+	PROVIDE(efi_zboot_compat_entry_offset =
+		ABSOLUTE(efi_zboot_compat_entry - .));
+
 	.head : ALIGN(4096) {
 		*(.head)
 	}

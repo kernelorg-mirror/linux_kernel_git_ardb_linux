@@ -135,6 +135,19 @@ __efistub_efi_zboot_header:
 			IMAGE_SCN_MEM_READ | \
 			IMAGE_SCN_MEM_WRITE
 
+#ifdef CONFIG_EFI_MIXED
+	.asciz		".compat"
+	.long		.Lcompat_hdr_size
+	.long		.Lcompat_hdr - .Ldoshdr
+	.long		.Lcompat_hdr_size
+	.long		.Lcompat_hdr - .Ldoshdr
+
+	.long		0, 0
+	.short		0, 0
+	.long		IMAGE_SCN_CNT_INITIALIZED_DATA | \
+			IMAGE_SCN_MEM_READ | \
+			IMAGE_SCN_MEM_DISCARDABLE
+#endif
 	.set		.Lsection_count, (. - .Lsection_table) / 40
 
 #ifdef PE_DLL_CHAR_EX
@@ -157,3 +170,12 @@ __efistub_efi_zboot_header:
 	.p2align	12
 .Lefi_header_end:
 
+#ifdef CONFIG_EFI_MIXED
+	.section	".rodata", "a", %progbits
+.Lcompat_hdr:
+	.byte		1
+	.byte		.Lcompat_hdr_size
+	.word		IMAGE_FILE_MACHINE_I386
+	.long		efi_zboot_compat_entry_offset
+	.set		.Lcompat_hdr_size, . - .Lcompat_hdr
+#endif

@@ -27,11 +27,193 @@ static const struct desc_struct gdt[] = {
 static void (*la57_toggle)(void *cr3, void *gdt);
 
 #ifdef CONFIG_EFI_MIXED
-const bool efi_is64 = true;
+bool efi_is64 = true;
 
-u64 __efi64_thunk(u32 func, ...)
+static struct desc_ptr __used efi32_boot_gdt, efi32_boot_idt;
+static u16 __used efi32_boot_cs, efi32_boot_ds;
+
+static u64 __used __page_aligned_bss pgd[512], pud[512];
+
+asmlinkage u32 __naked efi_zboot_compat_entry(u32 handle32, u32 systab32)
 {
-	return EFI_UNSUPPORTED;
+	/*
+	 * Check whether paging and PAE are enabled, and if so, preserve the
+	 * firmware's GDT/IDT and segment selectors before replacing them with
+	 * ones that can be used to switch into long mode and invoke the 64-bit
+	 * EFI entrypoint.
+	 */
+	asm("	.code32							\n\t"
+	    "	movl	%[unsupported], %%eax				\n\t"
+	    "	movl	%%cr0, %%edx					\n\t"
+	    "	btrl	%[pg], %%edx					\n\t"
+	    "	jnc	0f						\n\t"
+	    "	movl	%%cr4, %%ecx					\n\t"
+	    "	btl	%[pae], %%ecx					\n\t"
+	    "	jnc	0f						\n\t"
+
+	    /* Disable interrupts and paging before proceeding */
+	    "	cli							\n\t"
+	    "	movl	%%edx, %%cr0					\n\t"
+	    "	call	1f						\n\t"
+	    "0:	ret							\n\t"
+	    "1:	pop	%%ebx						\n\t"
+	    "	movb	$0, (efi_is64 - 0b)(%%ebx)			\n\t"
+
+	    /* Copy the 4 root PAE entries into a new level 3 table */
+	    "	lea	(pud - 0b)(%%ebx), %%edi			\n\t"
+	    "	lea	%c[pgtable](%%edi), %%edx			\n\t"
+	    "	mov	%%cr3, %%esi					\n\t"
+	    "	movw	$8, %%cx					\n\t"
+	    "	cld							\n\t"
+	    "	rep	movsl						\n\t"
+
+	    /* Set the 'writable' bit, which doesn't exist on legacy PAE */
+	    "	orl	%[pgtable], (pud - 0b)(%%ebx)			\n\t"
+	    "	orl	%[pgtable], (pud - 0b + 8)(%%ebx)  		\n\t"
+	    "	orl	%[pgtable], (pud - 0b + 16)(%%ebx)		\n\t"
+	    "	orl	%[pgtable], (pud - 0b + 24)(%%ebx)		\n\t"
+
+	    /* Create a root table and insert an entry for the level 3 table */
+	    "	lea	(pgd - 0b)(%%ebx), %%ecx			\n\t"
+	    "	mov	%%edx, (%%ecx)					\n\t"
+	    "	mov	%%ecx, %%cr3					\n\t"
+
+	    /* Save firmware's GDT/IDT and selector values */
+	    "	sgdtl	(efi32_boot_gdt - 0b)(%%ebx)			\n\t"
+	    "	sidtl	(efi32_boot_idt - 0b)(%%ebx)			\n\t"
+	    "	movw	%%cs, (efi32_boot_cs - 0b)(%%ebx)		\n\t"
+	    "	movw	%%ds, (efi32_boot_ds - 0b)(%%ebx)		\n\t"
+
+	    /* Install our own GDT and select __KERNEL_DS */
+	    "	leal	(gdt - 0b)(%%ebx), %%eax			\n\t"
+	    "	movl	%%eax, (%%esp)					\n\t"
+	    "	subl	$4, %%esp					\n\t"
+	    "	movw	%[gdtlimit], 2(%%esp)				\n\t"
+	    "	lgdtl	2(%%esp)					\n\t"
+	    "	movw	%[ds], %%ax					\n\t"
+	    "	movw	%%ax, %%ds					\n\t"
+	    "	movw	%%ax, %%es					\n\t"
+	    "	movw	%%ax, %%fs					\n\t"
+	    "	movw	%%ax, %%gs					\n\t"
+	    "	movw	%%ax, %%ss					\n\t"
+
+	    /* Prepare for the jump to long mode */
+	    "	movl	%[msr_efer], %%ecx				\n\t"
+	    "	rdmsr							\n\t"
+	    "	btsl	%[efer_lme], %%eax				\n\t"
+	    "	wrmsr							\n\t"
+
+	    /* Use MS calling convention for params and align the stack */
+	    "	lea	(__efistub_efi_zboot_entry - 0b)(%%ebx), %%ebx	\n\t"
+	    "	movl	8(%%esp), %%ecx					\n\t"
+	    "	movl	12(%%esp), %%edx				\n\t"
+	    "	andl	$~0xf, %%esp					\n\t"
+	    "	movl	%[cs], 4(%%esp)					\n\t"
+	    "	movl	%%ebx, (%%esp)					\n\t"
+	    "	movl	%[cr0_state], %%eax				\n\t"
+	    "	movl	%%eax, %%cr0					\n\t"
+	    "	lret							\n\t"
+	    "	.code64							\n\t"
+	    :
+	    : [unsupported]	"i"(0x80000003),
+	      [pg]		"i"(X86_CR0_PG_BIT),
+	      [pae]		"i"(X86_CR4_PAE_BIT),
+	      [gdtlimit]	"i"(sizeof(gdt) - 1),
+	      [cs]		"i"(__KERNEL_CS),
+	      [ds]		"i"(__KERNEL_DS),
+	      [pgtable]		"i"(_KERNPG_TABLE_NOENC),
+	      [msr_efer]	"i"(MSR_EFER),
+	      [efer_lme]	"i"(_EFER_LME),
+	      [cr0_state]	"i"(CR0_STATE));
+}
+
+u64 __naked __efi64_thunk(u32 func, ...)
+{
+	asm("	push	%%rbp						\n\t"
+	    "	push	%%rbx						\n\t"
+
+	    /* Load up to three arguments passed via the stack */
+	    "	movq	0x18(%%rsp), %%rbp				\n\t"
+	    "	movq	0x20(%%rsp), %%rbx				\n\t"
+	    "	movq	0x28(%%rsp), %%rax				\n\t"
+
+	    /* Create an outgoing stack frame and push 8 arguments */
+	    "	subq	$64, %%rsp					\n\t"
+	    "	movl	%%esi, 0x0(%%rsp)				\n\t"
+	    "	movl	%%edx, 0x4(%%rsp)				\n\t"
+	    "	movl	%%ecx, 0x8(%%rsp)				\n\t"
+	    "	movl	%%r8d, 0xc(%%rsp)				\n\t"
+	    "	movl	%%r9d, 0x10(%%rsp)				\n\t"
+	    "	movl	%%ebp, 0x14(%%rsp)				\n\t"
+	    "	movl	%%ebx, 0x18(%%rsp)				\n\t"
+	    "	movl	%%eax, 0x1c(%%rsp)				\n\t"
+
+	    /* Preserve the active GDT and IDT pointers on the stack */
+	    "	leaq	0x20(%%rsp), %%rbx				\n\t"
+	    "	sgdt	(%%rbx)						\n\t"
+	    "	sidt	16(%%rbx)					\n\t"
+
+	    /* Switch to the firmware's GDT/IDT */
+	    "	lidt	efi32_boot_idt(%%rip)				\n\t"
+	    "	lgdt	efi32_boot_gdt(%%rip)				\n\t"
+	    "	movzwl	efi32_boot_ds(%%rip), %%edx			\n\t"
+	    "	movzwq	efi32_boot_cs(%%rip), %%rax			\n\t"
+
+	    /* Long return to 32-bit mode with return address in RBP */
+	    "	pushq	%%rax						\n\t"
+	    "	leaq	1f(%%rip), %%rax				\n\t"
+	    "	leaq	2f(%%rip), %%rbp				\n\t"
+	    "	pushq	%%rax						\n\t"
+	    "	lretq							\n\t"
+
+	    /* Switch to the firmware's data segment */
+	    "	.code32							\n\t"
+	    "1:	movw	%%dx, %%ds					\n\t"
+	    "	movw	%%dx, %%es					\n\t"
+	    "	movw	%%dx, %%ss					\n\t"
+	    "	movw	%%dx, %%fs					\n\t"
+	    "	movw	%%dx, %%gs					\n\t"
+
+	    /* Disable paging and [implicitly] long mode */
+	    "	movl	%%cr0, %%eax					\n\t"
+	    "	btrl	%[pg], %%eax					\n\t"
+	    "	movl	%%eax, %%cr0					\n\t"
+
+	    /* Call the firmware routine */
+	    "	call	*%%edi						\n\t"
+
+	    /* Restore our IDT and GDT from the stack */
+	    "	cli							\n\t"
+	    "	lidtl	16(%%ebx)					\n\t"
+	    "	lgdtl	(%%ebx)						\n\t"
+	    "	xorl	%%ebx, %%ebx					\n\t"
+	    "	lldt	%%bx						\n\t"
+
+	    /* Re-enable paging and switch back to 64-bit long mode */
+	    "	pushl	%[cs]						\n\t"
+	    "	pushl	%%ebp						\n\t"
+	    "	movl	%%cr0, %%ebx					\n\t"
+	    "	btsl	%[pg], %%ebx					\n\t"
+	    "	movl	%%ebx, %%cr0					\n\t"
+	    "	lret							\n\t"
+
+	    /* Reload our segment selectors and return */
+	    "	.code64							\n\t"
+	    "2:	movw	%[ds], %%bx					\n\t"
+	    "	movw	%%bx, %%ds					\n\t"
+	    "	movw	%%bx, %%es					\n\t"
+	    "	movw	%%bx, %%ss					\n\t"
+	    "	xorw	%%bx, %%bx					\n\t"
+	    "	movw	%%bx, %%fs					\n\t"
+	    "	movw	%%bx, %%gs					\n\t"
+	    "	addq	$64, %%rsp					\n\t"
+	    "	pop	%%rbx						\n\t"
+	    "	pop	%%rbp						\n\t"
+	    "	ret							\n\t"
+	    :
+	    : [pg]		"i"(X86_CR0_PG_BIT),
+	      [cs]		"i"(__KERNEL_CS),
+	      [ds]		"i"(__KERNEL_DS));
 }
 #endif
 
@@ -190,6 +372,9 @@ static efi_status_t efi_setup_5level_paging(void)
 	efi_status_t status;
 	u8 *la57_code;
 
+	if (!efi_is_64bit())
+		return EFI_SUCCESS;
+
 	/* check for 5 level paging support */
 	if (native_cpuid_eax(0) < 7 ||
 	    !(native_cpuid_ecx(7) & (1 << (X86_FEATURE_LA57 & 31))))
@@ -275,6 +460,9 @@ efi_status_t efi_stub_common(efi_handle_t handle,
 	struct boot_params *boot_params;
 	struct setup_header *hdr;
 	efi_status_t status;
+
+	if (!efi_is_64bit())
+		efi_info("Using EFI mixed mode on 32-bit firmware\n");
 
 	status = efi_setup_5level_paging();
 	if (status != EFI_SUCCESS) {

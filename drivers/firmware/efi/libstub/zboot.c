@@ -61,6 +61,11 @@ struct screen_info *alloc_screen_info(void)
 	return __alloc_screen_info();
 }
 
+efi_status_t __weak efi_exit(efi_handle_t handle, efi_status_t status)
+{
+	return status;
+}
+
 asmlinkage efi_status_t __efiapi
 efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 {
@@ -81,12 +86,12 @@ efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 			     &loaded_image, (void **)&image);
 	if (status != EFI_SUCCESS) {
 		error("Failed to locate parent's loaded image protocol");
-		return status;
+		goto error;
 	}
 
 	status = efi_handle_cmdline(image, &cmdline_ptr);
 	if (status != EFI_SUCCESS)
-		return status;
+		goto error;
 
 	efi_info("Decompressing Linux Kernel...\n");
 
@@ -144,5 +149,6 @@ free_image:
 	efi_free(alloc_size, image_base);
 free_cmdline:
 	efi_bs_call(free_pool, cmdline_ptr);
-	return status;
+error:
+	return efi_exit(handle, status);
 }
