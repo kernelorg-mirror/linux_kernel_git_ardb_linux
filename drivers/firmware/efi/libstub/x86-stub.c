@@ -891,9 +891,9 @@ static void __noreturn enter_kernel(unsigned long kernel_addr,
  * On success, we jump to the relocated kernel directly and never return.
  * On failure, we exit to the firmware via efi_exit instead of returning.
  */
-asmlinkage void __noreturn efi_main(efi_handle_t handle,
-				    efi_system_table_t *sys_table_arg,
-				    struct boot_params *boot_params)
+static void __noreturn efi_main(efi_handle_t handle,
+				efi_system_table_t *sys_table_arg,
+				struct boot_params *boot_params)
 {
 	efi_guid_t guid = EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID;
 	struct setup_header *hdr = &boot_params->hdr;
@@ -1002,3 +1002,21 @@ fail:
 
 	efi_exit(handle, status);
 }
+
+#ifdef CONFIG_EFI_HANDOVER_PROTOCOL
+void efi_handover_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
+			struct boot_params *boot_params)
+{
+	extern char _bss[], _ebss[];
+
+	/* Ensure that BSS is zeroed when booting via the handover protocol */
+	memset(_bss, 0, _ebss - _bss);
+	efi_main(handle, sys_table_arg, boot_params);
+}
+
+#ifdef CONFIG_X86_32
+extern __alias(efi_handover_entry)
+void efi32_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
+		      struct boot_params *boot_params);
+#endif
+#endif

@@ -458,7 +458,7 @@ SYM_CODE_END(startup_64)
 	.org 0x390
 SYM_FUNC_START(efi64_stub_entry)
 	and	$~0xf, %rsp			/* realign the stack */
-	call	efi_main
+	call	efi_handover_entry
 SYM_FUNC_END(efi64_stub_entry)
 #endif
 

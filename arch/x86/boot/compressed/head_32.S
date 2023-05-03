@@ -137,12 +137,6 @@ SYM_FUNC_START(startup_32)
 	jmp	*%eax
 SYM_FUNC_END(startup_32)
 
-#ifdef CONFIG_EFI_HANDOVER_PROTOCOL
-SYM_FUNC_START(efi32_stub_entry)
-	jmp	efi_main
-SYM_FUNC_END(efi32_stub_entry)
-#endif
-
 	.text
 SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
 
