@@ -282,7 +282,6 @@ SYM_FUNC_START(startup_32)
 SYM_FUNC_END(startup_32)
 
 #if IS_ENABLED(CONFIG_EFI_MIXED) && IS_ENABLED(CONFIG_EFI_HANDOVER_PROTOCOL)
-	.org 0x190
 SYM_FUNC_START(efi32_stub_entry)
 	add	$0x4, %esp		/* Discard return address */
 	popl	%ecx
@@ -455,7 +454,9 @@ SYM_CODE_START(startup_64)
 SYM_CODE_END(startup_64)
 
 #ifdef CONFIG_EFI_HANDOVER_PROTOCOL
-	.org 0x390
+#ifdef CONFIG_EFI_MIXED
+	.org	efi32_stub_entry + 0x200
+#endif
 SYM_FUNC_START(efi64_stub_entry)
 	and	$~0xf, %rsp			/* realign the stack */
 	call	efi_handover_entry
