@@ -315,12 +315,16 @@ static void enforce_vmpl0(void)
  */
 #define SNP_FEATURES_PRESENT (0)
 
+u64 snp_get_unsupported_features(void)
+{
+	if (!(sev_status & MSR_AMD64_SEV_SNP_ENABLED))
+		return 0;
+	return sev_status & SNP_FEATURES_IMPL_REQ & ~SNP_FEATURES_PRESENT;
+}
+
 void snp_check_features(void)
 {
 	u64 unsupported;
-
-	if (!(sev_status & MSR_AMD64_SEV_SNP_ENABLED))
-		return;
 
 	/*
 	 * Terminate the boot if hypervisor has enabled any feature lacking
@@ -328,7 +332,7 @@ void snp_check_features(void)
 	 * EXIT_INFO_2 of the GHCB protocol so that those features can be reported
 	 * as part of the guest boot failure.
 	 */
-	unsupported = sev_status & SNP_FEATURES_IMPL_REQ & ~SNP_FEATURES_PRESENT;
+	unsupported = snp_get_unsupported_features();
 	if (unsupported) {
 		if (ghcb_version < 2 || (!boot_ghcb && !early_setup_ghcb()))
 			sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SNP_UNSUPPORTED);

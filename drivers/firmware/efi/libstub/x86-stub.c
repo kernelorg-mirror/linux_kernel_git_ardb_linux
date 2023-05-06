@@ -15,6 +15,7 @@
 #include <asm/setup.h>
 #include <asm/desc.h>
 #include <asm/boot.h>
+#include <asm/sev.h>
 
 #include "efistub.h"
 
@@ -713,6 +714,22 @@ static efi_status_t exit_boot_func(struct efi_boot_memmap *map,
 	efi_set_u64_split((unsigned long)map->map,
 			  &p->efi->efi_memmap, &p->efi->efi_memmap_hi);
 	p->efi->efi_memmap_size		= map->map_size;
+
+	/*
+	 * Call the SEV init code while still running with the firmware's
+	 * GDT/IDT, so #VC exceptions will be handled by EFI.
+	 */
+	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT)) {
+		u64 unsupported;
+
+		sev_enable(p->boot_params);
+		unsupported = snp_get_unsupported_features();
+		if (unsupported) {
+			efi_err("Unsupported SEV-SNP features detected: 0x%llx\n",
+				unsupported);
+			return EFI_UNSUPPORTED;
+		}
+	}
 
 	return EFI_SUCCESS;
 }
