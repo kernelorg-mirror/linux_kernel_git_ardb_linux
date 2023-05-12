@@ -134,21 +134,16 @@ void efi_parse_option_graphics(char *option)
 static u32 choose_mode_modenum(efi_graphics_output_protocol_t *gop)
 {
 	efi_status_t status;
-
-	efi_graphics_output_protocol_mode_t *mode;
 	efi_graphics_output_mode_info_t *info;
 	unsigned long info_size;
-
 	u32 max_mode, cur_mode;
 	int pf;
 
-	mode = efi_table_attr(gop, mode);
-
-	cur_mode = efi_table_attr(mode, mode);
+	cur_mode = gop->mode->mode;
 	if (cmdline.mode == cur_mode)
 		return cur_mode;
 
-	max_mode = efi_table_attr(mode, max_mode);
+	max_mode = gop->mode->max_mode;
 	if (cmdline.mode >= max_mode) {
 		efi_err("Requested mode is invalid\n");
 		return cur_mode;
@@ -188,20 +183,15 @@ static u8 pixel_bpp(int pixel_format, efi_pixel_bitmask_t pixel_info)
 static u32 choose_mode_res(efi_graphics_output_protocol_t *gop)
 {
 	efi_status_t status;
-
-	efi_graphics_output_protocol_mode_t *mode;
 	efi_graphics_output_mode_info_t *info;
 	unsigned long info_size;
-
 	u32 max_mode, cur_mode;
 	int pf;
 	efi_pixel_bitmask_t pi;
 	u32 m, w, h;
 
-	mode = efi_table_attr(gop, mode);
-
-	cur_mode = efi_table_attr(mode, mode);
-	info = efi_table_attr(mode, info);
+	cur_mode = gop->mode->mode;
+	info = gop->mode->info;
 	pf = info->pixel_format;
 	pi = info->pixel_information;
 	w  = info->horizontal_resolution;
@@ -212,7 +202,7 @@ static u32 choose_mode_res(efi_graphics_output_protocol_t *gop)
 	    (!cmdline.res.depth || cmdline.res.depth == pixel_bpp(pf, pi)))
 		return cur_mode;
 
-	max_mode = efi_table_attr(mode, max_mode);
+	max_mode = gop->mode->max_mode;
 
 	for (m = 0; m < max_mode; m++) {
 		if (m == cur_mode)
@@ -246,11 +236,8 @@ static u32 choose_mode_res(efi_graphics_output_protocol_t *gop)
 static u32 choose_mode_auto(efi_graphics_output_protocol_t *gop)
 {
 	efi_status_t status;
-
-	efi_graphics_output_protocol_mode_t *mode;
 	efi_graphics_output_mode_info_t *info;
 	unsigned long info_size;
-
 	u32 max_mode, cur_mode, best_mode, area;
 	u8 depth;
 	int pf;
@@ -258,12 +245,10 @@ static u32 choose_mode_auto(efi_graphics_output_protocol_t *gop)
 	u32 m, w, h, a;
 	u8 d;
 
-	mode = efi_table_attr(gop, mode);
+	cur_mode = gop->mode->mode;
+	max_mode = gop->mode->max_mode;
 
-	cur_mode = efi_table_attr(mode, mode);
-	max_mode = efi_table_attr(mode, max_mode);
-
-	info = efi_table_attr(mode, info);
+	info = gop->mode->info;
 
 	pf = info->pixel_format;
 	pi = info->pixel_information;
@@ -309,11 +294,8 @@ static u32 choose_mode_auto(efi_graphics_output_protocol_t *gop)
 static u32 choose_mode_list(efi_graphics_output_protocol_t *gop)
 {
 	efi_status_t status;
-
-	efi_graphics_output_protocol_mode_t *mode;
 	efi_graphics_output_mode_info_t *info;
 	unsigned long info_size;
-
 	u32 max_mode, cur_mode;
 	int pf;
 	efi_pixel_bitmask_t pi;
@@ -323,10 +305,8 @@ static u32 choose_mode_list(efi_graphics_output_protocol_t *gop)
 	bool valid;
 	efi_input_key_t key;
 
-	mode = efi_table_attr(gop, mode);
-
-	cur_mode = efi_table_attr(mode, mode);
-	max_mode = efi_table_attr(mode, max_mode);
+	cur_mode = gop->mode->mode;
+	max_mode = gop->mode->max_mode;
 
 	efi_printk("Available graphics modes are 0-%u\n", max_mode-1);
 	efi_puts("  * = current mode\n"
@@ -384,7 +364,6 @@ static u32 choose_mode_list(efi_graphics_output_protocol_t *gop)
 
 static void set_mode(efi_graphics_output_protocol_t *gop)
 {
-	efi_graphics_output_protocol_mode_t *mode;
 	u32 cur_mode, new_mode;
 
 	switch (cmdline.option) {
@@ -404,8 +383,7 @@ static void set_mode(efi_graphics_output_protocol_t *gop)
 		return;
 	}
 
-	mode = efi_table_attr(gop, mode);
-	cur_mode = efi_table_attr(mode, mode);
+	cur_mode = gop->mode->mode;
 
 	if (new_mode == cur_mode)
 		return;
@@ -472,9 +450,7 @@ find_gop(efi_guid_t *proto, unsigned long size, void **handles)
 
 	for_each_efi_handle(h, handles, size, i) {
 		efi_status_t status;
-
 		efi_graphics_output_protocol_t *gop;
-		efi_graphics_output_protocol_mode_t *mode;
 		efi_graphics_output_mode_info_t *info;
 
 		efi_guid_t conout_proto = EFI_CONSOLE_OUT_DEVICE_GUID;
@@ -484,8 +460,7 @@ find_gop(efi_guid_t *proto, unsigned long size, void **handles)
 		if (status != EFI_SUCCESS)
 			continue;
 
-		mode = efi_table_attr(gop, mode);
-		info = efi_table_attr(mode, info);
+		info = gop->mode->info;
 		if (info->pixel_format == PIXEL_BLT_ONLY ||
 		    info->pixel_format >= PIXEL_FORMAT_MAX)
 			continue;
@@ -515,7 +490,6 @@ static efi_status_t setup_gop(struct screen_info *si, efi_guid_t *proto,
 			      unsigned long size, void **handles)
 {
 	efi_graphics_output_protocol_t *gop;
-	efi_graphics_output_protocol_mode_t *mode;
 	efi_graphics_output_mode_info_t *info;
 
 	gop = find_gop(proto, size, handles);
@@ -528,15 +502,14 @@ static efi_status_t setup_gop(struct screen_info *si, efi_guid_t *proto,
 	set_mode(gop);
 
 	/* EFI framebuffer */
-	mode = efi_table_attr(gop, mode);
-	info = efi_table_attr(mode, info);
+	info = gop->mode->info;
 
 	si->orig_video_isVGA = VIDEO_TYPE_EFI;
 
 	si->lfb_width  = info->horizontal_resolution;
 	si->lfb_height = info->vertical_resolution;
 
-	efi_set_u64_split(efi_table_attr(mode, frame_buffer_base),
+	efi_set_u64_split(gop->mode->frame_buffer_base,
 			  &si->lfb_base, &si->ext_lfb_base);
 	if (si->ext_lfb_base)
 		si->capabilities |= VIDEO_CAPABILITY_64BIT_BASE;

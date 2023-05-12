@@ -513,7 +513,7 @@ typedef struct {
 	efi_runtime_services_t *runtime;
 	efi_boot_services_t *boottime;
 	unsigned long nr_tables;
-	unsigned long tables;
+	const efi_config_table_t *tables;
 } efi_system_table_t;
 
 struct efi_boot_memmap {

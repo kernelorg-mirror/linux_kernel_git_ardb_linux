@@ -78,7 +78,7 @@ static efi_status_t efi_open_volume(efi_loaded_image_t *image,
 	efi_simple_file_system_protocol_t *io;
 	efi_status_t status;
 
-	status = efi_bs_call(handle_protocol, efi_table_attr(image, device_handle),
+	status = efi_bs_call(handle_protocol, image->device_handle,
 			     &fs_proto, (void **)&io);
 	if (status != EFI_SUCCESS) {
 		efi_err("Failed to handle fs_proto\n");
@@ -189,8 +189,8 @@ efi_status_t handle_cmdline_files(efi_loaded_image_t *image,
 				  unsigned long *load_addr,
 				  unsigned long *load_size)
 {
-	const efi_char16_t *cmdline = efi_table_attr(image, load_options);
-	u32 cmdline_len = efi_table_attr(image, load_options_size);
+	const efi_char16_t *cmdline = image->load_options;
+	u32 cmdline_len = image->load_options_size;
 	unsigned long efi_chunk_size = ULONG_MAX;
 	efi_file_protocol_t *volume = NULL;
 	efi_file_protocol_t *file;

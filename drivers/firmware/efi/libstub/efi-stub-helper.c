@@ -281,8 +281,8 @@ fail:
  */
 char *efi_convert_cmdline(efi_loaded_image_t *image, int *cmd_line_len)
 {
-	const efi_char16_t *options = efi_table_attr(image, load_options);
-	u32 options_size = efi_table_attr(image, load_options_size);
+	const efi_char16_t *options = image->load_options;
+	u32 options_size = image->load_options_size;
 	int options_bytes = 0, safe_options_bytes = 0;  /* UTF-8 bytes */
 	unsigned long cmdline_addr = 0;
 	const efi_char16_t *s2;
@@ -441,17 +441,11 @@ efi_status_t efi_exit_boot_services(void *handle, void *priv,
  */
 void *get_efi_config_table(efi_guid_t guid)
 {
-	unsigned long tables = efi_table_attr(efi_system_table, tables);
-	int nr_tables = efi_table_attr(efi_system_table, nr_tables);
-	int i;
-
-	for (i = 0; i < nr_tables; i++) {
-		efi_config_table_t *t = (void *)tables;
+	for (int i = 0; i < efi_system_table->nr_tables; i++) {
+		const efi_config_table_t *t = &efi_system_table->tables[i];
 
 		if (efi_guidcmp(t->guid, guid) == 0)
-			return efi_table_attr(t, table);
-
-		tables += sizeof(efi_config_table_t);
+			return t->table;
 	}
 	return NULL;
 }
@@ -627,10 +621,10 @@ efi_status_t efi_wait_for_key(unsigned long usec, efi_input_key_t *key)
 	efi_simple_text_input_protocol_t *con_in;
 	efi_status_t status;
 
-	con_in = efi_table_attr(efi_system_table, con_in);
+	con_in = efi_system_table->con_in;
 	if (!con_in)
 		return EFI_UNSUPPORTED;
-	efi_set_event_at(events, 0, efi_table_attr(con_in, wait_for_key));
+	efi_set_event_at(events, 0, con_in->wait_for_key);
 
 	status = efi_bs_call(create_event, EFI_EVT_TIMER, 0, NULL, NULL, &timer);
 	if (status != EFI_SUCCESS)

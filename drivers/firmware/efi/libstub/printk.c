@@ -19,8 +19,7 @@ int efi_loglevel = CONSOLE_LOGLEVEL_DEFAULT;
  */
 void efi_char16_puts(efi_char16_t *str)
 {
-	efi_call_proto(efi_table_attr(efi_system_table, con_out),
-		       output_string, str);
+	efi_call_proto(efi_system_table->con_out, output_string, str);
 }
 
 static
