@@ -59,8 +59,8 @@ void efi_pci_disable_bridge_busmaster(void)
 		 * Disregard devices living on bus 0 - these are not behind a
 		 * bridge so no point in disconnecting them from their drivers.
 		 */
-		status = efi_call_proto(pci, get_location, &segment_nr, &bus_nr,
-					&device_nr, &func_nr);
+		status = pci->get_location(pci, &segment_nr, &bus_nr,
+					   &device_nr, &func_nr);
 		if (status != EFI_SUCCESS || bus_nr == 0)
 			continue;
 
@@ -73,8 +73,8 @@ void efi_pci_disable_bridge_busmaster(void)
 		 * disabling DMA in the PCI bridge should not interfere with
 		 * normal operation of the device.
 		 */
-		status = efi_call_proto(pci, pci.read, EfiPciIoWidthUint16,
-					PCI_CLASS_DEVICE, 1, &class);
+		status = pci->pci.read(pci, EfiPciIoWidthUint16,
+				       PCI_CLASS_DEVICE, 1, &class);
 		if (status != EFI_SUCCESS || class == PCI_CLASS_DISPLAY_VGA)
 			continue;
 
@@ -90,20 +90,20 @@ void efi_pci_disable_bridge_busmaster(void)
 		if (status != EFI_SUCCESS || !pci)
 			continue;
 
-		status = efi_call_proto(pci, pci.read, EfiPciIoWidthUint16,
-					PCI_CLASS_DEVICE, 1, &class);
+		status = pci->pci.read(pci, EfiPciIoWidthUint16,
+				       PCI_CLASS_DEVICE, 1, &class);
 
 		if (status != EFI_SUCCESS || class != PCI_CLASS_BRIDGE_PCI)
 			continue;
 
 		/* Disable busmastering */
-		status = efi_call_proto(pci, pci.read, EfiPciIoWidthUint16,
-					PCI_COMMAND, 1, &command);
+		status = pci->pci.read(pci, EfiPciIoWidthUint16,
+				       PCI_COMMAND, 1, &command);
 		if (status != EFI_SUCCESS || !(command & PCI_COMMAND_MASTER))
 			continue;
 
 		command &= ~PCI_COMMAND_MASTER;
-		status = efi_call_proto(pci, pci.write, EfiPciIoWidthUint16,
+		status = pci->pci.write(pci, EfiPciIoWidthUint16,
 					PCI_COMMAND, 1, &command);
 		if (status != EFI_SUCCESS)
 			efi_err("Failed to disable PCI busmastering\n");

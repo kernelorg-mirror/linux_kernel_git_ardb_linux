@@ -8,21 +8,15 @@
 
 #include "efistub.h"
 
-typedef union efi_rng_protocol efi_rng_protocol_t;
+typedef struct efi_rng_protocol efi_rng_protocol_t;
 
-union efi_rng_protocol {
-	struct {
-		efi_status_t (__efiapi *get_info)(efi_rng_protocol_t *,
-						  unsigned long *,
-						  efi_guid_t *);
-		efi_status_t (__efiapi *get_rng)(efi_rng_protocol_t *,
-						 efi_guid_t *, unsigned long,
-						 u8 *out);
-	};
-	struct {
-		u32 get_info;
-		u32 get_rng;
-	} mixed_mode;
+struct efi_rng_protocol {
+	efi_status_t (__efiapi *get_info)(efi_rng_protocol_t *,
+					  unsigned long *,
+					  efi_guid_t *);
+	efi_status_t (__efiapi *get_rng)(efi_rng_protocol_t *,
+					 efi_guid_t *, unsigned long,
+					 u8 *out);
 };
 
 /**
@@ -46,7 +40,7 @@ efi_status_t efi_get_random_bytes(unsigned long size, u8 *out)
 	if (status != EFI_SUCCESS)
 		return status;
 
-	return efi_call_proto(rng, get_rng, NULL, size, out);
+	return rng->get_rng(rng, NULL, size, out);
 }
 
 /**
@@ -111,16 +105,16 @@ efi_status_t efi_random_get_seed(void)
 	}
 
 	if (rng) {
-		status = efi_call_proto(rng, get_rng, &rng_algo_raw,
-					EFI_RANDOM_SEED_SIZE, seed->bits);
+		status = rng->get_rng(rng, &rng_algo_raw, EFI_RANDOM_SEED_SIZE,
+				      seed->bits);
 
 		if (status == EFI_UNSUPPORTED)
 			/*
 			 * Use whatever algorithm we have available if the raw algorithm
 			 * is not implemented.
 			 */
-			status = efi_call_proto(rng, get_rng, NULL,
-						EFI_RANDOM_SEED_SIZE, seed->bits);
+			status = rng->get_rng(rng, NULL, EFI_RANDOM_SEED_SIZE,
+					      seed->bits);
 
 		if (status == EFI_SUCCESS)
 			offset = EFI_RANDOM_SEED_SIZE;

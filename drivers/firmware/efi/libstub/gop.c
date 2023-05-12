@@ -149,8 +149,7 @@ static u32 choose_mode_modenum(efi_graphics_output_protocol_t *gop)
 		return cur_mode;
 	}
 
-	status = efi_call_proto(gop, query_mode, cmdline.mode,
-				&info_size, &info);
+	status = gop->query_mode(gop, cmdline.mode, &info_size, &info);
 	if (status != EFI_SUCCESS) {
 		efi_err("Couldn't get mode information\n");
 		return cur_mode;
@@ -208,8 +207,7 @@ static u32 choose_mode_res(efi_graphics_output_protocol_t *gop)
 		if (m == cur_mode)
 			continue;
 
-		status = efi_call_proto(gop, query_mode, m,
-					&info_size, &info);
+		status = gop->query_mode(gop, m, &info_size, &info);
 		if (status != EFI_SUCCESS)
 			continue;
 
@@ -263,8 +261,7 @@ static u32 choose_mode_auto(efi_graphics_output_protocol_t *gop)
 		if (m == cur_mode)
 			continue;
 
-		status = efi_call_proto(gop, query_mode, m,
-					&info_size, &info);
+		status = gop->query_mode(gop, m, &info_size, &info);
 		if (status != EFI_SUCCESS)
 			continue;
 
@@ -312,8 +309,7 @@ static u32 choose_mode_list(efi_graphics_output_protocol_t *gop)
 	efi_puts("  * = current mode\n"
 		 "  - = unusable mode\n");
 	for (m = 0; m < max_mode; m++) {
-		status = efi_call_proto(gop, query_mode, m,
-					&info_size, &info);
+		status = gop->query_mode(gop, m, &info_size, &info);
 		if (status != EFI_SUCCESS)
 			continue;
 
@@ -388,7 +384,7 @@ static void set_mode(efi_graphics_output_protocol_t *gop)
 	if (new_mode == cur_mode)
 		return;
 
-	if (efi_call_proto(gop, set_mode, new_mode) != EFI_SUCCESS)
+	if (gop->set_mode(gop, new_mode) != EFI_SUCCESS)
 		efi_err("Failed to set requested mode\n");
 }
 

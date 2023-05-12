@@ -63,24 +63,24 @@ preserve_pci_rom_image(efi_pci_io_protocol_t *pci, struct pci_setup_rom **__rom)
 	rom->pcilen	= pci->romsize;
 	*__rom = rom;
 
-	status = efi_call_proto(pci, pci.read, EfiPciIoWidthUint16,
-				PCI_VENDOR_ID, 1, &rom->vendor);
+	status = pci->pci.read(pci, EfiPciIoWidthUint16, PCI_VENDOR_ID, 1,
+			       &rom->vendor);
 
 	if (status != EFI_SUCCESS) {
 		efi_err("Failed to read rom->vendor\n");
 		goto free_struct;
 	}
 
-	status = efi_call_proto(pci, pci.read, EfiPciIoWidthUint16,
-				PCI_DEVICE_ID, 1, &rom->devid);
+	status = pci->pci.read(pci, EfiPciIoWidthUint16, PCI_DEVICE_ID, 1,
+			       &rom->devid);
 
 	if (status != EFI_SUCCESS) {
 		efi_err("Failed to read rom->devid\n");
 		goto free_struct;
 	}
 
-	status = efi_call_proto(pci, get_location, &rom->segment, &rom->bus,
-				&rom->device, &rom->function);
+	status = pci->get_location(pci, &rom->segment, &rom->bus, &rom->device,
+				   &rom->function);
 
 	if (status != EFI_SUCCESS)
 		goto free_struct;
@@ -178,7 +178,7 @@ static void retrieve_apple_device_properties(struct boot_params *boot_params)
 		return;
 	}
 
-	efi_call_proto(p, get_all, NULL, &size);
+	p->get_all(p, NULL, &size);
 	if (!size)
 		return;
 
@@ -191,7 +191,7 @@ static void retrieve_apple_device_properties(struct boot_params *boot_params)
 			return;
 		}
 
-		status = efi_call_proto(p, get_all, new->data, &size);
+		status = p->get_all(p, new->data, &size);
 
 		if (status == EFI_BUFFER_TOO_SMALL)
 			efi_bs_call(free_pool, new);
@@ -224,8 +224,9 @@ adjust_memory_range_protection(unsigned long start, unsigned long size)
 	rounded_end = roundup(start + size, EFI_PAGE_SIZE);
 
 	if (memattr != NULL) {
-		efi_call_proto(memattr, clear_memory_attributes, rounded_start,
-			       rounded_end - rounded_start, EFI_MEMORY_XP);
+		memattr->clear_memory_attributes(memattr, rounded_start,
+					         rounded_end - rounded_start,
+						 EFI_MEMORY_XP);
 		return;
 	}
 

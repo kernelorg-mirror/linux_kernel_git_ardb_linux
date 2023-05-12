@@ -53,7 +53,7 @@ static efi_status_t get_boot_hartid_from_efi(void)
 			     (void **)&boot_protocol);
 	if (status != EFI_SUCCESS)
 		return status;
-	return efi_call_proto(boot_protocol, get_boot_hartid, &hartid);
+	return boot_protocol->get_boot_hartid(boot_protocol, &hartid);
 }
 
 efi_status_t check_platform_features(void)

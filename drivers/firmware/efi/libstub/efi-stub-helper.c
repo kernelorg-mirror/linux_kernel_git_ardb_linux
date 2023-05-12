@@ -259,8 +259,8 @@ static efi_status_t efi_measure_tagged_event(unsigned long load_addr,
 		memcpy(evt->tagged_event_data, events[event].event_data,
 		       events[event].event_data_len);
 
-		status = efi_call_proto(tcg2, hash_log_extend_event, 0,
-					load_addr, load_size, &evt->event_data);
+		status = tcg2->hash_log_extend_event(tcg2, 0, load_addr, load_size,
+						     &evt->event_data);
 		efi_bs_call(free_pool, evt);
 
 		if (status != EFI_SUCCESS)
@@ -512,7 +512,7 @@ efi_status_t efi_load_initrd_dev_path(struct linux_efi_initrd *initrd,
 		return status;
 
 	initrd->size = 0;
-	status = efi_call_proto(lf2, load_file, dp, false, &initrd->size, NULL);
+	status = lf2->load_file(lf2, dp, false, &initrd->size, NULL);
 	if (status != EFI_BUFFER_TOO_SMALL)
 		return EFI_LOAD_ERROR;
 
@@ -520,7 +520,7 @@ efi_status_t efi_load_initrd_dev_path(struct linux_efi_initrd *initrd,
 	if (status != EFI_SUCCESS)
 		return status;
 
-	status = efi_call_proto(lf2, load_file, dp, false, &initrd->size,
+	status = lf2->load_file(lf2, dp, false, &initrd->size,
 				(void *)initrd->base);
 	if (status != EFI_SUCCESS) {
 		efi_free(initrd->size, initrd->base);
@@ -639,7 +639,7 @@ efi_status_t efi_wait_for_key(unsigned long usec, efi_input_key_t *key)
 	status = efi_bs_call(wait_for_event, 2, events, &index);
 	if (status == EFI_SUCCESS) {
 		if (index == 0)
-			status = efi_call_proto(con_in, read_keystroke, key);
+			status = con_in->read_keystroke(con_in, key);
 		else
 			status = EFI_TIMEOUT;
 	}

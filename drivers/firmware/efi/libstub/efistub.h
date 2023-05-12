@@ -52,10 +52,6 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 
 #endif
 
-#define efi_call_proto(inst, func, ...) ({			\
-	__typeof__(inst) __inst = (inst);			\
-	efi_fn_call(__inst, func, __inst, ##__VA_ARGS__);	\
-})
 #define efi_bs_call(func, ...) \
 	efi_fn_call(efi_system_table->boottime, func, ##__VA_ARGS__)
 #define efi_rt_call(func, ...) \

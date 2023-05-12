@@ -31,7 +31,7 @@ const struct efi_smbios_record *efi_get_smbios_record(u8 type)
 
 	status = efi_bs_call(locate_protocol, &EFI_SMBIOS_PROTOCOL_GUID, NULL,
 			     (void **)&smbios) ?:
-		 efi_call_proto(smbios, get_next, &handle, &type, &record, NULL);
+		 smbios->get_next(smbios, &handle, &type, &record, NULL);
 	if (status != EFI_SUCCESS)
 		return NULL;
 	return record;
