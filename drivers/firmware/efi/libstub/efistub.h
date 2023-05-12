@@ -364,15 +364,6 @@ struct efi_memory_attribute_protocol {
 		efi_memory_attribute_protocol_t *, efi_physical_addr_t, u64, u64);
 };
 
-typedef struct efi_uga_draw_protocol efi_uga_draw_protocol_t;
-
-struct efi_uga_draw_protocol {
-	efi_status_t (__efiapi *get_mode)(efi_uga_draw_protocol_t *,
-					  u32*, u32*, u32*, u32*);
-	void *set_mode;
-	void *blt;
-};
-
 typedef struct {
 	u16 scan_code;
 	efi_char16_t unicode_char;
