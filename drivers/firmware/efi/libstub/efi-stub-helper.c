@@ -451,8 +451,7 @@ void *get_efi_config_table(efi_guid_t guid)
 		if (efi_guidcmp(t->guid, guid) == 0)
 			return efi_table_attr(t, table);
 
-		tables += efi_is_native() ? sizeof(efi_config_table_t)
-					  : sizeof(efi_config_table_32_t);
+		tables += sizeof(efi_config_table_t);
 	}
 	return NULL;
 }

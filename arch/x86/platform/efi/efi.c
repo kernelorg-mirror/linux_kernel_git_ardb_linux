@@ -652,8 +652,7 @@ static bool should_map_region(efi_memory_desc_t *md)
 
 	/*
 	 * 32-bit EFI doesn't suffer from the bug that requires us to
-	 * reserve boot services regions, and mixed mode support
-	 * doesn't exist for 32-bit kernels.
+	 * reserve boot services regions.
 	 */
 	if (IS_ENABLED(CONFIG_X86_32))
 		return false;
@@ -666,17 +665,6 @@ static bool should_map_region(efi_memory_desc_t *md)
 	    efi_soft_reserve_enabled() &&
 	    (md->attribute & EFI_MEMORY_SP))
 		return false;
-
-	/*
-	 * Map all of RAM so that we can access arguments in the 1:1
-	 * mapping when making EFI runtime calls.
-	 */
-	if (efi_is_mixed()) {
-		if (md->type == EFI_CONVENTIONAL_MEMORY ||
-		    md->type == EFI_LOADER_DATA ||
-		    md->type == EFI_LOADER_CODE)
-			return true;
-	}
 
 	/*
 	 * Map boot services regions as a workaround for buggy
@@ -736,16 +724,6 @@ static void __init kexec_enter_virtual_mode(void)
 #ifdef CONFIG_KEXEC_CORE
 	efi_memory_desc_t *md;
 	unsigned int num_pages;
-
-	/*
-	 * We don't do virtual mode, since we don't do runtime services, on
-	 * non-native EFI.
-	 */
-	if (efi_is_mixed()) {
-		efi_memmap_unmap();
-		clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
-		return;
-	}
 
 	if (efi_alloc_page_tables()) {
 		pr_err("Failed to allocate EFI page tables\n");
@@ -859,10 +837,7 @@ static void __init __efi_enter_virtual_mode(void)
 	efi_check_for_embedded_firmwares();
 	efi_free_boot_services();
 
-	if (!efi_is_mixed())
-		efi_native_runtime_setup();
-	else
-		efi_thunk_runtime_setup();
+	efi_native_runtime_setup();
 
 	/*
 	 * Apply more restrictive page table mapping attributes now that

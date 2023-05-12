@@ -381,14 +381,6 @@ static void __init efi_unmap_pages(efi_memory_desc_t *md)
 	u64 pa = md->phys_addr;
 	u64 va = md->virt_addr;
 
-	/*
-	 * EFI mixed mode has all RAM mapped to access arguments while making
-	 * EFI runtime calls, hence don't unmap EFI boot services code/data
-	 * regions.
-	 */
-	if (efi_is_mixed())
-		return;
-
 	if (kernel_unmap_pages_in_pgd(pgd, pa, md->num_pages))
 		pr_err("Failed to unmap 1:1 mapping for 0x%llx\n", pa);
 

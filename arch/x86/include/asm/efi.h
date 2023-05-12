@@ -13,7 +13,6 @@
 #include <linux/pgtable.h>
 
 extern unsigned long efi_fw_vendor, efi_config_table;
-extern unsigned long efi_mixed_mode_stack_pa;
 
 /*
  * We map the EFI regions needed for runtime services non-contiguously,
@@ -183,30 +182,16 @@ extern u64 efi_setup;
 #ifdef CONFIG_EFI
 extern u64 __efi64_thunk(u32, ...);
 
-#define efi64_thunk(...) ({						\
-	u64 __pad[3]; /* must have space for 3 args on the stack */	\
-	__efi_nargs_check(efi64_thunk, 9, __VA_ARGS__);			\
-	__efi64_thunk(__VA_ARGS__, __pad);				\
-})
-
-static inline bool efi_is_mixed(void)
-{
-	if (!IS_ENABLED(CONFIG_EFI_MIXED))
-		return false;
-	return IS_ENABLED(CONFIG_X86_64) && !efi_enabled(EFI_64BIT);
-}
-
 static inline bool efi_runtime_supported(void)
 {
 	if (IS_ENABLED(CONFIG_X86_64) == efi_enabled(EFI_64BIT))
 		return true;
 
-	return IS_ENABLED(CONFIG_EFI_MIXED);
+	return false;
 }
 
 extern void parse_efi_setup(u64 phys_addr, u32 data_len);
 
-extern void efi_thunk_runtime_setup(void);
 efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
 					 unsigned long descriptor_size,
 					 u32 descriptor_version,
@@ -215,190 +200,10 @@ efi_status_t efi_set_virtual_address_map(unsigned long memory_map_size,
 
 /* arch specific definitions used by the stub code */
 
-#ifdef CONFIG_EFI_MIXED
-
-#define EFI_ALLOC_LIMIT		(efi_is_64bit() ? ULONG_MAX : U32_MAX)
-
-#define ARCH_HAS_EFISTUB_WRAPPERS
-
-static inline bool efi_is_64bit(void)
-{
-	extern const bool efi_is64;
-
-	return efi_is64;
-}
-
-static inline bool efi_is_native(void)
-{
-	return efi_is_64bit();
-}
-
-#define efi_table_attr(inst, attr)					\
-	(efi_is_native() ? (inst)->attr					\
-			 : efi_mixed_table_attr((inst), attr))
-
-#define efi_mixed_table_attr(inst, attr)				\
-	(__typeof__(inst->attr))					\
-		_Generic(inst->mixed_mode.attr,				\
-		u32:		(unsigned long)(inst->mixed_mode.attr),	\
-		default:	(inst->mixed_mode.attr))
-
-/*
- * The following macros allow translating arguments if necessary from native to
- * mixed mode. The use case for this is to initialize the upper 32 bits of
- * output parameters, and where the 32-bit method requires a 64-bit argument,
- * which must be split up into two arguments to be thunked properly.
- *
- * As examples, the AllocatePool boot service returns the address of the
- * allocation, but it will not set the high 32 bits of the address. To ensure
- * that the full 64-bit address is initialized, we zero-init the address before
- * calling the thunk.
- *
- * The FreePages boot service takes a 64-bit physical address even in 32-bit
- * mode. For the thunk to work correctly, a native 64-bit call of
- * 	free_pages(addr, size)
- * must be translated to
- * 	efi64_thunk(free_pages, addr & U32_MAX, addr >> 32, size)
- * so that the two 32-bit halves of addr get pushed onto the stack separately.
- */
-
-static inline void *efi64_zero_upper(void *p)
-{
-	((u32 *)p)[1] = 0;
-	return p;
-}
-
-static inline u32 efi64_convert_status(efi_status_t status)
-{
-	return (u32)(status | (u64)status >> 32);
-}
-
-#define __efi64_split(val)		(val) & U32_MAX, (u64)(val) >> 32
-
-#define __efi64_argmap_free_pages(addr, size)				\
-	((addr), 0, (size))
-
-#define __efi64_argmap_get_memory_map(mm_size, mm, key, size, ver)	\
-	((mm_size), (mm), efi64_zero_upper(key), efi64_zero_upper(size), (ver))
-
-#define __efi64_argmap_allocate_pool(type, size, buffer)		\
-	((type), (size), efi64_zero_upper(buffer))
-
-#define __efi64_argmap_create_event(type, tpl, f, c, event)		\
-	((type), (tpl), (f), (c), efi64_zero_upper(event))
-
-#define __efi64_argmap_set_timer(event, type, time)			\
-	((event), (type), lower_32_bits(time), upper_32_bits(time))
-
-#define __efi64_argmap_wait_for_event(num, event, index)		\
-	((num), (event), efi64_zero_upper(index))
-
-#define __efi64_argmap_handle_protocol(handle, protocol, interface)	\
-	((handle), (protocol), efi64_zero_upper(interface))
-
-#define __efi64_argmap_locate_protocol(protocol, reg, interface)	\
-	((protocol), (reg), efi64_zero_upper(interface))
-
-#define __efi64_argmap_locate_device_path(protocol, path, handle)	\
-	((protocol), (path), efi64_zero_upper(handle))
-
-#define __efi64_argmap_exit(handle, status, size, data)			\
-	((handle), efi64_convert_status(status), (size), (data))
-
-/* PCI I/O */
-#define __efi64_argmap_get_location(protocol, seg, bus, dev, func)	\
-	((protocol), efi64_zero_upper(seg), efi64_zero_upper(bus),	\
-	 efi64_zero_upper(dev), efi64_zero_upper(func))
-
-/* LoadFile */
-#define __efi64_argmap_load_file(protocol, path, policy, bufsize, buf)	\
-	((protocol), (path), (policy), efi64_zero_upper(bufsize), (buf))
-
-/* Graphics Output Protocol */
-#define __efi64_argmap_query_mode(gop, mode, size, info)		\
-	((gop), (mode), efi64_zero_upper(size), efi64_zero_upper(info))
-
-/* TCG2 protocol */
-#define __efi64_argmap_hash_log_extend_event(prot, fl, addr, size, ev)	\
-	((prot), (fl), 0ULL, (u64)(addr), 0ULL, (u64)(size), 0ULL, ev)
-
-/* DXE services */
-#define __efi64_argmap_get_memory_space_descriptor(phys, desc) \
-	(__efi64_split(phys), (desc))
-
-#define __efi64_argmap_set_memory_space_attributes(phys, size, flags) \
-	(__efi64_split(phys), __efi64_split(size), __efi64_split(flags))
-
-/* file protocol */
-#define __efi64_argmap_open(prot, newh, fname, mode, attr) \
-	((prot), efi64_zero_upper(newh), (fname), __efi64_split(mode), \
-	 __efi64_split(attr))
-
-#define __efi64_argmap_set_position(pos) (__efi64_split(pos))
-
-/* file system protocol */
-#define __efi64_argmap_open_volume(prot, file) \
-	((prot), efi64_zero_upper(file))
-
-/* Memory Attribute Protocol */
-#define __efi64_argmap_get_memory_attributes(protocol, phys, size, flags) \
-	((protocol), __efi64_split(phys), __efi64_split(size), (flags))
-
-#define __efi64_argmap_set_memory_attributes(protocol, phys, size, flags) \
-	((protocol), __efi64_split(phys), __efi64_split(size), __efi64_split(flags))
-
-#define __efi64_argmap_clear_memory_attributes(protocol, phys, size, flags) \
-	((protocol), __efi64_split(phys), __efi64_split(size), __efi64_split(flags))
-
-/*
- * The macros below handle the plumbing for the argument mapping. To add a
- * mapping for a specific EFI method, simply define a macro
- * __efi64_argmap_<method name>, following the examples above.
- */
-
-#define __efi64_thunk_map(inst, func, ...)				\
-	efi64_thunk(inst->mixed_mode.func,				\
-		__efi64_argmap(__efi64_argmap_ ## func(__VA_ARGS__),	\
-			       (__VA_ARGS__)))
-
-#define __efi64_argmap(mapped, args)					\
-	__PASTE(__efi64_argmap__, __efi_nargs(__efi_eat mapped))(mapped, args)
-#define __efi64_argmap__0(mapped, args) __efi_eval mapped
-#define __efi64_argmap__1(mapped, args) __efi_eval args
-
-#define __efi_eat(...)
-#define __efi_eval(...) __VA_ARGS__
-
-static inline efi_status_t __efi64_widen_efi_status(u64 status)
-{
-	/* use rotate to move the value of bit #31 into position #63 */
-	return ror64(rol32(status, 1), 1);
-}
-
-/* The macro below handles dispatching via the thunk if needed */
-
-#define efi_fn_call(inst, func, ...)					\
-	(efi_is_native() ? (inst)->func(__VA_ARGS__)			\
-			 : efi_mixed_call((inst), func, ##__VA_ARGS__))
-
-#define efi_mixed_call(inst, func, ...)					\
-	_Generic(inst->func(__VA_ARGS__),				\
-	efi_status_t:							\
-		__efi64_widen_efi_status(				\
-			__efi64_thunk_map(inst, func, ##__VA_ARGS__)),	\
-	u64: ({ BUILD_BUG(); ULONG_MAX; }),				\
-	default:							\
-		(__typeof__(inst->func(__VA_ARGS__)))			\
-			__efi64_thunk_map(inst, func, ##__VA_ARGS__))
-
-#else /* CONFIG_EFI_MIXED */
-
 static inline bool efi_is_64bit(void)
 {
 	return IS_ENABLED(CONFIG_X86_64);
 }
-
-#endif /* CONFIG_EFI_MIXED */
 
 extern bool efi_reboot_required(void);
 extern bool efi_is_table_address(unsigned long phys_addr);

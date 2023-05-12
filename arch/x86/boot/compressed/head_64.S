@@ -263,13 +263,6 @@ SYM_FUNC_START(startup_32)
 	 * used to perform that far jump.
 	 */
 	leal	rva(startup_64)(%ebp), %eax
-#ifdef CONFIG_EFI_MIXED
-	cmpb	$1, rva(efi_is64)(%ebp)
-	je	1f
-	leal	rva(startup_64_mixed_mode)(%ebp), %eax
-1:
-#endif
-
 	pushl	$__KERNEL_CS
 	pushl	%eax
 
@@ -280,16 +273,6 @@ SYM_FUNC_START(startup_32)
 	/* Jump from 32bit compatibility mode into 64bit mode. */
 	lret
 SYM_FUNC_END(startup_32)
-
-#if IS_ENABLED(CONFIG_EFI_MIXED) && IS_ENABLED(CONFIG_EFI_HANDOVER_PROTOCOL)
-SYM_FUNC_START(efi32_stub_entry)
-	add	$0x4, %esp		/* Discard return address */
-	popl	%ecx
-	popl	%edx
-	popl	%esi
-	jmp	efi32_entry
-SYM_FUNC_END(efi32_stub_entry)
-#endif
 
 	.code64
 	.org 0x200
@@ -454,9 +437,6 @@ SYM_CODE_START(startup_64)
 SYM_CODE_END(startup_64)
 
 #ifdef CONFIG_EFI_HANDOVER_PROTOCOL
-#ifdef CONFIG_EFI_MIXED
-	.org	efi32_stub_entry + 0x200
-#endif
 SYM_FUNC_START(efi64_stub_entry)
 	and	$~0xf, %rsp			/* realign the stack */
 	call	efi_handover_entry

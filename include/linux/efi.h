@@ -244,7 +244,7 @@ typedef struct {
 	u8 sets_to_zero;
 } efi_time_cap_t;
 
-typedef union efi_boot_services efi_boot_services_t;
+typedef struct efi_boot_services efi_boot_services_t;
 
 /*
  * Types and defines for EFI ResetSystem
@@ -311,25 +311,22 @@ typedef efi_status_t efi_query_variable_store_t(u32 attributes,
 						unsigned long size,
 						bool nonblocking);
 
-typedef union {
-	struct {
-		efi_table_hdr_t				hdr;
-		efi_get_time_t __efiapi			*get_time;
-		efi_set_time_t __efiapi			*set_time;
-		efi_get_wakeup_time_t __efiapi		*get_wakeup_time;
-		efi_set_wakeup_time_t __efiapi		*set_wakeup_time;
-		efi_set_virtual_address_map_t __efiapi	*set_virtual_address_map;
-		void					*convert_pointer;
-		efi_get_variable_t __efiapi		*get_variable;
-		efi_get_next_variable_t __efiapi	*get_next_variable;
-		efi_set_variable_t __efiapi		*set_variable;
-		efi_get_next_high_mono_count_t __efiapi	*get_next_high_mono_count;
-		efi_reset_system_t __efiapi		*reset_system;
-		efi_update_capsule_t __efiapi		*update_capsule;
-		efi_query_capsule_caps_t __efiapi	*query_capsule_caps;
-		efi_query_variable_info_t __efiapi	*query_variable_info;
-	};
-	efi_runtime_services_32_t mixed_mode;
+typedef struct {
+	efi_table_hdr_t				hdr;
+	efi_get_time_t __efiapi			*get_time;
+	efi_set_time_t __efiapi			*set_time;
+	efi_get_wakeup_time_t __efiapi		*get_wakeup_time;
+	efi_set_wakeup_time_t __efiapi		*set_wakeup_time;
+	efi_set_virtual_address_map_t __efiapi	*set_virtual_address_map;
+	void					*convert_pointer;
+	efi_get_variable_t __efiapi		*get_variable;
+	efi_get_next_variable_t __efiapi	*get_next_variable;
+	efi_set_variable_t __efiapi		*set_variable;
+	efi_get_next_high_mono_count_t __efiapi	*get_next_high_mono_count;
+	efi_reset_system_t __efiapi		*reset_system;
+	efi_update_capsule_t __efiapi		*update_capsule;
+	efi_query_capsule_caps_t __efiapi	*query_capsule_caps;
+	efi_query_variable_info_t __efiapi	*query_variable_info;
 } efi_runtime_services_t;
 
 void efi_native_runtime_setup(void);
@@ -445,12 +442,9 @@ typedef struct {
 	u32 table;
 } efi_config_table_32_t;
 
-typedef union {
-	struct {
-		efi_guid_t guid;
-		void *table;
-	};
-	efi_config_table_32_t mixed_mode;
+typedef struct {
+	efi_guid_t guid;
+	void *table;
 } efi_config_table_t;
 
 typedef struct {
@@ -503,26 +497,23 @@ typedef struct {
 	u32 tables;
 } efi_system_table_32_t;
 
-typedef union efi_simple_text_input_protocol efi_simple_text_input_protocol_t;
-typedef union efi_simple_text_output_protocol efi_simple_text_output_protocol_t;
+typedef struct efi_simple_text_input_protocol efi_simple_text_input_protocol_t;
+typedef struct efi_simple_text_output_protocol efi_simple_text_output_protocol_t;
 
-typedef union {
-	struct {
-		efi_table_hdr_t hdr;
-		unsigned long fw_vendor;	/* physical addr of CHAR16 vendor string */
-		u32 fw_revision;
-		unsigned long con_in_handle;
-		efi_simple_text_input_protocol_t *con_in;
-		unsigned long con_out_handle;
-		efi_simple_text_output_protocol_t *con_out;
-		unsigned long stderr_handle;
-		unsigned long stderr;
-		efi_runtime_services_t *runtime;
-		efi_boot_services_t *boottime;
-		unsigned long nr_tables;
-		unsigned long tables;
-	};
-	efi_system_table_32_t mixed_mode;
+typedef struct {
+	efi_table_hdr_t hdr;
+	unsigned long fw_vendor;	/* physical addr of CHAR16 vendor string */
+	u32 fw_revision;
+	unsigned long con_in_handle;
+	efi_simple_text_input_protocol_t *con_in;
+	unsigned long con_out_handle;
+	efi_simple_text_output_protocol_t *con_out;
+	unsigned long stderr_handle;
+	unsigned long stderr;
+	efi_runtime_services_t *runtime;
+	efi_boot_services_t *boottime;
+	unsigned long nr_tables;
+	unsigned long tables;
 } efi_system_table_t;
 
 struct efi_boot_memmap {
