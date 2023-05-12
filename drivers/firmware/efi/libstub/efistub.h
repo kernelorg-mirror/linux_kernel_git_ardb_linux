@@ -40,9 +40,6 @@ extern bool efi_novamap;
 
 extern const efi_system_table_t *efi_system_table;
 
-typedef struct efi_dxe_services_table efi_dxe_services_table_t;
-extern const efi_dxe_services_table_t *efi_dxe_table;
-
 efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 				   efi_system_table_t *sys_table_arg);
 
@@ -56,8 +53,6 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 	efi_fn_call(efi_system_table->boottime, func, ##__VA_ARGS__)
 #define efi_rt_call(func, ...) \
 	efi_fn_call(efi_system_table->runtime, func, ##__VA_ARGS__)
-#define efi_dxe_call(func, ...) \
-	efi_fn_call(efi_dxe_table, func, ##__VA_ARGS__)
 
 #define efi_info(fmt, ...) \
 	efi_printk(KERN_INFO fmt, ##__VA_ARGS__)

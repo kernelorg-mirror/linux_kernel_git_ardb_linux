@@ -21,7 +21,7 @@
 #include "efistub.h"
 
 const efi_system_table_t *efi_system_table;
-const efi_dxe_services_table_t *efi_dxe_table;
+static const struct efi_dxe_services_table *efi_dxe_table;
 static efi_loaded_image_t *image = NULL;
 static efi_memory_attribute_protocol_t *memattr;
 
@@ -241,7 +241,7 @@ adjust_memory_range_protection(unsigned long start, unsigned long size)
 
 	for (end = start + size; start < end; start = next) {
 
-		status = efi_dxe_call(get_memory_space_descriptor, start, &desc);
+		status = efi_dxe_table->get_memory_space_descriptor(start, &desc);
 
 		if (status != EFI_SUCCESS)
 			return;
@@ -260,9 +260,9 @@ adjust_memory_range_protection(unsigned long start, unsigned long size)
 		unprotect_start = max(rounded_start, (unsigned long)desc.base_address);
 		unprotect_size = min(rounded_end, next) - unprotect_start;
 
-		status = efi_dxe_call(set_memory_space_attributes,
-				      unprotect_start, unprotect_size,
-				      EFI_MEMORY_WB);
+		status = efi_dxe_table->set_memory_space_attributes(unprotect_start,
+								    unprotect_size,
+								    EFI_MEMORY_WB);
 
 		if (status != EFI_SUCCESS) {
 			efi_warn("Unable to unprotect memory range [%08lx,%08lx]: %lx\n",
