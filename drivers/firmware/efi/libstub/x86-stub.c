@@ -310,93 +310,6 @@ static void __noreturn efi_exit(efi_handle_t handle, efi_status_t status)
 		asm("hlt");
 }
 
-static __alias(efi_main)
-void __noreturn efi_stub_entry(efi_handle_t handle,
-			       efi_system_table_t *sys_table_arg,
-			       struct boot_params *boot_params);
-
-/*
- * Because the x86 boot code expects to be passed a boot_params we
- * need to create one ourselves (usually the bootloader would create
- * one for us).
- */
-efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
-				   efi_system_table_t *sys_table_arg)
-{
-	struct boot_params *boot_params;
-	struct setup_header *hdr;
-	void *image_base;
-	efi_guid_t proto = LOADED_IMAGE_PROTOCOL_GUID;
-	int options_size = 0;
-	efi_status_t status;
-	char *cmdline_ptr;
-
-	efi_system_table = sys_table_arg;
-
-	/* Check if we were booted by the EFI firmware */
-	if (efi_system_table->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
-		efi_exit(handle, EFI_INVALID_PARAMETER);
-
-	status = efi_bs_call(handle_protocol, handle, &proto, (void **)&image);
-	if (status != EFI_SUCCESS) {
-		efi_err("Failed to get handle for LOADED_IMAGE_PROTOCOL\n");
-		efi_exit(handle, status);
-	}
-
-	image_base = efi_table_attr(image, image_base);
-
-	status = efi_allocate_pages(sizeof(struct boot_params),
-				    (unsigned long *)&boot_params, ULONG_MAX);
-	if (status != EFI_SUCCESS) {
-		efi_err("Failed to allocate lowmem for boot params\n");
-		efi_exit(handle, status);
-	}
-
-	memset(boot_params, 0x0, sizeof(struct boot_params));
-
-	hdr = &boot_params->hdr;
-
-	/* Copy the setup header from the second sector to boot_params */
-	memcpy(&hdr->jump, image_base + 512,
-	       sizeof(struct setup_header) - offsetof(struct setup_header, jump));
-
-	/*
-	 * Fill out some of the header fields ourselves because the
-	 * EFI firmware loader doesn't load the first sector.
-	 */
-	hdr->root_flags	= 1;
-	hdr->vid_mode	= 0xffff;
-	hdr->boot_flag	= 0xAA55;
-
-	hdr->type_of_loader = 0x21;
-
-	/* Convert unicode cmdline to ascii */
-	cmdline_ptr = efi_convert_cmdline(image, &options_size);
-	if (!cmdline_ptr)
-		goto fail;
-
-	efi_set_u64_split((unsigned long)cmdline_ptr,
-			  &hdr->cmd_line_ptr, &boot_params->ext_cmd_line_ptr);
-
-	hdr->ramdisk_image = 0;
-	hdr->ramdisk_size = 0;
-
-	/*
-	 * Disregard any setup data that was provided by the bootloader:
-	 * setup_data could be pointing anywhere, and we have no way of
-	 * authenticating or validating the payload.
-	 */
-	hdr->setup_data = 0;
-
-	efi_stub_entry(handle, sys_table_arg, boot_params);
-	/* not reached */
-
-fail:
-	efi_free(sizeof(struct boot_params), (unsigned long)boot_params);
-
-	efi_exit(handle, status);
-}
-
 static void add_e820ext(struct boot_params *params,
 			struct setup_data *e820ext, u32 nr_entries)
 {
@@ -799,20 +712,61 @@ static void __noreturn enter_kernel(unsigned long kernel_addr,
  * On success, we jump to the relocated kernel directly and never return.
  * On failure, we exit to the firmware via efi_exit instead of returning.
  */
-static void __noreturn efi_main(efi_handle_t handle,
-				efi_system_table_t *sys_table_arg,
-				struct boot_params *boot_params)
+efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
+				   efi_system_table_t *sys_table_arg)
 {
+	static struct boot_params boot_params __page_aligned_bss;
 	efi_guid_t guid = EFI_MEMORY_ATTRIBUTE_PROTOCOL_GUID;
-	struct setup_header *hdr = &boot_params->hdr;
+	struct setup_header *hdr = &boot_params.hdr;
 	const struct linux_efi_initrd *initrd = NULL;
 	unsigned long kernel_entry;
+	int options_size = 0;
 	efi_status_t status;
+	char *cmdline_ptr;
 
 	efi_system_table = sys_table_arg;
 	/* Check if we were booted by the EFI firmware */
 	if (efi_system_table->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
 		efi_exit(handle, EFI_INVALID_PARAMETER);
+
+	status = efi_bs_call(handle_protocol, handle,
+			     &LOADED_IMAGE_PROTOCOL_GUID, (void **)&image);
+	if (status != EFI_SUCCESS) {
+		efi_err("Failed to get handle for LOADED_IMAGE_PROTOCOL\n");
+		efi_exit(handle, status);
+	}
+
+	/* Copy the setup header from the second sector to boot_params */
+	memcpy(&hdr->jump, image->image_base + 512,
+	       sizeof(struct setup_header) - offsetof(struct setup_header, jump));
+
+	/*
+	 * Fill out some of the header fields ourselves because the
+	 * EFI firmware loader doesn't load the first sector.
+	 */
+	hdr->root_flags	= 1;
+	hdr->vid_mode	= 0xffff;
+	hdr->boot_flag	= 0xAA55;
+
+	hdr->type_of_loader = 0x21;
+
+	/* Convert unicode cmdline to ascii */
+	cmdline_ptr = efi_convert_cmdline(image, &options_size);
+	if (!cmdline_ptr)
+		goto fail;
+
+	efi_set_u64_split((unsigned long)cmdline_ptr,
+			  &hdr->cmd_line_ptr, &boot_params.ext_cmd_line_ptr);
+
+	hdr->ramdisk_image = 0;
+	hdr->ramdisk_size = 0;
+
+	/*
+	 * Disregard any setup data that was provided by the bootloader:
+	 * setup_data could be pointing anywhere, and we have no way of
+	 * authenticating or validating the payload.
+	 */
+	hdr->setup_data = 0;
 
 	if (IS_ENABLED(CONFIG_EFI_DXE_MEM_ATTRIBUTES)) {
 		efi_dxe_table = get_efi_config_table(EFI_DXE_SERVICES_TABLE_GUID);
@@ -840,9 +794,7 @@ static void __noreturn efi_main(efi_handle_t handle,
 	}
 #endif
 	if (!IS_ENABLED(CONFIG_CMDLINE_OVERRIDE)) {
-		unsigned long cmdline_paddr = ((u64)hdr->cmd_line_ptr |
-					       ((u64)boot_params->ext_cmd_line_ptr << 32));
-		status = efi_parse_options((char *)cmdline_paddr);
+		status = efi_parse_options(cmdline_ptr);
 		if (status != EFI_SUCCESS) {
 			efi_err("Failed to parse options\n");
 			goto fail;
@@ -870,18 +822,12 @@ static void __noreturn efi_main(efi_handle_t handle,
 		goto fail;
 	if (initrd && initrd->size > 0) {
 		efi_set_u64_split(initrd->base, &hdr->ramdisk_image,
-				  &boot_params->ext_ramdisk_image);
+				  &boot_params.ext_ramdisk_image);
 		efi_set_u64_split(initrd->size, &hdr->ramdisk_size,
-				  &boot_params->ext_ramdisk_size);
+				  &boot_params.ext_ramdisk_size);
 	}
 
-
-	/*
-	 * If the boot loader gave us a value for secure_boot then we use that,
-	 * otherwise we ask the BIOS.
-	 */
-	if (boot_params->secure_boot == efi_secureboot_mode_unset)
-		boot_params->secure_boot = efi_get_secureboot();
+	boot_params.secure_boot = efi_get_secureboot();
 
 	/* Ask the firmware to clear memory on unclean shutdown */
 	efi_enable_reset_attack_mitigation();
@@ -890,13 +836,13 @@ static void __noreturn efi_main(efi_handle_t handle,
 
 	efi_retrieve_tpm2_eventlog();
 
-	setup_graphics(boot_params);
+	setup_graphics(&boot_params);
 
-	setup_efi_pci(boot_params);
+	setup_efi_pci(&boot_params);
 
-	setup_quirks(boot_params);
+	setup_quirks(&boot_params);
 
-	status = exit_boot(boot_params, handle);
+	status = exit_boot(&boot_params, handle);
 	if (status != EFI_SUCCESS) {
 		efi_err("exit_boot() failed!\n");
 		goto fail;
@@ -904,7 +850,7 @@ static void __noreturn efi_main(efi_handle_t handle,
 
 	efi_5level_switch();
 
-	enter_kernel(kernel_entry, boot_params);
+	enter_kernel(kernel_entry, &boot_params);
 fail:
 	efi_err("efi_main() failed!\n");
 
