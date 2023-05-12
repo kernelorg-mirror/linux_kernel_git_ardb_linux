@@ -45,8 +45,6 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 
 #define efi_bs_call(func, ...) \
 	efi_system_table->boottime->func(__VA_ARGS__)
-#define efi_rt_call(func, ...) \
-	efi_system_table->runtime->func(__VA_ARGS__)
 
 #define efi_info(fmt, ...) \
 	efi_printk(KERN_INFO fmt, ##__VA_ARGS__)
@@ -89,12 +87,12 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 	fdt_setprop((fdt), (node_offset), (name), &(var), sizeof(var))
 #endif
 
-#define get_efi_var(name, vendor, ...)				\
-	efi_rt_call(get_variable, (efi_char16_t *)(name),	\
+#define get_efi_var(name, vendor, ...)					\
+	efi_system_table->runtime->get_variable((efi_char16_t *)(name),	\
 		    (efi_guid_t *)(vendor), __VA_ARGS__)
 
-#define set_efi_var(name, vendor, ...)				\
-	efi_rt_call(set_variable, (efi_char16_t *)(name),	\
+#define set_efi_var(name, vendor, ...)					\
+	efi_system_table->runtime->set_variable((efi_char16_t *)(name),	\
 		    (efi_guid_t *)(vendor), __VA_ARGS__)
 
 #define efi_get_handle_at(array, idx)	(array)[idx]

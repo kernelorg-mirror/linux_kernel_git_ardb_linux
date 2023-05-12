@@ -65,9 +65,9 @@ efi_status_t efi_boot_kernel(void *handle, efi_loaded_image_t *image,
 		return status;
 
 	/* Install the new virtual address map */
-	efi_rt_call(set_virtual_address_map,
-		    priv.runtime_entry_count * desc_size, desc_size,
-		    desc_ver, priv.runtime_map);
+	efi_system_table->runtime->
+		set_virtual_address_map(priv.runtime_entry_count * desc_size,
+					desc_size, desc_ver, priv.runtime_map);
 
 	/* Config Direct Mapping */
 	csr_write64(CSR_DMW0_INIT, LOONGARCH_CSR_DMWIN0);
