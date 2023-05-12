@@ -43,16 +43,10 @@ extern const efi_system_table_t *efi_system_table;
 efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 				   efi_system_table_t *sys_table_arg);
 
-#ifndef ARCH_HAS_EFISTUB_WRAPPERS
-
-#define efi_fn_call(inst, func, ...)	(inst)->func(__VA_ARGS__)
-
-#endif
-
 #define efi_bs_call(func, ...) \
-	efi_fn_call(efi_system_table->boottime, func, ##__VA_ARGS__)
+	efi_system_table->boottime->func(__VA_ARGS__)
 #define efi_rt_call(func, ...) \
-	efi_fn_call(efi_system_table->runtime, func, ##__VA_ARGS__)
+	efi_system_table->runtime->func(__VA_ARGS__)
 
 #define efi_info(fmt, ...) \
 	efi_printk(KERN_INFO fmt, ##__VA_ARGS__)

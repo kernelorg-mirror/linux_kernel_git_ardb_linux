@@ -492,8 +492,8 @@ typedef struct {
 	efi_simple_text_output_protocol_t *con_out;
 	unsigned long stderr_handle;
 	unsigned long stderr;
-	efi_runtime_services_t *runtime;
-	efi_boot_services_t *boottime;
+	const efi_runtime_services_t *runtime;
+	const efi_boot_services_t *boottime;
 	unsigned long nr_tables;
 	const efi_config_table_t *tables;
 } efi_system_table_t;
