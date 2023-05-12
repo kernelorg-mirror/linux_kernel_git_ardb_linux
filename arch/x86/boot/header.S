@@ -387,16 +387,6 @@ xloadflags:
 # define XLF1 0
 #endif
 
-#ifdef CONFIG_EFI_HANDOVER_PROTOCOL
-# ifdef CONFIG_X86_64
-#  define XLF23 XLF_EFI_HANDOVER_64		/* 64-bit EFI handover ok */
-# else
-#  define XLF23 XLF_EFI_HANDOVER_32		/* 32-bit EFI handover ok */
-# endif
-#else
-# define XLF23 0
-#endif
-
 #if defined(CONFIG_X86_64) && defined(CONFIG_EFI) && defined(CONFIG_KEXEC_CORE)
 # define XLF4 XLF_EFI_KEXEC
 #else
@@ -413,7 +403,7 @@ xloadflags:
 #define XLF56 0
 #endif
 
-			.word XLF0 | XLF1 | XLF23 | XLF4 | XLF56
+			.word XLF0 | XLF1 | XLF4 | XLF56
 
 cmdline_size:   .long   COMMAND_LINE_SIZE-1     #length of the command line,
                                                 #added with boot protocol

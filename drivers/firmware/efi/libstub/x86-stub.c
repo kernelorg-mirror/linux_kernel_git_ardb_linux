@@ -910,21 +910,3 @@ fail:
 
 	efi_exit(handle, status);
 }
-
-#ifdef CONFIG_EFI_HANDOVER_PROTOCOL
-void efi_handover_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
-			struct boot_params *boot_params)
-{
-	extern char _bss[], _ebss[];
-
-	/* Ensure that BSS is zeroed when booting via the handover protocol */
-	memset(_bss, 0, _ebss - _bss);
-	efi_main(handle, sys_table_arg, boot_params);
-}
-
-#ifdef CONFIG_X86_32
-extern __alias(efi_handover_entry)
-void efi32_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
-		      struct boot_params *boot_params);
-#endif
-#endif
