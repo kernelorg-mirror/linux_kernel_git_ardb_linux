@@ -18,24 +18,11 @@
 #include <linux/seq_file.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/vmalloc.h>
 #include <net/netlink.h>
 
 #include "compress.h"
 
-struct scomp_scratch {
-	spinlock_t	lock;
-	void		*src;
-	void		*dst;
-};
-
-static DEFINE_PER_CPU(struct scomp_scratch, scomp_scratch) = {
-	.lock = __SPIN_LOCK_UNLOCKED(scomp_scratch.lock),
-};
-
 static const struct crypto_type crypto_scomp_type;
-static int scomp_scratch_users;
-static DEFINE_MUTEX(scomp_lock);
 
 static int __maybe_unused crypto_scomp_report(
 	struct sk_buff *skb, struct crypto_alg *alg)
@@ -58,56 +45,45 @@ static void crypto_scomp_show(struct seq_file *m, struct crypto_alg *alg)
 	seq_puts(m, "type         : scomp\n");
 }
 
-static void crypto_scomp_free_scratches(void)
-{
-	struct scomp_scratch *scratch;
-	int i;
-
-	for_each_possible_cpu(i) {
-		scratch = per_cpu_ptr(&scomp_scratch, i);
-
-		vfree(scratch->src);
-		vfree(scratch->dst);
-		scratch->src = NULL;
-		scratch->dst = NULL;
-	}
-}
-
-static int crypto_scomp_alloc_scratches(void)
-{
-	struct scomp_scratch *scratch;
-	int i;
-
-	for_each_possible_cpu(i) {
-		void *mem;
-
-		scratch = per_cpu_ptr(&scomp_scratch, i);
-
-		mem = vmalloc_node(SCOMP_SCRATCH_SIZE, cpu_to_node(i));
-		if (!mem)
-			goto error;
-		scratch->src = mem;
-		mem = vmalloc_node(SCOMP_SCRATCH_SIZE, cpu_to_node(i));
-		if (!mem)
-			goto error;
-		scratch->dst = mem;
-	}
-	return 0;
-error:
-	crypto_scomp_free_scratches();
-	return -ENOMEM;
-}
-
 static int crypto_scomp_init_tfm(struct crypto_tfm *tfm)
 {
-	int ret = 0;
+	return 0;
+}
 
-	mutex_lock(&scomp_lock);
-	if (!scomp_scratch_users++)
-		ret = crypto_scomp_alloc_scratches();
-	mutex_unlock(&scomp_lock);
+/**
+ * scomp_map_sg - Return virtual address of memory described by a scatterlist
+ *
+ * @sg:		The address of the scatterlist in memory
+ * @len:	The length of the buffer described by the scatterlist
+ *
+ * If the memory region described by scatterlist @sg consists of @len
+ * contiguous bytes in memory and is accessible via the linear mapping or via a
+ * single kmap(), return its virtual address.  Otherwise, return NULL.
+ */
+static void *scomp_map_sg(struct scatterlist *sg, unsigned int len)
+{
+	struct page *page;
+	unsigned int offset;
 
-	return ret;
+	while (sg_is_chain(sg))
+		sg = sg_next(sg);
+
+	if (!sg || sg_nents_for_len(sg, len) != 1)
+		return NULL;
+
+	page   = sg_page(sg) + (sg->offset >> PAGE_SHIFT);
+	offset = offset_in_page(sg->offset);
+
+	if (PageHighMem(page) && (offset + sg->length) > PAGE_SIZE)
+		return NULL;
+
+	return kmap_local_page(page) + offset;
+}
+
+static void scomp_unmap_sg(const void *addr)
+{
+	if (is_kmap_addr(addr))
+		kunmap_local(addr);
 }
 
 static int scomp_acomp_comp_decomp(struct acomp_req *req, int dir)
@@ -116,30 +92,52 @@ static int scomp_acomp_comp_decomp(struct acomp_req *req, int dir)
 	void **tfm_ctx = acomp_tfm_ctx(tfm);
 	struct crypto_scomp *scomp = *tfm_ctx;
 	void **ctx = acomp_request_ctx(req);
-	struct scomp_scratch *scratch;
+	void *src_alloc = NULL;
+	void *dst_alloc = NULL;
+	const u8 *src;
+	u8 *dst;
 	int ret;
 
-	if (!req->src || !req->slen || req->slen > SCOMP_SCRATCH_SIZE)
+	if (!req->src || !req->slen || !req->dst || !req->dlen)
 		return -EINVAL;
 
-	if (!req->dst || !req->dlen || req->dlen > SCOMP_SCRATCH_SIZE)
-		return -EINVAL;
-
-	scratch = raw_cpu_ptr(&scomp_scratch);
-	spin_lock(&scratch->lock);
-
-	scatterwalk_map_and_copy(scratch->src, req->src, 0, req->slen, 0);
-	if (dir)
-		ret = crypto_scomp_compress(scomp, scratch->src, req->slen,
-					    scratch->dst, &req->dlen, *ctx);
-	else
-		ret = crypto_scomp_decompress(scomp, scratch->src, req->slen,
-					      scratch->dst, &req->dlen, *ctx);
-	if (!ret) {
-		scatterwalk_map_and_copy(scratch->dst, req->dst, 0, req->dlen,
-					 1);
+	dst = scomp_map_sg(req->dst, req->dlen);
+	if (!dst) {
+		dst = dst_alloc = kvmalloc(req->dlen, GFP_KERNEL);
+		if (!dst_alloc)
+			return -ENOMEM;
 	}
-	spin_unlock(&scratch->lock);
+
+	src = scomp_map_sg(req->src, req->slen);
+	if (!src) {
+		src = src_alloc = kvmalloc(req->slen, GFP_KERNEL);
+		if (!src_alloc) {
+			ret = -ENOMEM;
+			goto out;
+		}
+		scatterwalk_map_and_copy(src_alloc, req->src, 0, req->slen, 0);
+	}
+
+	if (dir)
+		ret = crypto_scomp_compress(scomp, src, req->slen, dst,
+					    &req->dlen, *ctx);
+	else
+		ret = crypto_scomp_decompress(scomp, src, req->slen, dst,
+					      &req->dlen, *ctx);
+
+	if (src_alloc)
+		kvfree(src_alloc);
+	else
+		scomp_unmap_sg(src);
+
+	if (!ret && dst == dst_alloc)
+		scatterwalk_map_and_copy(dst, req->dst, 0, req->dlen, 1);
+out:
+	if (dst_alloc)
+		kvfree(dst_alloc);
+	else
+		scomp_unmap_sg(dst);
+
 	return ret;
 }
 
@@ -158,11 +156,6 @@ static void crypto_exit_scomp_ops_async(struct crypto_tfm *tfm)
 	struct crypto_scomp **ctx = crypto_tfm_ctx(tfm);
 
 	crypto_free_scomp(*ctx);
-
-	mutex_lock(&scomp_lock);
-	if (!--scomp_scratch_users)
-		crypto_scomp_free_scratches();
-	mutex_unlock(&scomp_lock);
 }
 
 int crypto_init_scomp_ops_async(struct crypto_tfm *tfm)
