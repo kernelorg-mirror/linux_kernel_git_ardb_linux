@@ -846,7 +846,7 @@ void __init efi_thunk_runtime_setup(void)
 	efi.query_capsule_caps = efi_thunk_query_capsule_caps;
 }
 
-efi_status_t __init __no_sanitize_address
+efi_status_t __init __no_sanitize_address __efi_realign_stack
 efi_set_virtual_address_map(unsigned long memory_map_size,
 			    unsigned long descriptor_size,
 			    u32 descriptor_version,

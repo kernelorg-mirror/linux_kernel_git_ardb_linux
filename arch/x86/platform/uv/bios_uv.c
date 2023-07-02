@@ -20,8 +20,8 @@ unsigned long uv_systab_phys __ro_after_init = EFI_INVALID_TABLE_ADDR;
 
 struct uv_systab *uv_systab;
 
-static s64 __uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3,
-			u64 a4, u64 a5)
+static s64 __efi_realign_stack
+__uv_bios_call(enum uv_bios_cmd which, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5)
 {
 	struct uv_systab *tab = uv_systab;
 	s64 ret;

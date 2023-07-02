@@ -111,6 +111,8 @@ extern bool efi_disable_ibt_for_runtime;
 	ret;								\
 })
 
+#define __efi_realign_stack	__attribute__((force_align_arg_pointer))
+
 #ifdef CONFIG_KASAN
 /*
  * CONFIG_KASAN may redefine memset to __memset.  __memset function is present
