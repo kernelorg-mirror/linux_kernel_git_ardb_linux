@@ -9,6 +9,7 @@
 # in efi_call_virt() will cause crash if this code instrumented.
 #
 KASAN_SANITIZE_runtime-wrappers.o	:= n
+CFLAGS_runtime-wrappers.o		:= $(EFI_STACK_ALIGN)
 
 obj-$(CONFIG_ACPI_BGRT) 		+= efi-bgrt.o
 obj-$(CONFIG_EFI)			+= efi.o vars.o reboot.o memattr.o tpm.o
