@@ -36,10 +36,13 @@ export RETPOLINE_VDSO_CFLAGS
 ifneq ($(call cc-option, -mpreferred-stack-boundary=4),)
       cc_stack_align4 := -mpreferred-stack-boundary=2
       cc_stack_align8 := -mpreferred-stack-boundary=3
+      EFI_STACK_ALIGN := -mpreferred-stack-boundary=4
 else ifneq ($(call cc-option, -mstack-alignment=16),)
       cc_stack_align4 := -mstack-alignment=4
       cc_stack_align8 := -mstack-alignment=8
+      EFI_STACK_ALIGN := -mstack-alignment=16
 endif
+export EFI_STACK_ALIGN
 
 # How to compile the 16-bit code.  Note we always compile for -march=i386;
 # that way we can complain to the user if the CPU is insufficient.
