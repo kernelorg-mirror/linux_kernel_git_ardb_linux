@@ -1171,8 +1171,7 @@ static inline void efi_check_for_embedded_firmwares(void) { }
 #define arch_efi_call_virt(p, f, args...)	((p)->f(args))
 
 /*
- * Arch code can implement the following three template macros, avoiding
- * reptition for the void/non-void return cases of {__,}efi_call_virt():
+ * Arch code must implement the following three template macros:
  *
  *  * arch_efi_call_virt_setup()
  *
@@ -1181,9 +1180,7 @@ static inline void efi_check_for_embedded_firmwares(void) { }
  *
  *  * arch_efi_call_virt()
  *
- *    Performs the call. The last expression in the macro must be the call
- *    itself, allowing the logic to be shared by the void and non-void
- *    cases.
+ *    Performs the call.
  *
  *  * arch_efi_call_virt_teardown()
  *
@@ -1198,25 +1195,15 @@ static inline void efi_check_for_embedded_firmwares(void) { }
 	arch_efi_call_virt_setup();					\
 									\
 	__flags = efi_call_virt_save_flags();				\
-	__s = arch_efi_call_virt(p, f, args);				\
+	__s = _Generic((p)->f(args),					\
+		       efi_status_t: arch_efi_call_virt((p), f, args),	\
+		       default:     (arch_efi_call_virt((p), f, args),	\
+				     EFI_ABORTED));			\
 	efi_call_virt_check_flags(__flags, __stringify(f));		\
 									\
 	arch_efi_call_virt_teardown();					\
 									\
 	__s;								\
-})
-
-#define __efi_call_virt_pointer(p, f, args...)				\
-({									\
-	unsigned long __flags;						\
-									\
-	arch_efi_call_virt_setup();					\
-									\
-	__flags = efi_call_virt_save_flags();				\
-	arch_efi_call_virt(p, f, args);					\
-	efi_call_virt_check_flags(__flags, __stringify(f));		\
-									\
-	arch_efi_call_virt_teardown();					\
 })
 
 #define EFI_RANDOM_SEED_SIZE		32U // BLAKE2S_HASH_SIZE

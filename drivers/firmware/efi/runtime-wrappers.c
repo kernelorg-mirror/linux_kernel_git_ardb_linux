@@ -41,8 +41,6 @@
  */
 #define efi_call_virt(f, args...)   \
 	efi_call_virt_pointer(efi.runtime, f, args)
-#define __efi_call_virt(f, args...) \
-	__efi_call_virt_pointer(efi.runtime, f, args)
 
 union efi_rts_args {
 	struct {
@@ -491,7 +489,7 @@ static void virt_efi_reset_system(int reset_type,
 		return;
 	}
 	efi_rts_work.efi_rts_id = EFI_RESET_SYSTEM;
-	__efi_call_virt(reset_system, reset_type, status, data_size, data);
+	efi_call_virt(reset_system, reset_type, status, data_size, data);
 	up(&efi_runtime_lock);
 }
 
