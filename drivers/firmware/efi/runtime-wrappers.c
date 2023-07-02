@@ -108,6 +108,13 @@ union efi_rts_args {
 		u64		*max_size;
 		int		*reset_type;
 	} QUERY_CAPSULE_CAPS;
+
+	struct {
+		efi_status_t (__efiapi	*acpi_prm_handler)(efi_physical_addr_t,
+							   void *);
+		efi_physical_addr_t	param_buffer_addr;
+		void			*context;
+	} ACPI_PRM_HANDLER;
 };
 
 struct efi_runtime_work efi_rts_work;
@@ -278,6 +285,14 @@ static void efi_call_rts(struct work_struct *work)
 				       args->QUERY_CAPSULE_CAPS.max_size,
 				       args->QUERY_CAPSULE_CAPS.reset_type);
 		break;
+	case EFI_ACPI_PRM_HANDLER:
+#ifdef CONFIG_ACPI_PRMT
+		status = efi_call_virt_pointer(&args->ACPI_PRM_HANDLER,
+					       acpi_prm_handler,
+					       args->ACPI_PRM_HANDLER.param_buffer_addr,
+					       args->ACPI_PRM_HANDLER.context);
+		break;
+#endif
 	default:
 		/*
 		 * Ideally, we should never reach here because a caller of this
@@ -544,3 +559,23 @@ void __init efi_native_runtime_setup(void)
 	efi.update_capsule = virt_efi_update_capsule;
 	efi.query_capsule_caps = virt_efi_query_capsule_caps;
 }
+
+#ifdef CONFIG_ACPI_PRMT
+
+efi_status_t
+efi_call_acpi_prm_handler(efi_status_t (__efiapi *handler_addr)(efi_physical_addr_t,
+							        void *),
+			  efi_physical_addr_t param_buffer_addr,
+			  void *context)
+{
+	efi_status_t status;
+
+	if (down_interruptible(&efi_runtime_lock))
+		return EFI_ABORTED;
+	status = efi_queue_work(ACPI_PRM_HANDLER, handler_addr,
+				param_buffer_addr, context);
+	up(&efi_runtime_lock);
+	return status;
+}
+
+#endif
