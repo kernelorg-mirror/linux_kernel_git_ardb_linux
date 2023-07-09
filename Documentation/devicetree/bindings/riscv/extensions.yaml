@@ -190,6 +190,24 @@ properties:
             instructions as ratified at commit 6d33919 ("Merge pull request #158
             from hirooih/clmul-fix-loop-end-condition") of riscv-bitmanip.
 
+        - const: zbkb
+          description: |
+            The standard Zbkb cryptography extension for bit-manipulation
+            instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zbkc
+          description: |
+            The standard Zbkc cryptography extension for carry-less multiply
+            instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zbkx
+          description: |
+            The standard Zbkx cryptography extension for crossbar permutation
+            instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
         - const: zicbom
           description:
             The standard Zicbom extension for base cache management operations as
@@ -239,6 +257,70 @@ properties:
             The standard Zihpm extension for hardware performance counters, as
             ratified in the 20191213 version of the unprivileged ISA
             specification.
+
+        - const: zk
+          description: |
+            The standard Zk cryptography extension is a shorthand for the
+            union of the Zkn, Zkr and Zkt cryptography extensions, as ratified
+            at commit 73de909 ("Zvk: Update AES instruction specs") of
+            riscv-crypto.
+
+        - const: zkn
+          description: |
+            The standard Zkn cryptography extension covers the NIST algorithm
+            suite that other cryptography extensions support. It is the union of
+            the Zbkb, Zbkc, Zbkx, Zknd, Zkne and Zknh extensions, as ratified at
+            commit 73de909 ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zknd
+          description: |
+            The standard Zknd cryptography extension for AES block cipher
+            decryption acceleration instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zkne
+          description: |
+            The standard Zkne cryptography extension for AES block cipher
+            encryption acceleration instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zknh
+          description: |
+            The standard Zknh cryptography extension for SHA2 hash algorithm
+            functions acceleration instructions as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zkr
+          description: |
+            The standard Zkr cryptography extension for the entropy source CSR
+            definitions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zks
+          description: |
+            The standard Zks cryptography extension covers the ShangMi algorithm
+            suite that other cryptography extensions support. It is the union of
+            the Zbkb, Zbkc, Zbkx, Zksed and Zksh extensions, as ratified at
+            commit 73de909 ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zksed
+          description: |
+            The standard Zksed cryptography extension for SM4 block cipher
+            acceleration instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zksh
+          description: |
+            The standard Zksh cryptography extension for SM3 hash algorithm
+            funstions acceleration instructions, as ratified at commit 73de909
+            ("Zvk: Update AES instruction specs") of riscv-crypto.
+
+        - const: zkt
+          description: |
+            The standard Zkt cryptography extension for data independent
+            execution latency attestation, for a safe subset of instructions,
+            as ratified at commit 73de909 ("Zvk: Update AES instruction specs")
+            of riscv-crypto.
 
         - const: ztso
           description:
