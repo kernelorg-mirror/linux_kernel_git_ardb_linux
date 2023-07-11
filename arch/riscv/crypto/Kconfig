@@ -15,5 +15,6 @@ config CRYPTO_GHASH_RISCV64
 	  - Zbc + Zbb extensions
 	  - Zbc + Zbkb extensions
 	  - Zvbb vector crypto extension
+	  - Zvkg vector crypto extension
 
 endmenu
