@@ -196,6 +196,23 @@ static inline void __switch_to_vector(struct task_struct *prev,
 void riscv_v_vstate_ctrl_init(struct task_struct *tsk);
 bool riscv_v_vstate_ctrl_user_allowed(void);
 
+static inline void riscv_v_flush_cpu_state(void)
+{
+	asm volatile (
+		".option push\n\t"
+		".option arch, +v\n\t"
+		"vsetvli	t0, x0, e8, m8, ta, ma\n\t"
+		"vmv.v.i	v0, 0\n\t"
+		"vmv.v.i	v8, 0\n\t"
+		"vmv.v.i	v16, 0\n\t"
+		"vmv.v.i	v24, 0\n\t"
+		".option pop\n\t"
+		: : : "t0");
+}
+
+void kernel_rvv_begin(void);
+void kernel_rvv_end(void);
+
 #else /* ! CONFIG_RISCV_ISA_V  */
 
 struct pt_regs;
