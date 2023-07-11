@@ -3,6 +3,9 @@
 # linux/arch/riscv/crypto/Makefile
 #
 
+obj-$(CONFIG_CRYPTO_AES_RISCV) += aes-riscv.o
+aes-riscv-y := aes-riscv-glue.o aes-riscv64-zvkned.o
+
 obj-$(CONFIG_CRYPTO_GHASH_RISCV64) += ghash-riscv64.o
 ghash-riscv64-y := ghash-riscv64-glue.o
 ifdef CONFIG_RISCV_ISA_ZBC
@@ -21,6 +24,9 @@ sha512-riscv64-y := sha512-riscv64-glue.o sha512-riscv64-zvbb-zvknhb.o
 quiet_cmd_perlasm = PERLASM $@
       cmd_perlasm = $(PERL) $(<) void $(@)
 
+$(obj)/aes-riscv64-zvkned.S: $(src)/aes-riscv64-zvkned.pl
+	$(call cmd,perlasm)
+
 $(obj)/ghash-riscv64-zbc.S: $(src)/ghash-riscv64-zbc.pl
 	$(call cmd,perlasm)
 
@@ -36,5 +42,6 @@ $(obj)/sha256-riscv64-zvbb-zvknha.S: $(src)/sha256-riscv64-zvbb-zvknha.pl
 $(obj)/sha512-riscv64-zvbb-zvknhb.S: $(src)/sha512-riscv64-zvbb-zvknhb.pl
 	$(call cmd,perlasm)
 
+clean-files += aes-riscv64-zvkned.S
 clean-files += ghash-riscv64-zbc.S ghash-riscv64-zvkb.S ghash-riscv64-zvkg.S
 clean-files += sha256-riscv64-zvknha.S sha512-riscv64-zvknhb.S

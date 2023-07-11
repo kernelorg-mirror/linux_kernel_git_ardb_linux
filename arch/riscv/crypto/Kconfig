@@ -2,6 +2,20 @@
 
 menu "Accelerated Cryptographic Algorithms for CPU (riscv)"
 
+config CRYPTO_AES_RISCV
+	tristate "Ciphers: AES (RISCV)"
+	depends on 64BIT && RISCV_ISA_V
+	select CRYPTO_AES
+	help
+	  Block ciphers: AES cipher algorithms (FIPS-197)
+	  Length-preserving ciphers: AES with ECB, CBC, CTR, CTS,
+	    XCTR, and XTS modes
+	  AEAD cipher: AES with CBC, ESSIV, and SHA-256
+	    for fscrypt and dm-crypt
+
+	  Architecture: riscv using one of
+	  - Zvkns
+
 config CRYPTO_GHASH_RISCV64
 	tristate "Hash functions: GHASH"
 	depends on 64BIT && (RISCV_ISA_ZBC || RISCV_ISA_V)
