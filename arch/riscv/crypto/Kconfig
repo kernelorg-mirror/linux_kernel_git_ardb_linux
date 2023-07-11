@@ -17,4 +17,15 @@ config CRYPTO_GHASH_RISCV64
 	  - Zvbb vector crypto extension
 	  - Zvkg vector crypto extension
 
+config CRYPTO_SHA256_RISCV64
+	tristate "Hash functions: SHA-256"
+	depends on 64BIT && RISCV_ISA_V
+	select CRYPTO_HASH
+	select CRYPTO_LIB_SHA256
+	help
+	  SHA-256 secure hash algorithm (FIPS 180)
+
+	  Architecture: riscv64 using
+	  - Zvknha or Zvknhb vector crypto extensions
+
 endmenu
