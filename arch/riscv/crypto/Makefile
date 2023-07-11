@@ -8,6 +8,9 @@ ghash-riscv64-y := ghash-riscv64-glue.o
 ifdef CONFIG_RISCV_ISA_ZBC
 ghash-riscv64-y += ghash-riscv64-zbc.o
 endif
+ifdef CONFIG_RISCV_ISA_V
+ghash-riscv64-y += ghash-riscv64-zvbb-zvbc.o
+endif
 
 quiet_cmd_perlasm = PERLASM $@
       cmd_perlasm = $(PERL) $(<) void $(@)
@@ -15,4 +18,7 @@ quiet_cmd_perlasm = PERLASM $@
 $(obj)/ghash-riscv64-zbc.S: $(src)/ghash-riscv64-zbc.pl
 	$(call cmd,perlasm)
 
-clean-files += ghash-riscv64-zbc.S
+$(obj)/ghash-riscv64-zvbb-zvbc.S: $(src)/ghash-riscv64-zvbb-zvbc.pl
+	$(call cmd,perlasm)
+
+clean-files += ghash-riscv64-zbc.S ghash-riscv64-zvkb.S

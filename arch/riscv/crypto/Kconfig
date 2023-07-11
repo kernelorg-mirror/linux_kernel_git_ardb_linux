@@ -4,7 +4,7 @@ menu "Accelerated Cryptographic Algorithms for CPU (riscv)"
 
 config CRYPTO_GHASH_RISCV64
 	tristate "Hash functions: GHASH"
-	depends on 64BIT && RISCV_ISA_ZBC
+	depends on 64BIT && (RISCV_ISA_ZBC || RISCV_ISA_V)
 	select CRYPTO_HASH
 	select CRYPTO_LIB_GF128MUL
 	help
@@ -14,5 +14,6 @@ config CRYPTO_GHASH_RISCV64
 	  - Zbc extension
 	  - Zbc + Zbb extensions
 	  - Zbc + Zbkb extensions
+	  - Zvbb vector crypto extension
 
 endmenu

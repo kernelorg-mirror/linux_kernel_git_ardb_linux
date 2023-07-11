@@ -11,6 +11,7 @@
 #include <linux/crypto.h>
 #include <linux/module.h>
 #include <asm/simd.h>
+#include <asm/vector.h>
 #include <crypto/ghash.h>
 #include <crypto/internal/hash.h>
 #include <crypto/internal/simd.h>
@@ -21,6 +22,9 @@ struct riscv64_ghash_ctx {
 
 	/* key used by vector asm */
 	u128 htable[16];
+
+	/* key used by software fallback */
+	be128 key;
 };
 
 struct riscv64_ghash_desc_ctx {
@@ -37,6 +41,142 @@ static int riscv64_ghash_init(struct shash_desc *desc)
 	memset(dctx->shash, 0, GHASH_DIGEST_SIZE);
 	return 0;
 }
+
+#ifdef CONFIG_RISCV_ISA_V
+
+void gcm_init_rv64i_zvbb_zvbc(u128 Htable[16], const u64 Xi[2]);
+
+void gcm_ghash_rv64i_zvbb_zvbc(u64 Xi[2], const u128 Htable[16],
+			       const u8 *inp, size_t len);
+
+static int riscv64_zvk_ghash_setkey_zvbb_zvbc(struct crypto_shash *tfm,
+					      const u8 *key,
+					      unsigned int keylen)
+{
+	struct riscv64_ghash_ctx *ctx = crypto_tfm_ctx(crypto_shash_tfm(tfm));
+	const u64 k[2] = { cpu_to_be64(((const u64 *)key)[0]),
+			   cpu_to_be64(((const u64 *)key)[1]) };
+
+	if (keylen != GHASH_BLOCK_SIZE)
+		return -EINVAL;
+
+	memcpy(&ctx->key, key, GHASH_BLOCK_SIZE);
+	kernel_rvv_begin();
+	gcm_init_rv64i_zvbb_zvbc(ctx->htable, k);
+	kernel_rvv_end();
+
+	ctx->ghash_func = gcm_ghash_rv64i_zvbb_zvbc;
+
+	return 0;
+}
+
+static inline void __ghash_block(struct riscv64_ghash_ctx *ctx,
+				 struct riscv64_ghash_desc_ctx *dctx)
+{
+	if (crypto_simd_usable()) {
+		kernel_rvv_begin();
+		ctx->ghash_func(dctx->shash, ctx->htable,
+				dctx->buffer, GHASH_DIGEST_SIZE);
+		kernel_rvv_end();
+	} else {
+		crypto_xor((u8 *)dctx->shash, dctx->buffer, GHASH_BLOCK_SIZE);
+		gf128mul_lle((be128 *)dctx->shash, &ctx->key);
+	}
+}
+
+static inline void __ghash_blocks(struct riscv64_ghash_ctx *ctx,
+				  struct riscv64_ghash_desc_ctx *dctx,
+				  const u8 *src, unsigned int srclen)
+{
+	if (crypto_simd_usable()) {
+		kernel_rvv_begin();
+		ctx->ghash_func(dctx->shash, ctx->htable,
+				src, srclen);
+		kernel_rvv_end();
+	} else {
+		while (srclen >= GHASH_BLOCK_SIZE) {
+			crypto_xor((u8 *)dctx->shash, src, GHASH_BLOCK_SIZE);
+			gf128mul_lle((be128 *)dctx->shash, &ctx->key);
+			srclen -= GHASH_BLOCK_SIZE;
+			src += GHASH_BLOCK_SIZE;
+		}
+	}
+}
+
+static int riscv64_zvk_ghash_update(struct shash_desc *desc,
+			   const u8 *src, unsigned int srclen)
+{
+	unsigned int len;
+	struct riscv64_ghash_ctx *ctx = crypto_tfm_ctx(crypto_shash_tfm(desc->tfm));
+	struct riscv64_ghash_desc_ctx *dctx = shash_desc_ctx(desc);
+
+	if (dctx->bytes) {
+		if (dctx->bytes + srclen < GHASH_DIGEST_SIZE) {
+			memcpy(dctx->buffer + dctx->bytes, src,
+				srclen);
+			dctx->bytes += srclen;
+			return 0;
+		}
+		memcpy(dctx->buffer + dctx->bytes, src,
+			GHASH_DIGEST_SIZE - dctx->bytes);
+
+		__ghash_block(ctx, dctx);
+
+		src += GHASH_DIGEST_SIZE - dctx->bytes;
+		srclen -= GHASH_DIGEST_SIZE - dctx->bytes;
+		dctx->bytes = 0;
+	}
+	len = srclen & ~(GHASH_DIGEST_SIZE - 1);
+
+	if (len) {
+		__ghash_blocks(ctx, dctx, src, len);
+		src += len;
+		srclen -= len;
+	}
+
+	if (srclen) {
+		memcpy(dctx->buffer, src, srclen);
+		dctx->bytes = srclen;
+	}
+	return 0;
+}
+
+static int riscv64_zvk_ghash_final(struct shash_desc *desc, u8 *out)
+{
+	struct riscv64_ghash_ctx *ctx = crypto_tfm_ctx(crypto_shash_tfm(desc->tfm));
+	struct riscv64_ghash_desc_ctx *dctx = shash_desc_ctx(desc);
+	int i;
+
+	if (dctx->bytes) {
+		for (i = dctx->bytes; i < GHASH_DIGEST_SIZE; i++)
+			dctx->buffer[i] = 0;
+		__ghash_block(ctx, dctx);
+		dctx->bytes = 0;
+	}
+
+	memcpy(out, dctx->shash, GHASH_DIGEST_SIZE);
+	return 0;
+}
+
+struct shash_alg riscv64_zvbb_zvbc_ghash_alg = {
+	.digestsize = GHASH_DIGEST_SIZE,
+	.init = riscv64_ghash_init,
+	.update = riscv64_zvk_ghash_update,
+	.final = riscv64_zvk_ghash_final,
+	.setkey = riscv64_zvk_ghash_setkey_zvbb_zvbc,
+	.descsize = sizeof(struct riscv64_ghash_desc_ctx)
+		    + sizeof(struct ghash_desc_ctx),
+	.base = {
+		 .cra_name = "ghash",
+		 .cra_driver_name = "riscv64_zvbb_zvbc_ghash",
+		 .cra_priority = 300,
+		 .cra_blocksize = GHASH_BLOCK_SIZE,
+		 .cra_ctxsize = sizeof(struct riscv64_ghash_ctx),
+		 .cra_module = THIS_MODULE,
+	},
+};
+
+#endif /* CONFIG_RISCV_ISA_V */
 
 #ifdef CONFIG_RISCV_ISA_ZBC
 
@@ -266,6 +406,16 @@ static int __init riscv64_ghash_mod_init(void)
 			if (ret < 0)
 				return ret;
 		}
+	}
+#endif
+
+#ifdef CONFIG_RISCV_ISA_V
+	if (riscv_isa_extension_available(NULL, ZVBB) && 
+	    riscv_isa_extension_available(NULL, ZVBC) &&
+	    riscv_vector_vlen() >= 128) {
+		ret = riscv64_ghash_register(&riscv64_zvbb_zvbc_ghash_alg);
+		if (ret < 0)
+			return ret;
 	}
 #endif
 
