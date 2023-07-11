@@ -343,6 +343,56 @@ void __init riscv_fill_hwcap(void)
 				SET_ISA_EXT_MAP("zksh", RISCV_ISA_EXT_ZKSH);
 				SET_ISA_EXT_MAP("zkr", RISCV_ISA_EXT_ZKR);
 				SET_ISA_EXT_MAP("zkt", RISCV_ISA_EXT_ZKT);
+				SET_ISA_EXT_MAP("zvbb", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvbc", RISCV_ISA_EXT_ZVBC);
+				SET_ISA_EXT_MAP("zvkg", RISCV_ISA_EXT_ZVKG);
+				SET_ISA_EXT_MAP("zvkned", RISCV_ISA_EXT_ZVKNED);
+				SET_ISA_EXT_MAP("zvknha", RISCV_ISA_EXT_ZVKNHA);
+				SET_ISA_EXT_MAP("zvknhb", RISCV_ISA_EXT_ZVKNHB);
+				SET_ISA_EXT_MAP("zvksed", RISCV_ISA_EXT_ZVKSED);
+				SET_ISA_EXT_MAP("zvksh", RISCV_ISA_EXT_ZVKSH);
+				SET_ISA_EXT_MAP("zvkt", RISCV_ISA_EXT_ZVKT);
+
+				/* NIST Algorithm Suite */
+				SET_ISA_EXT_MAP("zvkn", RISCV_ISA_EXT_ZVKNED);
+				SET_ISA_EXT_MAP("zvkn", RISCV_ISA_EXT_ZVKNHB);
+				SET_ISA_EXT_MAP("zvkn", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvkn", RISCV_ISA_EXT_ZVKT);
+
+				/* NIST Algorithm Suite with carryless multiply */
+				SET_ISA_EXT_MAP("zvknc", RISCV_ISA_EXT_ZVKNED);
+				SET_ISA_EXT_MAP("zvknc", RISCV_ISA_EXT_ZVKNHB);
+				SET_ISA_EXT_MAP("zvknc", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvknc", RISCV_ISA_EXT_ZVKT);
+				SET_ISA_EXT_MAP("zvknc", RISCV_ISA_EXT_ZVBC);
+
+				/* NIST Algorithm Suite with GCM */
+				SET_ISA_EXT_MAP("zvkng", RISCV_ISA_EXT_ZVKNED);
+				SET_ISA_EXT_MAP("zvkng", RISCV_ISA_EXT_ZVKNHB);
+				SET_ISA_EXT_MAP("zvkng", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvkng", RISCV_ISA_EXT_ZVKT);
+				SET_ISA_EXT_MAP("zvkng", RISCV_ISA_EXT_ZVKG);
+
+				/*  ShangMi Algorithm Suite */
+				SET_ISA_EXT_MAP("zvks", RISCV_ISA_EXT_ZVKSED);
+				SET_ISA_EXT_MAP("zvks", RISCV_ISA_EXT_ZVKSH);
+				SET_ISA_EXT_MAP("zvks", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvks", RISCV_ISA_EXT_ZVKT);
+
+				/* ShangMi Algorithm Suite with carryless multiply */
+				SET_ISA_EXT_MAP("zvksc", RISCV_ISA_EXT_ZVKSED);
+				SET_ISA_EXT_MAP("zvksc", RISCV_ISA_EXT_ZVKSH);
+				SET_ISA_EXT_MAP("zvksc", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvksc", RISCV_ISA_EXT_ZVKT);
+				SET_ISA_EXT_MAP("zvksc", RISCV_ISA_EXT_ZVBC);
+
+				/* ShangMi Algorithm Suite with GCM */
+				SET_ISA_EXT_MAP("zvksg", RISCV_ISA_EXT_ZVKSED);
+				SET_ISA_EXT_MAP("zvksg", RISCV_ISA_EXT_ZVKSH);
+				SET_ISA_EXT_MAP("zvksg", RISCV_ISA_EXT_ZVBB);
+				SET_ISA_EXT_MAP("zvksg", RISCV_ISA_EXT_ZVKT);
+				SET_ISA_EXT_MAP("zvksg", RISCV_ISA_EXT_ZVKG);
+
 			}
 #undef SET_ISA_EXT_MAP
 		}
