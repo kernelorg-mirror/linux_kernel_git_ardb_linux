@@ -11,6 +11,9 @@
 #include <linux/sched.h>
 #include <linux/cpu.h>
 #include <linux/crypto.h>
+#include <linux/highmem.h>
+#include <linux/scatterlist.h>
+#include <crypto/acompress.h>
 
 #include "zcomp.h"
 
@@ -35,26 +38,32 @@ static const char * const backends[] = {
 
 static void zcomp_strm_free(struct zcomp_strm *zstrm)
 {
+	if (zstrm->req)
+		acomp_request_free(zstrm->req);
 	if (!IS_ERR_OR_NULL(zstrm->tfm))
-		crypto_free_comp(zstrm->tfm);
+		crypto_free_acomp(zstrm->tfm);
 	free_pages((unsigned long)zstrm->buffer, 1);
+	zstrm->req = NULL;
 	zstrm->tfm = NULL;
 	zstrm->buffer = NULL;
 }
 
 /*
- * Initialize zcomp_strm structure with ->tfm initialized by backend, and
- * ->buffer. Return a negative value on error.
+ * Initialize zcomp_strm structure with ->tfm and ->req initialized by
+ * backend, and ->buffer. Return a negative value on error.
  */
 static int zcomp_strm_init(struct zcomp_strm *zstrm, struct zcomp *comp)
 {
-	zstrm->tfm = crypto_alloc_comp(comp->name, 0, 0);
+	zstrm->tfm = crypto_alloc_acomp(comp->name, 0, CRYPTO_ALG_ASYNC);
+	if (!IS_ERR_OR_NULL(zstrm->tfm))
+		zstrm->req = acomp_request_alloc(zstrm->tfm);
+
 	/*
 	 * allocate 2 pages. 1 for compressed data, plus 1 extra for the
 	 * case when compressed size is larger than the original one
 	 */
 	zstrm->buffer = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO, 1);
-	if (IS_ERR_OR_NULL(zstrm->tfm) || !zstrm->buffer) {
+	if (IS_ERR_OR_NULL(zstrm->tfm) || !zstrm->req || !zstrm->buffer) {
 		zcomp_strm_free(zstrm);
 		return -ENOMEM;
 	}
@@ -70,7 +79,7 @@ bool zcomp_available_algorithm(const char *comp)
 	 * This also means that we permit zcomp initialisation
 	 * with any compressing algorithm known to crypto api.
 	 */
-	return crypto_has_comp(comp, 0, 0) == 1;
+	return crypto_has_acomp(comp, 0, CRYPTO_ALG_ASYNC);
 }
 
 /* show available compressors */
@@ -95,7 +104,7 @@ ssize_t zcomp_available_show(const char *comp, char *buf)
 	 * Out-of-tree module known to crypto api or a missing
 	 * entry in `backends'.
 	 */
-	if (!known_algorithm && crypto_has_comp(comp, 0, 0) == 1)
+	if (!known_algorithm && crypto_has_acomp(comp, 0, CRYPTO_ALG_ASYNC))
 		sz += scnprintf(buf + sz, PAGE_SIZE - sz - 2,
 				"[%s] ", comp);
 
@@ -115,8 +124,14 @@ void zcomp_stream_put(struct zcomp *comp)
 }
 
 int zcomp_compress(struct zcomp_strm *zstrm,
-		const void *src, unsigned int *dst_len)
+		   struct page *src, unsigned int *dst_len)
 {
+	struct scatterlist sg_src, sg_dst;
+	int ret;
+
+	sg_init_table(&sg_src, 1);
+	sg_set_page(&sg_src, src, PAGE_SIZE, 0);
+
 	/*
 	 * Our dst memory (zstrm->buffer) is always `2 * PAGE_SIZE' sized
 	 * because sometimes we can endup having a bigger compressed data
@@ -131,21 +146,39 @@ int zcomp_compress(struct zcomp_strm *zstrm,
 	 * the dst buffer, zram_drv will take care of the fact that
 	 * compressed buffer is too big.
 	 */
-	*dst_len = PAGE_SIZE * 2;
+	sg_init_one(&sg_dst, zstrm->buffer, PAGE_SIZE * 2);
 
-	return crypto_comp_compress(zstrm->tfm,
-			src, PAGE_SIZE,
-			zstrm->buffer, dst_len);
+	acomp_request_set_params(zstrm->req, &sg_src, &sg_dst, PAGE_SIZE,
+				 PAGE_SIZE * 2);
+
+	ret = crypto_acomp_compress(zstrm->req);
+	if (ret)
+		return ret;
+
+	*dst_len = zstrm->req->dlen;
+	return 0;
 }
 
 int zcomp_decompress(struct zcomp_strm *zstrm,
-		const void *src, unsigned int src_len, void *dst)
+		     const void *src, unsigned int src_len, struct page *dst)
 {
-	unsigned int dst_len = PAGE_SIZE;
+	struct scatterlist sg_src, sg_dst;
 
-	return crypto_comp_decompress(zstrm->tfm,
-			src, src_len,
-			dst, &dst_len);
+	if (is_kmap_addr(src)) {
+		sg_init_table(&sg_src, 1);
+		sg_set_page(&sg_src, kmap_to_page((void *)src), src_len,
+			    offset_in_page(src));
+	} else {
+		sg_init_one(&sg_src, src, src_len);
+	}
+
+	sg_init_table(&sg_dst, 1);
+	sg_set_page(&sg_dst, dst, PAGE_SIZE, 0);
+
+	acomp_request_set_params(zstrm->req, &sg_src, &sg_dst, src_len,
+				 PAGE_SIZE);
+
+	return crypto_acomp_decompress(zstrm->req);
 }
 
 int zcomp_cpu_up_prepare(unsigned int cpu, struct hlist_node *node)

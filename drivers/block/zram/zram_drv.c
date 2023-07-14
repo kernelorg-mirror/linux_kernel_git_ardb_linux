@@ -1345,9 +1345,7 @@ static int zram_read_from_zspool(struct zram *zram, struct page *page,
 		kunmap_atomic(dst);
 		ret = 0;
 	} else {
-		dst = kmap_atomic(page);
-		ret = zcomp_decompress(zstrm, src, size, dst);
-		kunmap_atomic(dst);
+		ret = zcomp_decompress(zstrm, src, size, page);
 		zcomp_stream_put(zram->comps[prio]);
 	}
 	zs_unmap_object(zram->mem_pool, handle);
@@ -1432,9 +1430,7 @@ static int zram_write_page(struct zram *zram, struct page *page, u32 index)
 
 compress_again:
 	zstrm = zcomp_stream_get(zram->comps[ZRAM_PRIMARY_COMP]);
-	src = kmap_atomic(page);
-	ret = zcomp_compress(zstrm, src, &comp_len);
-	kunmap_atomic(src);
+	ret = zcomp_compress(zstrm, page, &comp_len);
 
 	if (unlikely(ret)) {
 		zcomp_stream_put(zram->comps[ZRAM_PRIMARY_COMP]);
@@ -1618,9 +1614,7 @@ static int zram_recompress(struct zram *zram, u32 index, struct page *page,
 
 		num_recomps++;
 		zstrm = zcomp_stream_get(zram->comps[prio]);
-		src = kmap_atomic(page);
-		ret = zcomp_compress(zstrm, src, &comp_len_new);
-		kunmap_atomic(src);
+		ret = zcomp_compress(zstrm, page, &comp_len_new);
 
 		if (ret) {
 			zcomp_stream_put(zram->comps[prio]);

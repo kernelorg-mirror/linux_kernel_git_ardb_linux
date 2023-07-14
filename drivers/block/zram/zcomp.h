@@ -12,7 +12,8 @@ struct zcomp_strm {
 	local_lock_t lock;
 	/* compression/decompression buffer */
 	void *buffer;
-	struct crypto_comp *tfm;
+	struct crypto_acomp *tfm;
+	struct acomp_req *req;
 };
 
 /* dynamic per-device compression frontend */
@@ -34,10 +35,10 @@ struct zcomp_strm *zcomp_stream_get(struct zcomp *comp);
 void zcomp_stream_put(struct zcomp *comp);
 
 int zcomp_compress(struct zcomp_strm *zstrm,
-		const void *src, unsigned int *dst_len);
+		   struct page *src, unsigned int *dst_len);
 
 int zcomp_decompress(struct zcomp_strm *zstrm,
-		const void *src, unsigned int src_len, void *dst);
+		     const void *src, unsigned int src_len, struct page *dst);
 
 bool zcomp_set_max_streams(struct zcomp *comp, int num_strm);
 #endif /* _ZCOMP_H_ */
