@@ -5,6 +5,7 @@
  * Copyright (c) 2002 James Morris <jmorris@intercode.com.au>
  */
 
+#include <crypto/acompress.h>
 #include <crypto/hash.h>
 #include <crypto/skcipher.h>
 #include <linux/module.h>
@@ -674,7 +675,7 @@ static const struct xfrm_algo_list xfrm_ealg_list = {
 static const struct xfrm_algo_list xfrm_calg_list = {
 	.algs = calg_list,
 	.entries = ARRAY_SIZE(calg_list),
-	.type = CRYPTO_ALG_TYPE_COMPRESS,
+	.type = CRYPTO_ALG_TYPE_ACOMPRESS,
 	.mask = CRYPTO_ALG_TYPE_MASK,
 };
 
@@ -833,8 +834,8 @@ void xfrm_probe_algs(void)
 	}
 
 	for (i = 0; i < calg_entries(); i++) {
-		status = crypto_has_comp(calg_list[i].name, 0,
-					 CRYPTO_ALG_ASYNC);
+		status = crypto_has_acomp(calg_list[i].name, 0,
+					  CRYPTO_ALG_ASYNC);
 		if (calg_list[i].available != status)
 			calg_list[i].available = status;
 	}

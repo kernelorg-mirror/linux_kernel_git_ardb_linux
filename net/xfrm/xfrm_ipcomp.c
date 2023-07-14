@@ -20,20 +20,21 @@
 #include <linux/slab.h>
 #include <linux/smp.h>
 #include <linux/vmalloc.h>
+#include <crypto/acompress.h>
 #include <net/ip.h>
 #include <net/ipcomp.h>
 #include <net/xfrm.h>
 
-struct ipcomp_tfms {
+struct ipcomp_reqs {
 	struct list_head list;
-	struct crypto_comp * __percpu *tfms;
+	struct acomp_req * __percpu *reqs;
 	int users;
 };
 
 static DEFINE_MUTEX(ipcomp_resource_mutex);
 static void * __percpu *ipcomp_scratches;
 static int ipcomp_scratch_users;
-static LIST_HEAD(ipcomp_tfms_list);
+static LIST_HEAD(ipcomp_reqs_list);
 
 static int ipcomp_decompress(struct xfrm_state *x, struct sk_buff *skb)
 {
@@ -42,13 +43,19 @@ static int ipcomp_decompress(struct xfrm_state *x, struct sk_buff *skb)
 	int dlen = IPCOMP_SCRATCH_SIZE;
 	const u8 *start = skb->data;
 	u8 *scratch = *this_cpu_ptr(ipcomp_scratches);
-	struct crypto_comp *tfm = *this_cpu_ptr(ipcd->tfms);
-	int err = crypto_comp_decompress(tfm, start, plen, scratch, &dlen);
-	int len;
+	struct acomp_req *req = *this_cpu_ptr(ipcd->reqs);
+	struct scatterlist sg_in, sg_out;
+	int err, len;
 
+	sg_init_one(&sg_in, start, plen);
+	sg_init_one(&sg_out, scratch, dlen);
+	acomp_request_set_params(req, &sg_in, &sg_out, plen, dlen);
+
+	err = crypto_acomp_decompress(req);
 	if (err)
 		return err;
 
+	dlen = req->dlen;
 	if (dlen < (plen + sizeof(struct ip_comp_hdr)))
 		return -EINVAL;
 
@@ -125,17 +132,24 @@ static int ipcomp_compress(struct xfrm_state *x, struct sk_buff *skb)
 	const int plen = skb->len;
 	int dlen = IPCOMP_SCRATCH_SIZE;
 	u8 *start = skb->data;
-	struct crypto_comp *tfm;
+	struct acomp_req *req = *this_cpu_ptr(ipcd->reqs);
+	struct scatterlist sg_in, sg_out;
 	u8 *scratch;
 	int err;
 
 	local_bh_disable();
 	scratch = *this_cpu_ptr(ipcomp_scratches);
-	tfm = *this_cpu_ptr(ipcd->tfms);
-	err = crypto_comp_compress(tfm, start, plen, scratch, &dlen);
+	req = *this_cpu_ptr(ipcd->reqs);
+
+	sg_init_one(&sg_in, start, plen);
+	sg_init_one(&sg_out, scratch, dlen);
+	acomp_request_set_params(req, &sg_in, &sg_out, plen, dlen);
+
+	err = crypto_acomp_compress(req);
 	if (err)
 		goto out;
 
+	dlen = req->dlen;
 	if ((dlen + sizeof(struct ip_comp_hdr)) >= plen) {
 		err = -EMSGSIZE;
 		goto out;
@@ -229,17 +243,17 @@ static void * __percpu *ipcomp_alloc_scratches(void)
 	return scratches;
 }
 
-static void ipcomp_free_tfms(struct crypto_comp * __percpu *tfms)
+static void ipcomp_free_reqs(struct acomp_req * __percpu *reqs)
 {
-	struct ipcomp_tfms *pos;
+	struct ipcomp_reqs *pos;
 	int cpu;
 
-	list_for_each_entry(pos, &ipcomp_tfms_list, list) {
-		if (pos->tfms == tfms)
+	list_for_each_entry(pos, &ipcomp_reqs_list, list) {
+		if (pos->reqs == reqs)
 			break;
 	}
 
-	WARN_ON(list_entry_is_head(pos, &ipcomp_tfms_list, list));
+	WARN_ON(list_entry_is_head(pos, &ipcomp_reqs_list, list));
 
 	if (--pos->users)
 		return;
@@ -247,32 +261,39 @@ static void ipcomp_free_tfms(struct crypto_comp * __percpu *tfms)
 	list_del(&pos->list);
 	kfree(pos);
 
-	if (!tfms)
+	if (!reqs)
 		return;
 
 	for_each_possible_cpu(cpu) {
-		struct crypto_comp *tfm = *per_cpu_ptr(tfms, cpu);
-		crypto_free_comp(tfm);
+		struct acomp_req *req = *per_cpu_ptr(reqs, cpu);
+
+		if (req) {
+			struct crypto_acomp *acomp = crypto_acomp_reqtfm(req);
+
+			acomp_request_free(req);
+			crypto_free_acomp(acomp);
+		}
 	}
-	free_percpu(tfms);
+	free_percpu(reqs);
 }
 
-static struct crypto_comp * __percpu *ipcomp_alloc_tfms(const char *alg_name)
+static struct acomp_req * __percpu *ipcomp_alloc_reqs(const char *alg_name)
 {
-	struct ipcomp_tfms *pos;
-	struct crypto_comp * __percpu *tfms;
+	struct ipcomp_reqs *pos;
+	struct crypto_acomp *acomp;
+	struct acomp_req * __percpu *reqs;
 	int cpu;
 
 
-	list_for_each_entry(pos, &ipcomp_tfms_list, list) {
-		struct crypto_comp *tfm;
+	list_for_each_entry(pos, &ipcomp_reqs_list, list) {
+		struct crypto_acomp *tfm;
 
 		/* This can be any valid CPU ID so we don't need locking. */
-		tfm = this_cpu_read(*pos->tfms);
+		tfm = crypto_acomp_reqtfm(this_cpu_read(*pos->reqs));
 
-		if (!strcmp(crypto_comp_name(tfm), alg_name)) {
+		if (!strcmp(crypto_acomp_name(tfm), alg_name)) {
 			pos->users++;
-			return pos->tfms;
+			return pos->reqs;
 		}
 	}
 
@@ -282,31 +303,39 @@ static struct crypto_comp * __percpu *ipcomp_alloc_tfms(const char *alg_name)
 
 	pos->users = 1;
 	INIT_LIST_HEAD(&pos->list);
-	list_add(&pos->list, &ipcomp_tfms_list);
+	list_add(&pos->list, &ipcomp_reqs_list);
 
-	pos->tfms = tfms = alloc_percpu(struct crypto_comp *);
-	if (!tfms)
+	reqs = alloc_percpu_gfp(struct acomp_req *, GFP_KERNEL | __GFP_ZERO);
+	if (!reqs)
 		goto error;
 
 	for_each_possible_cpu(cpu) {
-		struct crypto_comp *tfm = crypto_alloc_comp(alg_name, 0,
-							    CRYPTO_ALG_ASYNC);
-		if (IS_ERR(tfm))
+		struct acomp_req *req;
+
+		acomp = crypto_alloc_acomp(alg_name, 0, CRYPTO_ALG_ASYNC);
+		if (IS_ERR(acomp))
 			goto error;
-		*per_cpu_ptr(tfms, cpu) = tfm;
+
+		req = acomp_request_alloc(acomp);
+		if (!req) {
+			crypto_free_acomp(acomp);
+			goto error;
+		}
+		*per_cpu_ptr(reqs, cpu) = req;
 	}
 
-	return tfms;
+	pos->reqs = reqs;
+	return reqs;
 
 error:
-	ipcomp_free_tfms(tfms);
+	ipcomp_free_reqs(reqs);
 	return NULL;
 }
 
 static void ipcomp_free_data(struct ipcomp_data *ipcd)
 {
-	if (ipcd->tfms)
-		ipcomp_free_tfms(ipcd->tfms);
+	if (ipcd->reqs)
+		ipcomp_free_reqs(ipcd->reqs);
 	ipcomp_free_scratches();
 }
 
@@ -349,8 +378,8 @@ int ipcomp_init_state(struct xfrm_state *x, struct netlink_ext_ack *extack)
 	if (!ipcomp_alloc_scratches())
 		goto error;
 
-	ipcd->tfms = ipcomp_alloc_tfms(x->calg->alg_name);
-	if (!ipcd->tfms)
+	ipcd->reqs = ipcomp_alloc_reqs(x->calg->alg_name);
+	if (!ipcd->reqs)
 		goto error;
 	mutex_unlock(&ipcomp_resource_mutex);
 

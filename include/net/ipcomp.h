@@ -7,12 +7,12 @@
 
 #define IPCOMP_SCRATCH_SIZE     65400
 
-struct crypto_comp;
+struct acomp_req;
 struct ip_comp_hdr;
 
 struct ipcomp_data {
 	u16 threshold;
-	struct crypto_comp * __percpu *tfms;
+	struct acomp_req * __percpu *reqs;
 };
 
 struct ip_comp_hdr;

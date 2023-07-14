@@ -318,4 +318,9 @@ static inline int crypto_acomp_decompress(struct acomp_req *req)
 	return crypto_comp_errstat(alg, tfm->decompress(req));
 }
 
+static inline const char *crypto_acomp_name(struct crypto_acomp *acomp)
+{
+       return crypto_tfm_alg_name(crypto_acomp_tfm(acomp));
+}
+
 #endif
