@@ -1485,15 +1485,8 @@ static int truncate_data_node(const struct ubifs_info *c, const struct inode *in
 			      unsigned int block, struct ubifs_data_node *dn,
 			      int *new_len, int dn_size)
 {
-	void *buf;
+	void *buf = NULL;
 	int err, dlen, compr_type, out_len, data_size;
-
-	out_len = le32_to_cpu(dn->size);
-	buf = kmalloc_array(out_len, WORST_COMPR_FACTOR, GFP_NOFS);
-	if (!buf)
-		return -ENOMEM;
-
-	out_len *= WORST_COMPR_FACTOR;
 
 	dlen = le32_to_cpu(dn->ch.len) - UBIFS_DATA_NODE_SZ;
 	data_size = dn_size - UBIFS_DATA_NODE_SZ;
@@ -1508,6 +1501,13 @@ static int truncate_data_node(const struct ubifs_info *c, const struct inode *in
 	if (compr_type == UBIFS_COMPR_NONE) {
 		out_len = *new_len;
 	} else {
+		out_len = le32_to_cpu(dn->size);
+		buf = kmalloc_array(out_len, WORST_COMPR_FACTOR, GFP_NOFS);
+		if (!buf)
+			return -ENOMEM;
+
+		out_len *= WORST_COMPR_FACTOR;
+
 		err = ubifs_decompress(c, &dn->data, dlen, buf, &out_len, compr_type);
 		if (err)
 			goto out;
