@@ -714,14 +714,16 @@ out_ro:
  * @c: UBIFS file-system description object
  * @inode: inode the data node belongs to
  * @key: node key
- * @buf: buffer to write
+ * @page: struct page describing the page containing the source data
+ * @offset: offset in page to source data
  * @len: data length (must not exceed %UBIFS_BLOCK_SIZE)
  *
  * This function writes a data node to the journal. Returns %0 if the data node
  * was successfully written, and a negative error code in case of failure.
  */
 int ubifs_jnl_write_data(struct ubifs_info *c, const struct inode *inode,
-			 const union ubifs_key *key, const void *buf, int len)
+			 const union ubifs_key *key, struct page *page, int offset,
+			 int len)
 {
 	struct ubifs_data_node *data;
 	int err, lnum, offs, compr_type, out_len, compr_len, auth_len;
@@ -730,6 +732,7 @@ int ubifs_jnl_write_data(struct ubifs_info *c, const struct inode *inode,
 	struct ubifs_inode *ui = ubifs_inode(inode);
 	bool encrypted = IS_ENCRYPTED(inode);
 	u8 hash[UBIFS_HASH_ARR_SZ];
+	struct scatterlist sg;
 
 	dbg_jnlk(key, "ino %lu, blk %u, len %d, key ",
 		(unsigned long)key_inum(c, key), key_block(c, key), len);
@@ -765,7 +768,9 @@ int ubifs_jnl_write_data(struct ubifs_info *c, const struct inode *inode,
 		compr_type = ui->compr_type;
 
 	out_len = compr_len = dlen - UBIFS_DATA_NODE_SZ;
-	ubifs_compress(c, buf, len, &data->data, &compr_len, &compr_type);
+	sg_init_table(&sg, 1);
+	sg_set_page(&sg, page, len, offset);
+	ubifs_compress(c, &sg, len, &data->data, &compr_len, &compr_type);
 	ubifs_assert(c, compr_len <= UBIFS_BLOCK_SIZE);
 
 	if (encrypted) {
@@ -1487,6 +1492,7 @@ static int truncate_data_node(const struct ubifs_info *c, const struct inode *in
 {
 	void *buf = NULL;
 	int err, dlen, compr_type, out_len, data_size;
+	struct scatterlist sg_buf;
 
 	dlen = le32_to_cpu(dn->ch.len) - UBIFS_DATA_NODE_SZ;
 	data_size = dn_size - UBIFS_DATA_NODE_SZ;
@@ -1507,12 +1513,15 @@ static int truncate_data_node(const struct ubifs_info *c, const struct inode *in
 			return -ENOMEM;
 
 		out_len *= WORST_COMPR_FACTOR;
+		sg_init_one(&sg_buf, buf, out_len);
 
-		err = ubifs_decompress(c, &dn->data, dlen, buf, &out_len, compr_type);
+		err = ubifs_decompress(c, &dn->data, dlen, &sg_buf, &out_len,
+				       compr_type);
 		if (err)
 			goto out;
 
-		ubifs_compress(c, buf, *new_len, &dn->data, &out_len, &compr_type);
+		ubifs_compress(c, &sg_buf, *new_len, &dn->data, &out_len,
+			       &compr_type);
 	}
 
 	if (IS_ENCRYPTED(inode)) {

@@ -42,8 +42,8 @@
 #include <linux/slab.h>
 #include <linux/migrate.h>
 
-static int read_block(struct inode *inode, void *addr, unsigned int block,
-		      struct ubifs_data_node *dn)
+static int read_block(struct inode *inode, struct scatterlist *sg,
+		      unsigned int block, struct ubifs_data_node *dn)
 {
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	int err, len, out_len;
@@ -55,7 +55,7 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 	if (err) {
 		if (err == -ENOENT)
 			/* Not found, so it must be a hole */
-			memset(addr, 0, UBIFS_BLOCK_SIZE);
+			sg_zero_buffer(sg, 1, UBIFS_BLOCK_SIZE, 0);
 		return err;
 	}
 
@@ -74,7 +74,7 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 	}
 
 	out_len = UBIFS_BLOCK_SIZE;
-	err = ubifs_decompress(c, &dn->data, dlen, addr, &out_len,
+	err = ubifs_decompress(c, &dn->data, dlen, sg, &out_len,
 			       le16_to_cpu(dn->compr_type));
 	if (err || len != out_len)
 		goto dump;
@@ -85,7 +85,7 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 	 * appending data). Ensure that the remainder is zeroed out.
 	 */
 	if (len < UBIFS_BLOCK_SIZE)
-		memset(addr + len, 0, UBIFS_BLOCK_SIZE - len);
+		sg_zero_buffer(sg, 1, UBIFS_BLOCK_SIZE - len, len);
 
 	return 0;
 
@@ -98,27 +98,29 @@ dump:
 
 static int do_readpage(struct page *page)
 {
-	void *addr;
 	int err = 0, i;
 	unsigned int block, beyond;
 	struct ubifs_data_node *dn;
 	struct inode *inode = page->mapping->host;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
 	loff_t i_size = i_size_read(inode);
+	struct scatterlist sg;
+	size_t offset = 0;
 
 	dbg_gen("ino %lu, pg %lu, i_size %lld, flags %#lx",
 		inode->i_ino, page->index, i_size, page->flags);
 	ubifs_assert(c, !PageChecked(page));
 	ubifs_assert(c, !PagePrivate(page));
 
-	addr = kmap(page);
+	sg_init_table(&sg, 1);
 
 	block = page->index << UBIFS_BLOCKS_PER_PAGE_SHIFT;
 	beyond = (i_size + UBIFS_BLOCK_SIZE - 1) >> UBIFS_BLOCK_SHIFT;
 	if (block >= beyond) {
 		/* Reading beyond inode */
 		SetPageChecked(page);
-		memset(addr, 0, PAGE_SIZE);
+		sg_set_page(&sg, page, PAGE_SIZE, 0);
+		sg_zero_buffer(&sg, 1, PAGE_SIZE, 0);
 		goto out;
 	}
 
@@ -132,12 +134,14 @@ static int do_readpage(struct page *page)
 	while (1) {
 		int ret;
 
+		sg_set_page(&sg, page, UBIFS_BLOCK_SIZE, offset);
+
 		if (block >= beyond) {
 			/* Reading beyond inode */
 			err = -ENOENT;
-			memset(addr, 0, UBIFS_BLOCK_SIZE);
+			sg_zero_buffer(&sg, 1, UBIFS_BLOCK_SIZE, 0);
 		} else {
-			ret = read_block(inode, addr, block, dn);
+			ret = read_block(inode, &sg, block, dn);
 			if (ret) {
 				err = ret;
 				if (err != -ENOENT)
@@ -147,13 +151,13 @@ static int do_readpage(struct page *page)
 				int ilen = i_size & (UBIFS_BLOCK_SIZE - 1);
 
 				if (ilen && ilen < dlen)
-					memset(addr + ilen, 0, dlen - ilen);
+					sg_zero_buffer(&sg, 1, dlen - ilen, ilen);
 			}
 		}
 		if (++i >= UBIFS_BLOCKS_PER_PAGE)
 			break;
 		block += 1;
-		addr += UBIFS_BLOCK_SIZE;
+		offset += UBIFS_BLOCK_SIZE;
 	}
 	if (err) {
 		struct ubifs_info *c = inode->i_sb->s_fs_info;
@@ -174,7 +178,6 @@ out:
 	SetPageUptodate(page);
 	ClearPageError(page);
 	flush_dcache_page(page);
-	kunmap(page);
 	return 0;
 
 error:
@@ -182,7 +185,6 @@ error:
 	ClearPageUptodate(page);
 	SetPageError(page);
 	flush_dcache_page(page);
-	kunmap(page);
 	return err;
 }
 
@@ -627,6 +629,9 @@ static int populate_page(struct ubifs_info *c, struct page *page,
 	page_block = page->index << UBIFS_BLOCKS_PER_PAGE_SHIFT;
 	while (1) {
 		int err, len, out_len, dlen;
+		struct scatterlist sg;
+
+		sg_init_table(&sg, 1);
 
 		if (nn >= bu->cnt) {
 			hole = 1;
@@ -652,7 +657,8 @@ static int populate_page(struct ubifs_info *c, struct page *page,
 					goto out_err;
 			}
 
-			err = ubifs_decompress(c, &dn->data, dlen, addr, &out_len,
+			sg_set_page(&sg, page, out_len, zaddr - addr);
+			err = ubifs_decompress(c, &dn->data, dlen, &sg, &out_len,
 					       le16_to_cpu(dn->compr_type));
 			if (err || len != out_len)
 				goto out_err;
@@ -902,9 +908,8 @@ static int ubifs_read_folio(struct file *file, struct folio *folio)
 
 static int do_writepage(struct page *page, int len)
 {
-	int err = 0, i, blen;
+	int err = 0, i, blen, offset;
 	unsigned int block;
-	void *addr;
 	union ubifs_key key;
 	struct inode *inode = page->mapping->host;
 	struct ubifs_info *c = inode->i_sb->s_fs_info;
@@ -919,19 +924,19 @@ static int do_writepage(struct page *page, int len)
 	/* Update radix tree tags */
 	set_page_writeback(page);
 
-	addr = kmap(page);
+	offset = 0;
 	block = page->index << UBIFS_BLOCKS_PER_PAGE_SHIFT;
 	i = 0;
 	while (len) {
 		blen = min_t(int, len, UBIFS_BLOCK_SIZE);
 		data_key_init(c, &key, inode->i_ino, block);
-		err = ubifs_jnl_write_data(c, inode, &key, addr, blen);
+		err = ubifs_jnl_write_data(c, inode, &key, page, offset, blen);
 		if (err)
 			break;
 		if (++i >= UBIFS_BLOCKS_PER_PAGE)
 			break;
 		block += 1;
-		addr += blen;
+		offset += blen;
 		len -= blen;
 	}
 	if (err) {
@@ -951,7 +956,6 @@ static int do_writepage(struct page *page, int len)
 	detach_page_private(page);
 	ClearPageChecked(page);
 
-	kunmap(page);
 	unlock_page(page);
 	end_page_writeback(page);
 	return err;

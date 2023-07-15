@@ -82,15 +82,15 @@ struct ubifs_compressor *ubifs_compressors[UBIFS_COMPR_TYPES_CNT];
 
 /**
  * ubifs_compress - compress data.
- * @in_buf: data to compress
+ * @in_sg: data to compress
  * @in_len: length of the data to compress
  * @out_buf: output buffer where compressed data should be stored
  * @out_len: output buffer length is returned here
  * @compr_type: type of compression to use on enter, actually used compression
  *              type on exit
  *
- * This function compresses input buffer @in_buf of length @in_len and stores
- * the result in the output buffer @out_buf and the resulting length in
+ * This function compresses input scatterlist @in_sg of length @in_len and
+ * stores the result in the output buffer @out_buf and the resulting length in
  * @out_len. If the input buffer does not compress, it is just copied to the
  * @out_buf. The same happens if @compr_type is %UBIFS_COMPR_NONE or if
  * compression error occurred.
@@ -98,11 +98,12 @@ struct ubifs_compressor *ubifs_compressors[UBIFS_COMPR_TYPES_CNT];
  * Note, if the input buffer was not compressed, it is copied to the output
  * buffer and %UBIFS_COMPR_NONE is returned in @compr_type.
  */
-void ubifs_compress(const struct ubifs_info *c, const void *in_buf,
+void ubifs_compress(const struct ubifs_info *c, struct scatterlist *in_sg,
 		    int in_len, void *out_buf, int *out_len, int *compr_type)
 {
 	int err;
 	struct ubifs_compressor *compr = ubifs_compressors[*compr_type];
+	struct scatterlist out_sg;
 
 	if (*compr_type == UBIFS_COMPR_NONE)
 		goto no_compr;
@@ -111,10 +112,13 @@ void ubifs_compress(const struct ubifs_info *c, const void *in_buf,
 	if (in_len < UBIFS_MIN_COMPR_LEN)
 		goto no_compr;
 
+	sg_init_one(&out_sg, out_buf, *out_len);
+
 	if (compr->comp_mutex)
 		mutex_lock(compr->comp_mutex);
-	err = crypto_comp_compress(compr->cc, in_buf, in_len, out_buf,
-				   (unsigned int *)out_len);
+	acomp_request_set_params(compr->req, in_sg, &out_sg, in_len, *out_len);
+	err = crypto_acomp_compress(compr->req);
+	*out_len = compr->req->dlen;
 	if (compr->comp_mutex)
 		mutex_unlock(compr->comp_mutex);
 	if (unlikely(err)) {
@@ -133,7 +137,7 @@ void ubifs_compress(const struct ubifs_info *c, const void *in_buf,
 	return;
 
 no_compr:
-	memcpy(out_buf, in_buf, in_len);
+	sg_copy_to_buffer(in_sg, 1, out_buf, in_len);
 	*out_len = in_len;
 	*compr_type = UBIFS_COMPR_NONE;
 }
@@ -142,19 +146,20 @@ no_compr:
  * ubifs_decompress - decompress data.
  * @in_buf: data to decompress
  * @in_len: length of the data to decompress
- * @out_buf: output buffer where decompressed data should
+ * @out_sg: output buffer where decompressed data should be stored
  * @out_len: output length is returned here
  * @compr_type: type of compression
  *
- * This function decompresses data from buffer @in_buf into buffer @out_buf.
+ * This function decompresses data from buffer @in_buf into scatterlist @out_sg.
  * The length of the uncompressed data is returned in @out_len. This functions
  * returns %0 on success or a negative error code on failure.
  */
-int ubifs_decompress(const struct ubifs_info *c, const void *in_buf,
-		     int in_len, void *out_buf, int *out_len, int compr_type)
+int ubifs_decompress(const struct ubifs_info *c, const void *in_buf, int in_len,
+		     struct scatterlist *out_sg, int *out_len, int compr_type)
 {
 	int err;
 	struct ubifs_compressor *compr;
+	struct scatterlist in_sg;
 
 	if (unlikely(compr_type < 0 || compr_type >= UBIFS_COMPR_TYPES_CNT)) {
 		ubifs_err(c, "invalid compression type %d", compr_type);
@@ -169,15 +174,18 @@ int ubifs_decompress(const struct ubifs_info *c, const void *in_buf,
 	}
 
 	if (compr_type == UBIFS_COMPR_NONE) {
-		memcpy(out_buf, in_buf, in_len);
+		sg_copy_from_buffer(out_sg, 1, in_buf, in_len);
 		*out_len = in_len;
 		return 0;
 	}
 
+	sg_init_one(&in_sg, in_buf, in_len);
+
 	if (compr->decomp_mutex)
 		mutex_lock(compr->decomp_mutex);
-	err = crypto_comp_decompress(compr->cc, in_buf, in_len, out_buf,
-				     (unsigned int *)out_len);
+	acomp_request_set_params(compr->req, &in_sg, out_sg, in_len, *out_len);
+	err = crypto_acomp_decompress(compr->req);
+	*out_len = compr->req->dlen;
 	if (compr->decomp_mutex)
 		mutex_unlock(compr->decomp_mutex);
 	if (err)
@@ -197,11 +205,24 @@ int ubifs_decompress(const struct ubifs_info *c, const void *in_buf,
 static int __init compr_init(struct ubifs_compressor *compr)
 {
 	if (compr->capi_name) {
-		compr->cc = crypto_alloc_comp(compr->capi_name, 0, 0);
+		long ret;
+
+		compr->cc = crypto_alloc_acomp(compr->capi_name, 0,
+					       CRYPTO_ALG_ASYNC);
 		if (IS_ERR(compr->cc)) {
+			ret = PTR_ERR(compr->cc);
+		} else {
+			compr->req = acomp_request_alloc(compr->cc);
+			if (!compr->req) {
+				crypto_free_acomp(compr->cc);
+				ret = -ENOMEM;
+			}
+		}
+
+		if (ret) {
 			pr_err("UBIFS error (pid %d): cannot initialize compressor %s, error %ld",
-			       current->pid, compr->name, PTR_ERR(compr->cc));
-			return PTR_ERR(compr->cc);
+			       current->pid, compr->name, ret);
+			return ret;
 		}
 	}
 
@@ -215,8 +236,10 @@ static int __init compr_init(struct ubifs_compressor *compr)
  */
 static void compr_exit(struct ubifs_compressor *compr)
 {
-	if (compr->capi_name)
-		crypto_free_comp(compr->cc);
+	if (compr->capi_name) {
+		acomp_request_free(compr->req);
+		crypto_free_acomp(compr->cc);
+	}
 }
 
 /**

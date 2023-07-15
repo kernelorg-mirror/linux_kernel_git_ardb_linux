@@ -32,6 +32,7 @@
 #include <crypto/hash_info.h>
 #include <crypto/hash.h>
 #include <crypto/algapi.h>
+#include <crypto/acompress.h>
 
 #include <linux/fscrypt.h>
 
@@ -849,7 +850,8 @@ struct ubifs_node_range {
  */
 struct ubifs_compressor {
 	int compr_type;
-	struct crypto_comp *cc;
+	struct crypto_acomp *cc;
+	struct acomp_req *req;
 	struct mutex *comp_mutex;
 	struct mutex *decomp_mutex;
 	const char *name;
@@ -1801,7 +1803,8 @@ int ubifs_jnl_update(struct ubifs_info *c, const struct inode *dir,
 		     const struct fscrypt_name *nm, const struct inode *inode,
 		     int deletion, int xent);
 int ubifs_jnl_write_data(struct ubifs_info *c, const struct inode *inode,
-			 const union ubifs_key *key, const void *buf, int len);
+			 const union ubifs_key *key, struct page *page, int offset,
+			 int len);
 int ubifs_jnl_write_inode(struct ubifs_info *c, const struct inode *inode);
 int ubifs_jnl_delete_inode(struct ubifs_info *c, const struct inode *inode);
 int ubifs_jnl_xrename(struct ubifs_info *c, const struct inode *fst_dir,
@@ -2101,10 +2104,10 @@ long ubifs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
 /* compressor.c */
 int __init ubifs_compressors_init(void);
 void ubifs_compressors_exit(void);
-void ubifs_compress(const struct ubifs_info *c, const void *in_buf, int in_len,
-		    void *out_buf, int *out_len, int *compr_type);
-int ubifs_decompress(const struct ubifs_info *c, const void *buf, int len,
-		     void *out, int *out_len, int compr_type);
+void ubifs_compress(const struct ubifs_info *c, struct scatterlist *in_sg,
+		    int in_len, void *out_buf, int *out_len, int *compr_type);
+int ubifs_decompress(const struct ubifs_info *c, const void *in_buf, int in_len,
+		     struct scatterlist *out_sg, int *out_len, int compr_type);
 
 /* sysfs.c */
 int ubifs_sysfs_init(void);
