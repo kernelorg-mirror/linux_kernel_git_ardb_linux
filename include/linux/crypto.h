@@ -22,7 +22,7 @@
  */
 #define CRYPTO_ALG_TYPE_MASK		0x0000000f
 #define CRYPTO_ALG_TYPE_CIPHER		0x00000001
-#define CRYPTO_ALG_TYPE_COMPRESS	0x00000002
+//#define CRYPTO_ALG_TYPE_COMPRESS	0x00000002
 #define CRYPTO_ALG_TYPE_AEAD		0x00000003
 #define CRYPTO_ALG_TYPE_SKCIPHER	0x00000005
 #define CRYPTO_ALG_TYPE_AKCIPHER	0x00000006
@@ -492,53 +492,6 @@ static inline unsigned int crypto_tfm_ctx_alignment(void)
 	struct crypto_tfm *tfm;
 	return __alignof__(tfm->__crt_ctx);
 }
-
-static inline struct crypto_comp *__crypto_comp_cast(struct crypto_tfm *tfm)
-{
-	return (struct crypto_comp *)tfm;
-}
-
-static inline struct crypto_comp *crypto_alloc_comp(const char *alg_name,
-						    u32 type, u32 mask)
-{
-	type &= ~CRYPTO_ALG_TYPE_MASK;
-	type |= CRYPTO_ALG_TYPE_COMPRESS;
-	mask |= CRYPTO_ALG_TYPE_MASK;
-
-	return __crypto_comp_cast(crypto_alloc_base(alg_name, type, mask));
-}
-
-static inline struct crypto_tfm *crypto_comp_tfm(struct crypto_comp *tfm)
-{
-	return &tfm->base;
-}
-
-static inline void crypto_free_comp(struct crypto_comp *tfm)
-{
-	crypto_free_tfm(crypto_comp_tfm(tfm));
-}
-
-static inline int crypto_has_comp(const char *alg_name, u32 type, u32 mask)
-{
-	type &= ~CRYPTO_ALG_TYPE_MASK;
-	type |= CRYPTO_ALG_TYPE_COMPRESS;
-	mask |= CRYPTO_ALG_TYPE_MASK;
-
-	return crypto_has_alg(alg_name, type, mask);
-}
-
-static inline const char *crypto_comp_name(struct crypto_comp *tfm)
-{
-	return crypto_tfm_alg_name(crypto_comp_tfm(tfm));
-}
-
-int crypto_comp_compress(struct crypto_comp *tfm,
-			 const u8 *src, unsigned int slen,
-			 u8 *dst, unsigned int *dlen);
-
-int crypto_comp_decompress(struct crypto_comp *tfm,
-			   const u8 *src, unsigned int slen,
-			   u8 *dst, unsigned int *dlen);
 
 #endif	/* _LINUX_CRYPTO_H */
 
