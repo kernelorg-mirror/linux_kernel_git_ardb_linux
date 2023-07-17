@@ -51,7 +51,7 @@ static inline struct page *scatterwalk_page(struct scatter_walk *walk)
 	return sg_page(walk->sg) + (walk->offset >> PAGE_SHIFT);
 }
 
-static inline void scatterwalk_unmap(void *vaddr)
+static inline void scatterwalk_unmap(const void *vaddr)
 {
 	kunmap_local(vaddr);
 }
