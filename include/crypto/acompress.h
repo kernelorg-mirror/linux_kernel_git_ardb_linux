@@ -43,15 +43,12 @@ struct acomp_req {
  *
  * @compress:		Function performs a compress operation
  * @decompress:		Function performs a de-compress operation
- * @dst_free:		Frees destination buffer if allocated inside the
- *			algorithm
  * @reqsize:		Context size for (de)compression requests
  * @base:		Common crypto API algorithm data structure
  */
 struct crypto_acomp {
 	int (*compress)(struct acomp_req *req);
 	int (*decompress)(struct acomp_req *req);
-	void (*dst_free)(struct scatterlist *dst);
 	unsigned int reqsize;
 	struct crypto_tfm base;
 };
@@ -222,8 +219,7 @@ static inline void acomp_request_set_callback(struct acomp_req *req,
 {
 	req->base.complete = cmpl;
 	req->base.data = data;
-	req->base.flags &= CRYPTO_ACOMP_ALLOC_OUTPUT;
-	req->base.flags |= flgs & ~CRYPTO_ACOMP_ALLOC_OUTPUT;
+	req->base.flags = flgs;
 }
 
 /**
@@ -233,11 +229,9 @@ static inline void acomp_request_set_callback(struct acomp_req *req,
  *
  * @req:	asynchronous compress request
  * @src:	pointer to input buffer scatterlist
- * @dst:	pointer to output buffer scatterlist. If this is NULL, the
- *		acomp layer will allocate the output memory
+ * @dst:	pointer to output buffer scatterlist
  * @slen:	size of the input buffer
- * @dlen:	size of the output buffer. If dst is NULL, this can be used by
- *		the user to specify the maximum amount of memory to allocate
+ * @dlen:	size of the output buffer
  */
 static inline void acomp_request_set_params(struct acomp_req *req,
 					    struct scatterlist *src,
@@ -249,10 +243,6 @@ static inline void acomp_request_set_params(struct acomp_req *req,
 	req->dst = dst;
 	req->slen = slen;
 	req->dlen = dlen;
-
-	req->flags &= ~CRYPTO_ACOMP_ALLOC_OUTPUT;
-	if (!req->dst)
-		req->flags |= CRYPTO_ACOMP_ALLOC_OUTPUT;
 }
 
 static inline struct crypto_istat_compress *comp_get_stat(

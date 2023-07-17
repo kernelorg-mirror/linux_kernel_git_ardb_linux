@@ -122,11 +122,8 @@ static int scomp_acomp_comp_decomp(struct acomp_req *req, int dir)
 	if (!req->src || !req->slen || req->slen > SCOMP_SCRATCH_SIZE)
 		return -EINVAL;
 
-	if (req->dst && !req->dlen)
+	if (!req->dst || !req->dlen || req->dlen > SCOMP_SCRATCH_SIZE)
 		return -EINVAL;
-
-	if (!req->dlen || req->dlen > SCOMP_SCRATCH_SIZE)
-		req->dlen = SCOMP_SCRATCH_SIZE;
 
 	scratch = raw_cpu_ptr(&scomp_scratch);
 	spin_lock(&scratch->lock);
@@ -139,17 +136,9 @@ static int scomp_acomp_comp_decomp(struct acomp_req *req, int dir)
 		ret = crypto_scomp_decompress(scomp, scratch->src, req->slen,
 					      scratch->dst, &req->dlen, *ctx);
 	if (!ret) {
-		if (!req->dst) {
-			req->dst = sgl_alloc(req->dlen, GFP_ATOMIC, NULL);
-			if (!req->dst) {
-				ret = -ENOMEM;
-				goto out;
-			}
-		}
 		scatterwalk_map_and_copy(scratch->dst, req->dst, 0, req->dlen,
 					 1);
 	}
-out:
 	spin_unlock(&scratch->lock);
 	return ret;
 }
@@ -197,7 +186,6 @@ int crypto_init_scomp_ops_async(struct crypto_tfm *tfm)
 
 	crt->compress = scomp_acomp_compress;
 	crt->decompress = scomp_acomp_decompress;
-	crt->dst_free = sgl_free;
 	crt->reqsize = sizeof(void *);
 
 	return 0;
