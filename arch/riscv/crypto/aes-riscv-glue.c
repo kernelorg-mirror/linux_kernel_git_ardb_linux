@@ -21,75 +21,37 @@
 void rv64i_zvkned_encrypt(const u8 *in, u8 *out, const u32 *key);
 void rv64i_zvkned_decrypt(const u8 *in, u8 *out, const u32 *key);
 
-struct riscv_aes_ctx {
-	struct crypto_cipher *fallback;
-	struct crypto_aes_ctx key;
-};
-
-static int riscv64_aes_init_zvkned(struct crypto_tfm *tfm)
-{
-	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
-	const char *alg = crypto_tfm_alg_name(tfm);
-	struct crypto_cipher *fallback;
-
-	fallback = crypto_alloc_cipher(alg, 0, CRYPTO_ALG_NEED_FALLBACK);
-	if (IS_ERR(fallback)) {
-		pr_err("Failed to allocate transformation for '%s': %ld\n",
-		       alg, PTR_ERR(fallback));
-		return PTR_ERR(fallback);
-	}
-
-	crypto_cipher_set_flags(fallback,
-				crypto_cipher_get_flags((struct
-							 crypto_cipher *)
-							tfm));
-	ctx->fallback = fallback;
-
-	return 0;
-}
-
-static void riscv_aes_exit(struct crypto_tfm *tfm)
-{
-	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
-
-	if (ctx->fallback) {
-		crypto_free_cipher(ctx->fallback);
-		ctx->fallback = NULL;
-	}
-}
-
 static int riscv64_aes_setkey_zvkned(struct crypto_tfm *tfm, const u8 *key,
 			 unsigned int keylen)
 {
-	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
+	struct crypto_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	return aes_expandkey(&ctx->key, key, keylen) ?:
-	       crypto_cipher_setkey(ctx->fallback, key, keylen);
+	return aes_expandkey(ctx, key, keylen);
 }
 
 static void riscv64_aes_encrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8 *src)
 {
-	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
+	struct crypto_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
 	if (crypto_simd_usable()) {
 		kernel_rvv_begin();
-		rv64i_zvkned_encrypt(src, dst, ctx->key.key_enc);
+		rv64i_zvkned_encrypt(src, dst, ctx->key_enc);
 		kernel_rvv_end();
 	} else {
-		crypto_cipher_encrypt_one(ctx->fallback, dst, src);
+		aes_encrypt(ctx, dst, src);
 	}
 }
 
 static void riscv64_aes_decrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8 *src)
 {
-	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
+	struct crypto_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
 	if (crypto_simd_usable()) {
 		kernel_rvv_begin();
-		rv64i_zvkned_decrypt(src, dst, ctx->key.key_enc);
+		rv64i_zvkned_decrypt(src, dst, ctx->key_enc);
 		kernel_rvv_end();
 	} else {
-		crypto_cipher_decrypt_one(ctx->fallback, dst, src);
+		aes_decrypt(ctx, dst, src);
 	}
 }
 
@@ -99,12 +61,10 @@ struct crypto_alg riscv64_aes_zvkned_alg = {
 	.cra_module = THIS_MODULE,
 	.cra_priority = 300,
 	.cra_type = NULL,
-	.cra_flags = CRYPTO_ALG_TYPE_CIPHER | CRYPTO_ALG_NEED_FALLBACK,
+	.cra_flags = CRYPTO_ALG_TYPE_CIPHER,
 	.cra_alignmask = 0,
 	.cra_blocksize = AES_BLOCK_SIZE,
-	.cra_ctxsize = sizeof(struct riscv_aes_ctx),
-	.cra_init = riscv64_aes_init_zvkned,
-	.cra_exit = riscv_aes_exit,
+	.cra_ctxsize = sizeof(struct crypto_aes_ctx),
 	.cra_cipher = {
 		.cia_min_keysize = AES_MIN_KEY_SIZE,
 		.cia_max_keysize = AES_MAX_KEY_SIZE,
