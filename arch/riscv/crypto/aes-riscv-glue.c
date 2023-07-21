@@ -17,21 +17,13 @@
 #include <crypto/internal/cipher.h>
 #include <crypto/internal/simd.h>
 
-struct aes_key {
-	u8 key[AES_MAX_KEYLENGTH];
-	int rounds;
-};
-
 /* variant using the zvkned vector crypto extension */
-void rv64i_zvkned_encrypt(const u8 *in, u8 *out, const struct aes_key *key);
-void rv64i_zvkned_decrypt(const u8 *in, u8 *out, const struct aes_key *key);
-int rv64i_zvkned_set_encrypt_key(const u8 *userKey, const int bits,
-				struct aes_key *key);
+void rv64i_zvkned_encrypt(const u8 *in, u8 *out, const u32 *key);
+void rv64i_zvkned_decrypt(const u8 *in, u8 *out, const u32 *key);
 
 struct riscv_aes_ctx {
 	struct crypto_cipher *fallback;
-	struct aes_key enc_key;
-	unsigned int keylen;
+	struct crypto_aes_ctx key;
 };
 
 static int riscv64_aes_init_zvkned(struct crypto_tfm *tfm)
@@ -70,30 +62,18 @@ static int riscv64_aes_setkey_zvkned(struct crypto_tfm *tfm, const u8 *key,
 			 unsigned int keylen)
 {
 	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
-	int ret;
 
-	ctx->keylen = keylen;
-
-	if (keylen == 16 || keylen == 32) {
-		kernel_rvv_begin();
-		ret = rv64i_zvkned_set_encrypt_key(key, keylen * 8, &ctx->enc_key);
-		kernel_rvv_end();
-		if (ret != 1)
-			return -EINVAL;
-	}
-
-	ret = crypto_cipher_setkey(ctx->fallback, key, keylen);
-
-	return ret ? -EINVAL : 0;
+	return aes_expandkey(&ctx->key, key, keylen) ?:
+	       crypto_cipher_setkey(ctx->fallback, key, keylen);
 }
 
 static void riscv64_aes_encrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8 *src)
 {
 	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	if (crypto_simd_usable() && (ctx->keylen == 16 || ctx->keylen == 32)) {
+	if (crypto_simd_usable() && ctx->key.key_length != 24) {
 		kernel_rvv_begin();
-		rv64i_zvkned_encrypt(src, dst, &ctx->enc_key);
+		rv64i_zvkned_encrypt(src, dst, ctx->key.key_enc);
 		kernel_rvv_end();
 	} else {
 		crypto_cipher_encrypt_one(ctx->fallback, dst, src);
@@ -104,9 +84,9 @@ static void riscv64_aes_decrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8
 {
 	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	if (crypto_simd_usable() && (ctx->keylen == 16 || ctx->keylen == 32)) {
+	if (crypto_simd_usable() && ctx->key.key_length != 24) {
 		kernel_rvv_begin();
-		rv64i_zvkned_decrypt(src, dst, &ctx->enc_key);
+		rv64i_zvkned_decrypt(src, dst, ctx->key.key_enc);
 		kernel_rvv_end();
 	} else {
 		crypto_cipher_decrypt_one(ctx->fallback, dst, src);

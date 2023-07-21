@@ -258,12 +258,12 @@ $code .= <<___;
 .type rv64i_zvkned_encrypt,\@function
 rv64i_zvkned_encrypt:
     # Load number of rounds
-    lwu     $rounds, 240($KEYP)
+    lwu     $rounds, 480($KEYP)
 
     # Get proper routine for key size
-    li $T6, 14
+    li $T6, 32
     beq $rounds, $T6, L_enc_256
-    li $T6, 10
+    li $T6, 16
     beq $rounds, $T6, L_enc_128
 
     j L_fail_m2
@@ -394,12 +394,12 @@ $code .= <<___;
 .type rv64i_zvkned_decrypt,\@function
 rv64i_zvkned_decrypt:
     # Load number of rounds
-    lwu     $rounds, 240($KEYP)
+    lwu     $rounds, 480($KEYP)
 
     # Get proper routine for key size
-    li $T6, 14
+    li $T6, 32
     beq $rounds, $T6, L_dec_256
-    li $T6, 10
+    li $T6, 16
     beq $rounds, $T6, L_dec_128
 
     j L_fail_m2
