@@ -27,13 +27,10 @@ void rv64i_zvkned_encrypt(const u8 *in, u8 *out, const struct aes_key *key);
 void rv64i_zvkned_decrypt(const u8 *in, u8 *out, const struct aes_key *key);
 int rv64i_zvkned_set_encrypt_key(const u8 *userKey, const int bits,
 				struct aes_key *key);
-int rv64i_zvkned_set_decrypt_key(const u8 *userKey, const int bits,
-				struct aes_key *key);
 
 struct riscv_aes_ctx {
 	struct crypto_cipher *fallback;
 	struct aes_key enc_key;
-	struct aes_key dec_key;
 	unsigned int keylen;
 };
 
@@ -80,12 +77,6 @@ static int riscv64_aes_setkey_zvkned(struct crypto_tfm *tfm, const u8 *key,
 	if (keylen == 16 || keylen == 32) {
 		kernel_rvv_begin();
 		ret = rv64i_zvkned_set_encrypt_key(key, keylen * 8, &ctx->enc_key);
-		if (ret != 1) {
-			kernel_rvv_end();
-			return -EINVAL;
-		}
-
-		ret = rv64i_zvkned_set_decrypt_key(key, keylen * 8, &ctx->dec_key);
 		kernel_rvv_end();
 		if (ret != 1)
 			return -EINVAL;
@@ -115,7 +106,7 @@ static void riscv64_aes_decrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8
 
 	if (crypto_simd_usable() && (ctx->keylen == 16 || ctx->keylen == 32)) {
 		kernel_rvv_begin();
-		rv64i_zvkned_decrypt(src, dst, &ctx->dec_key);
+		rv64i_zvkned_decrypt(src, dst, &ctx->enc_key);
 		kernel_rvv_end();
 	} else {
 		crypto_cipher_decrypt_one(ctx->fallback, dst, src);
