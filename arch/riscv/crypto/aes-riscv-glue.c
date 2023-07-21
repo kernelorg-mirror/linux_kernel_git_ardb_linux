@@ -71,7 +71,7 @@ static void riscv64_aes_encrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8
 {
 	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	if (crypto_simd_usable() && ctx->key.key_length != 24) {
+	if (crypto_simd_usable()) {
 		kernel_rvv_begin();
 		rv64i_zvkned_encrypt(src, dst, ctx->key.key_enc);
 		kernel_rvv_end();
@@ -84,7 +84,7 @@ static void riscv64_aes_decrypt_zvkned(struct crypto_tfm *tfm, u8 *dst, const u8
 {
 	struct riscv_aes_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	if (crypto_simd_usable() && ctx->key.key_length != 24) {
+	if (crypto_simd_usable()) {
 		kernel_rvv_begin();
 		rv64i_zvkned_decrypt(src, dst, ctx->key.key_enc);
 		kernel_rvv_end();
