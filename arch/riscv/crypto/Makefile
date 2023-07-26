@@ -3,6 +3,9 @@
 # linux/arch/riscv/crypto/Makefile
 #
 
+obj-$(CONFIG_CRYPTO_AES_RISCV_SCALAR) += aes-riscv-scalar.o
+aes-riscv-scalar-y := aes-riscv-scalar-glue.o aes-riscv$(BITS)-zkned.o
+
 obj-$(CONFIG_CRYPTO_AES_RISCV) += aes-riscv.o
 aes-riscv-y := aes-riscv-glue.o aes-riscv64-zvkned.o
 
