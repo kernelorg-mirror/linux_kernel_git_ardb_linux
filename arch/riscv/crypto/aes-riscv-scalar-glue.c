@@ -13,13 +13,28 @@
 
 asmlinkage void __aes_riscv_scalar_encrypt(u32 *rk, int rounds, u8 *out, const u8 *in);
 asmlinkage void __aes_riscv_scalar_decrypt(u32 *rk, int rounds, u8 *out, const u8 *in);
+asmlinkage void __aes_riscv_scalar_expand_key(u32 *enc_key, u32 *dec_key, int keylen);
 
 static int aes_riscv_set_key(struct crypto_lskcipher *tfm, const u8 *in_key,
 			     unsigned int key_len)
 {
 	struct crypto_aes_ctx *ctx = crypto_lskcipher_ctx(tfm);
+	int err;
 
-	return aes_expandkey(ctx, in_key, key_len);
+	if (!IS_ENABLED(CONFIG_64BIT))
+		return aes_expandkey(ctx, in_key, key_len);
+
+	err = aes_check_keylen(key_len);
+	if (err)
+		return err;
+
+	ctx->key_length = key_len;
+
+	for (int i = 0; i < key_len / sizeof(u32); i++)
+		ctx->key_enc[i] = get_unaligned_le32(in_key + i * sizeof(u32));
+
+	__aes_riscv_scalar_expand_key(ctx->key_enc, ctx->key_dec, key_len);
+	return 0;
 }
 
 static int aes_riscv_encrypt(struct crypto_lskcipher *tfm, const u8 *src,
