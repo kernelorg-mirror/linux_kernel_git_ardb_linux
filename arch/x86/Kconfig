@@ -1995,15 +1995,17 @@ config EFI_HANDOVER_PROTOCOL
 
 config EFI_MIXED
 	bool "EFI mixed-mode support"
-	depends on EFI_STUB && X86_64
+	depends on EFI && X86_64
 	help
-	  Enabling this feature allows a 64-bit kernel to be booted
-	  on a 32-bit firmware, provided that your CPU supports 64-bit
-	  mode.
+	  Enabling this feature allows a 64-bit kernel booted on 32-bit EFI
+	  firmware to invoke runtime services. Naturally, this only works on
+	  systems that are 64-bit capable to begin with - typically, these are
+	  low-end x86_64 Intel Atom based systems that were built to run 32-bit
+	  Windows.
 
-	  Note that it is not possible to boot a mixed-mode enabled
-	  kernel via the EFI boot stub - a bootloader that supports
-	  the EFI handover protocol must be used.
+	  Note that it is not possible to boot a mixed-mode enabled kernel via
+	  the EFI boot stub - a bootloader that supports the x86 boot protocol
+	  must be used (e.g., GRUB)
 
 	  If unsure, say N.
 

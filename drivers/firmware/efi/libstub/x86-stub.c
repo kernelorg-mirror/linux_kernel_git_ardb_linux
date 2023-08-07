@@ -32,9 +32,6 @@ union sev_memory_acceptance_protocol {
 		efi_status_t (__efiapi * allow_unaccepted_memory)(
 			sev_memory_acceptance_protocol_t *);
 	};
-	struct {
-		u32 allow_unaccepted_memory;
-	} mixed_mode;
 };
 
 static efi_status_t
@@ -975,7 +972,6 @@ void efi_handover_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
 	efi_stub_entry(handle, sys_table_arg, boot_params);
 }
 
-#ifndef CONFIG_EFI_MIXED
 extern __alias(efi_handover_entry)
 void efi32_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
 		      struct boot_params *boot_params);
@@ -983,5 +979,4 @@ void efi32_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
 extern __alias(efi_handover_entry)
 void efi64_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
 		      struct boot_params *boot_params);
-#endif
 #endif

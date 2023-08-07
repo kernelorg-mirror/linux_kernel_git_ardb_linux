@@ -47,18 +47,10 @@ extern const efi_dxe_services_table_t *efi_dxe_table;
 efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 				   efi_system_table_t *sys_table_arg);
 
-#ifndef ARCH_HAS_EFISTUB_WRAPPERS
-
-#define efi_is_native()			(true)
 #define efi_table_attr(inst, attr)	(inst)->attr
 #define efi_fn_call(inst, func, ...)	(inst)->func(__VA_ARGS__)
+#define efi_call_proto(inst, func, ...) (inst)->func((inst), ##__VA_ARGS__)
 
-#endif
-
-#define efi_call_proto(inst, func, ...) ({			\
-	__typeof__(inst) __inst = (inst);			\
-	efi_fn_call(__inst, func, __inst, ##__VA_ARGS__);	\
-})
 #define efi_bs_call(func, ...) \
 	efi_fn_call(efi_table_attr(efi_system_table, boottime), func, ##__VA_ARGS__)
 #define efi_rt_call(func, ...) \
@@ -115,12 +107,8 @@ efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
 	efi_rt_call(set_variable, (efi_char16_t *)(name),	\
 		    (efi_guid_t *)(vendor), __VA_ARGS__)
 
-#define efi_get_handle_at(array, idx)					\
-	(efi_is_native() ? (array)[idx] 				\
-		: (efi_handle_t)(unsigned long)((u32 *)(array))[idx])
-
-#define efi_get_handle_num(size)					\
-	((size) / (efi_is_native() ? sizeof(efi_handle_t) : sizeof(u32)))
+#define efi_get_handle_at(array, idx)	(array)[idx]
+#define efi_get_handle_num(size)	((size) / sizeof(efi_handle_t))
 
 #define for_each_efi_handle(handle, array, size, i)			\
 	for (i = 0;							\
@@ -184,10 +172,6 @@ union efi_device_path_to_text_protocol {
 					const efi_device_path_protocol_t *,
 					bool, bool);
 	};
-	struct {
-		u32 convert_device_node_to_text;
-		u32 convert_device_path_to_text;
-	} mixed_mode;
 };
 
 typedef union efi_device_path_to_text_protocol efi_device_path_to_text_protocol_t;
@@ -199,16 +183,11 @@ union efi_device_path_from_text_protocol {
 		efi_device_path_protocol_t *
 			(__efiapi *convert_text_to_device_path)(const efi_char16_t *);
 	};
-	struct {
-		u32 convert_text_to_device_node;
-		u32 convert_text_to_device_path;
-	} mixed_mode;
 };
 
 typedef union efi_device_path_from_text_protocol efi_device_path_from_text_protocol_t;
 
 typedef void *efi_event_t;
-/* Note that notifications won't work in mixed mode */
 typedef void (__efiapi *efi_event_notify_t)(efi_event_t, void *);
 
 #define EFI_EVT_TIMER		0x80000000U
@@ -224,15 +203,11 @@ typedef void (__efiapi *efi_event_notify_t)(efi_event_t, void *);
  * @event:	event to add to the aray
  *
  * boottime->wait_for_event() takes an array of events as input.
- * Provide a helper to set it up correctly for mixed mode.
  */
 static inline
 void efi_set_event_at(efi_event_t *events, size_t idx, efi_event_t event)
 {
-	if (efi_is_native())
-		events[idx] = event;
-	else
-		((u32 *)events)[idx] = (u32)(unsigned long)event;
+	events[idx] = event;
 }
 
 #define EFI_TPL_APPLICATION	4
@@ -324,53 +299,6 @@ union efi_boot_services {
 		void (__efiapi *set_mem)(void *, unsigned long, unsigned char);
 		void *create_event_ex;
 	};
-	struct {
-		efi_table_hdr_t hdr;
-		u32 raise_tpl;
-		u32 restore_tpl;
-		u32 allocate_pages;
-		u32 free_pages;
-		u32 get_memory_map;
-		u32 allocate_pool;
-		u32 free_pool;
-		u32 create_event;
-		u32 set_timer;
-		u32 wait_for_event;
-		u32 signal_event;
-		u32 close_event;
-		u32 check_event;
-		u32 install_protocol_interface;
-		u32 reinstall_protocol_interface;
-		u32 uninstall_protocol_interface;
-		u32 handle_protocol;
-		u32 __reserved;
-		u32 register_protocol_notify;
-		u32 locate_handle;
-		u32 locate_device_path;
-		u32 install_configuration_table;
-		u32 load_image;
-		u32 start_image;
-		u32 exit;
-		u32 unload_image;
-		u32 exit_boot_services;
-		u32 get_next_monotonic_count;
-		u32 stall;
-		u32 set_watchdog_timer;
-		u32 connect_controller;
-		u32 disconnect_controller;
-		u32 open_protocol;
-		u32 close_protocol;
-		u32 open_protocol_information;
-		u32 protocols_per_handle;
-		u32 locate_handle_buffer;
-		u32 locate_protocol;
-		u32 install_multiple_protocol_interfaces;
-		u32 uninstall_multiple_protocol_interfaces;
-		u32 calculate_crc32;
-		u32 copy_mem;
-		u32 set_mem;
-		u32 create_event_ex;
-	} mixed_mode;
 };
 
 typedef enum {
@@ -420,27 +348,6 @@ union efi_dxe_services_table {
 		void *process_firmware_volume;
 		void *set_memory_space_capabilities;
 	};
-	struct {
-		efi_table_hdr_t hdr;
-		u32 add_memory_space;
-		u32 allocate_memory_space;
-		u32 free_memory_space;
-		u32 remove_memory_space;
-		u32 get_memory_space_descriptor;
-		u32 set_memory_space_attributes;
-		u32 get_memory_space_map;
-		u32 add_io_space;
-		u32 allocate_io_space;
-		u32 free_io_space;
-		u32 remove_io_space;
-		u32 get_io_space_descriptor;
-		u32 get_io_space_map;
-		u32 dispatch;
-		u32 schedule;
-		u32 trust;
-		u32 process_firmware_volume;
-		u32 set_memory_space_capabilities;
-	} mixed_mode;
 };
 
 typedef union efi_memory_attribute_protocol efi_memory_attribute_protocol_t;
@@ -456,11 +363,6 @@ union efi_memory_attribute_protocol {
 		efi_status_t (__efiapi *clear_memory_attributes)(
 			efi_memory_attribute_protocol_t *, efi_physical_addr_t, u64, u64);
 	};
-	struct {
-		u32 get_memory_attributes;
-		u32 set_memory_attributes;
-		u32 clear_memory_attributes;
-	} mixed_mode;
 };
 
 typedef union efi_uga_draw_protocol efi_uga_draw_protocol_t;
@@ -472,11 +374,6 @@ union efi_uga_draw_protocol {
 		void *set_mode;
 		void *blt;
 	};
-	struct {
-		u32 get_mode;
-		u32 set_mode;
-		u32 blt;
-	} mixed_mode;
 };
 
 typedef struct {
@@ -491,11 +388,6 @@ union efi_simple_text_input_protocol {
 							efi_input_key_t *);
 		efi_event_t wait_for_key;
 	};
-	struct {
-		u32 reset;
-		u32 read_keystroke;
-		u32 wait_for_key;
-	} mixed_mode;
 };
 
 efi_status_t efi_wait_for_key(unsigned long usec, efi_input_key_t *key);
@@ -507,11 +399,6 @@ union efi_simple_text_output_protocol {
 						       efi_char16_t *);
 		void *test_string;
 	};
-	struct {
-		u32 reset;
-		u32 output_string;
-		u32 test_string;
-	} mixed_mode;
 };
 
 #define PIXEL_RGB_RESERVED_8BIT_PER_COLOR		0
@@ -547,14 +434,6 @@ union efi_graphics_output_protocol_mode {
 		efi_physical_addr_t frame_buffer_base;
 		unsigned long frame_buffer_size;
 	};
-	struct {
-		u32 max_mode;
-		u32 mode;
-		u32 info;
-		u32 size_of_info;
-		u64 frame_buffer_base;
-		u32 frame_buffer_size;
-	} mixed_mode;
 };
 
 typedef union efi_graphics_output_protocol efi_graphics_output_protocol_t;
@@ -568,12 +447,6 @@ union efi_graphics_output_protocol {
 		void *blt;
 		efi_graphics_output_protocol_mode_t *mode;
 	};
-	struct {
-		u32 query_mode;
-		u32 set_mode;
-		u32 blt;
-		u32 mode;
-	} mixed_mode;
 };
 
 typedef union {
@@ -592,21 +465,6 @@ typedef union {
 		unsigned int		image_data_type;
 		efi_status_t		(__efiapi *unload)(efi_handle_t image_handle);
 	};
-	struct {
-		u32		revision;
-		u32		parent_handle;
-		u32		system_table;
-		u32		device_handle;
-		u32		file_path;
-		u32		reserved;
-		u32		load_options_size;
-		u32		load_options;
-		u32		image_base;
-		__aligned_u64	image_size;
-		u32		image_code_type;
-		u32		image_data_type;
-		u32		unload;
-	} mixed_mode;
 } efi_loaded_image_t;
 
 typedef struct {
@@ -650,19 +508,6 @@ union efi_file_protocol {
 							 void *);
 		efi_status_t	(__efiapi *flush)	(efi_file_protocol_t *);
 	};
-	struct {
-		u64 revision;
-		u32 open;
-		u32 close;
-		u32 delete;
-		u32 read;
-		u32 write;
-		u32 get_position;
-		u32 set_position;
-		u32 get_info;
-		u32 set_info;
-		u32 flush;
-	} mixed_mode;
 };
 
 typedef union efi_simple_file_system_protocol efi_simple_file_system_protocol_t;
@@ -673,10 +518,6 @@ union efi_simple_file_system_protocol {
 		efi_status_t	(__efiapi *open_volume)(efi_simple_file_system_protocol_t *,
 							efi_file_protocol_t **);
 	};
-	struct {
-		u64 revision;
-		u32 open_volume;
-	} mixed_mode;
 };
 
 #define EFI_FILE_MODE_READ	0x0000000000000001
@@ -756,25 +597,6 @@ union efi_pci_io_protocol {
 		uint64_t romsize;
 		void *romimage;
 	};
-	struct {
-		u32 poll_mem;
-		u32 poll_io;
-		efi_pci_io_protocol_access_32_t mem;
-		efi_pci_io_protocol_access_32_t io;
-		efi_pci_io_protocol_access_32_t pci;
-		u32 copy_mem;
-		u32 map;
-		u32 unmap;
-		u32 allocate_buffer;
-		u32 free_buffer;
-		u32 flush;
-		u32 get_location;
-		u32 attributes;
-		u32 get_bar_attributes;
-		u32 set_bar_attributes;
-		u64 romsize;
-		u32 romimage;
-	} mixed_mode;
 };
 
 #define EFI_PCI_IO_ATTRIBUTE_ISA_MOTHERBOARD_IO 0x0001
@@ -816,13 +638,6 @@ union apple_properties_protocol {
 		efi_status_t (__efiapi *get_all)(apple_properties_protocol_t *,
 						 void *buffer, u32 *);
 	};
-	struct {
-		u32 version;
-		u32 get;
-		u32 set;
-		u32 del;
-		u32 get_all;
-	} mixed_mode;
 };
 
 typedef u32 efi_tcg2_event_log_format;
@@ -871,15 +686,6 @@ union efi_tcg2_protocol {
 		void *set_active_pcr_banks;
 		void *get_result_of_set_active_pcr_banks;
 	};
-	struct {
-		u32 get_capability;
-		u32 get_event_log;
-		u32 hash_log_extend_event;
-		u32 submit_command;
-		u32 get_active_pcr_banks;
-		u32 set_active_pcr_banks;
-		u32 get_result_of_set_active_pcr_banks;
-	} mixed_mode;
 };
 
 struct riscv_efi_boot_protocol {
@@ -898,9 +704,6 @@ union efi_load_file_protocol {
 						   efi_device_path_protocol_t *,
 						   bool, unsigned long *, void *);
 	};
-	struct {
-		u32 load_file;
-	} mixed_mode;
 };
 
 typedef struct {

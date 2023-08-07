@@ -455,7 +455,6 @@ typedef union {
 		efi_guid_t guid;
 		void *table;
 	};
-	efi_config_table_32_t mixed_mode;
 } efi_config_table_t;
 
 typedef struct {
@@ -527,7 +526,6 @@ typedef union {
 		unsigned long nr_tables;
 		unsigned long tables;
 	};
-	efi_system_table_32_t mixed_mode;
 } efi_system_table_t;
 
 struct efi_boot_memmap {

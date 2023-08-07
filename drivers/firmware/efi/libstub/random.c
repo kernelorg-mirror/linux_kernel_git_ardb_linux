@@ -19,10 +19,6 @@ union efi_rng_protocol {
 						 efi_guid_t *, unsigned long,
 						 u8 *out);
 	};
-	struct {
-		u32 get_info;
-		u32 get_rng;
-	} mixed_mode;
 };
 
 /**
