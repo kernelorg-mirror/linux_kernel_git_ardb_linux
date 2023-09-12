@@ -156,7 +156,6 @@ ENTRY(stext)
 	 */
 	ldr	r13, =__mmap_switched		@ address to jump to after
 						@ mmu has been enabled
-	badr	lr, 1f				@ return (PIC) address
 #ifdef CONFIG_ARM_LPAE
 	mov	r5, #0				@ high TTBR0
 	mov	r8, r4, lsr #12			@ TTBR1 is swapper_pg_dir pfn
@@ -165,7 +164,7 @@ ENTRY(stext)
 #endif
 	ldr	r12, [r10, #PROCINFO_INITFUNC]
 	add	r12, r12, r10
-	ret	r12
+	bl_r	r12
 1:	b	__enable_mmu
 ENDPROC(stext)
 	.ltorg
@@ -409,12 +408,12 @@ ARM_BE8(eor	r4, r4, r5)			@ Swap r5 and r4 in BE:
 ARM_BE8(eor	r5, r4, r5)			@ it can be done in 3 steps
 ARM_BE8(eor	r4, r4, r5)			@ without using a temp reg.
 	ldr	r8, [r3, #8]			@ get secondary_data.swapper_pg_dir
-	badr	lr, __enable_mmu		@ return address
 	mov	r13, r12			@ __secondary_switched address
 	ldr	r12, [r10, #PROCINFO_INITFUNC]
 	add	r12, r12, r10			@ initialise processor
 						@ (return control reg)
-	ret	r12
+	bl_r	r12
+	b	__enable_mmu
 ENDPROC(secondary_startup)
 ENDPROC(secondary_startup_arm)
 

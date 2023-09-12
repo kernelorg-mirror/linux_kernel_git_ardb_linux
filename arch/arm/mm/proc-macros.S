@@ -359,6 +359,7 @@ ENTRY(\name\()_tlb_fns)
 .endm
 
 .macro	initfn, func, base
+THUMB(	.type	\func, %function	)
 	.long	\func - \base
 .endm
 

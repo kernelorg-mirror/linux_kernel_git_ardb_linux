@@ -67,11 +67,10 @@ ENTRY(stext)
 	bl	__setup_mpu
 #endif
 
-	badr	lr, 1f				@ return (PIC) address
 	ldr	r12, [r10, #PROCINFO_INITFUNC]
 	add	r12, r12, r10
-	ret	r12
-1:	ldr	lr, =__mmap_switched
+	bl_r	r12
+	ldr	lr, =__mmap_switched
 	b	__after_proc_init
 ENDPROC(stext)
 
@@ -105,11 +104,10 @@ ENTRY(secondary_startup)
 	bl      __secondary_setup_mpu		@ Initialize the MPU
 #endif
 
-	badr	lr, 1f				@ return (PIC) address
 	ldr	r12, [r10, #PROCINFO_INITFUNC]
 	add	r12, r12, r10
-	ret	r12
-1:	bl	__after_proc_init
+	bl_r	r12
+	bl	__after_proc_init
 	ldr	r7, __secondary_data		@ reload r7
 	ldr	sp, [r7, #12]			@ set up the stack pointer
 	ldr	r0, [r7, #16]			@ set up task pointer
