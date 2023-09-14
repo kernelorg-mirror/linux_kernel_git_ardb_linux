@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0
+
+menu "Accelerated Cryptographic Algorithms for CPU (riscv)"
+
+config CRYPTO_AES_RISCV_SCALAR
+	tristate "Scalar AES using the Zkn extension"
+	select CRYPTO_LIB_AES
+	help
+	  Implement AES using the scalar instructions specified by the Zkn
+	  extension. These instructions replace the table lookups used by the
+	  generic implementation, making this implementation time invariant
+	  (provided that the instructions themselves are). It also reduces the
+	  D-cache footprint substantially, as the AES lookup tables are quite
+	  large.
+
+endmenu
