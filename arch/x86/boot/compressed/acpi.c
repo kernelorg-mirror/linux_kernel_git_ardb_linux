@@ -71,7 +71,7 @@ static struct efi_setup_data *get_kexec_setup_data_addr(void)
 	struct setup_data *data;
 	u64 pa_data;
 
-	pa_data = boot_params->hdr.setup_data;
+	pa_data = boot_params_ptr->hdr.setup_data;
 	while (pa_data) {
 		data = (struct setup_data *)pa_data;
 		if (data->type == SETUP_EFI)
@@ -98,7 +98,7 @@ static acpi_physical_address kexec_get_rsdp_addr(void)
 		return 0;
 	}
 
-	et = efi_get_type(boot_params);
+	et = efi_get_type(boot_params_ptr);
 	if (et != EFI_TYPE_64) {
 		debug_putstr("Unexpected kexec EFI environment (expected 64-bit EFI).\n");
 		return 0;
@@ -124,7 +124,7 @@ static acpi_physical_address efi_get_rsdp_addr(void)
 	enum efi_type et;
 	bool efi_64;
 
-	et = efi_get_type(boot_params);
+	et = efi_get_type(boot_params_ptr);
 	if (et == EFI_TYPE_64)
 		efi_64 = true;
 	else if (et == EFI_TYPE_32)
@@ -133,7 +133,7 @@ static acpi_physical_address efi_get_rsdp_addr(void)
 		return 0;
 
 	/* Get systab from boot params. */
-	ei = &boot_params->efi_info;
+	ei = &boot_params_ptr->efi_info;
 #ifdef CONFIG_X86_64
 	systab = ei->efi_systab | ((__u64)ei->efi_systab_hi << 32);
 #else
@@ -246,7 +246,7 @@ acpi_physical_address get_rsdp_addr(void)
 {
 	acpi_physical_address pa;
 
-	pa = boot_params->acpi_rsdp_addr;
+	pa = boot_params_ptr->acpi_rsdp_addr;
 
 	/*
 	 * Try to get EFI data from setup_data. This can happen when we're a
@@ -308,7 +308,7 @@ static unsigned long get_acpi_srat_table(void)
 	rsdp = (struct acpi_table_rsdp *)get_cmdline_acpi_rsdp();
 	if (!rsdp)
 		rsdp = (struct acpi_table_rsdp *)(long)
-			boot_params->acpi_rsdp_addr;
+			boot_params_ptr->acpi_rsdp_addr;
 
 	if (!rsdp)
 		return 0;
