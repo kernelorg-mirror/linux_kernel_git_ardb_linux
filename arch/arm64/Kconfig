@@ -379,11 +379,11 @@ config PGTABLE_LEVELS
 	int
 	default 2 if ARM64_16K_PAGES && ARM64_VA_BITS_36
 	default 2 if ARM64_64K_PAGES && ARM64_VA_BITS_42
-	default 3 if ARM64_64K_PAGES && (ARM64_VA_BITS_48 || ARM64_VA_BITS_52)
 	default 3 if ARM64_4K_PAGES && ARM64_VA_BITS_39
 	default 3 if ARM64_16K_PAGES && ARM64_VA_BITS_47
+	default 3 if ARM64_64K_PAGES
 	default 4 if ARM64_16K_PAGES && (ARM64_VA_BITS_48 || ARM64_VA_BITS_52)
-	default 4 if !ARM64_64K_PAGES && ARM64_VA_BITS_48
+	default 4 if ARM64_VA_BITS_48
 	default 5 if ARM64_4K_PAGES && ARM64_VA_BITS_52
 
 config ARCH_SUPPORTS_UPROBES
@@ -1361,6 +1361,7 @@ config ARM64_VA_BITS_47
 
 config ARM64_VA_BITS_48
 	bool "48-bit"
+	depends on !PAGE_SIZE_64KB
 
 config ARM64_VA_BITS_52
 	bool "52-bit"

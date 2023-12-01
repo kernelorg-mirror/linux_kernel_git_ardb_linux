@@ -48,7 +48,7 @@ void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 
 void __init pgtable_cache_init(void)
 {
-	unsigned int pgd_size = PGD_SIZE;
+	unsigned int pgd_size = PGD_SIZE >> (VA_BITS - vabits_actual);
 
 	if (pgdir_is_page_size())
 		return;
