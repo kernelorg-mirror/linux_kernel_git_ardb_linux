@@ -55,14 +55,16 @@ void __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
 			 * This chunk needs a finer grained mapping. Create a
 			 * table mapping if necessary and recurse.
 			 */
-			if (pte_none(*tbl)) {
+			if (pte_none(*tbl) && protval) {
 				*tbl = __pte(__phys_to_pte_val(*pte) |
 					     PMD_TYPE_TABLE | PMD_TABLE_UXN);
 				*pte += PTRS_PER_PTE * sizeof(pte_t);
 			}
-			map_range(pte, start, next, pa, prot, level + 1,
-				  (pte_t *)(__pte_to_phys(*tbl) + va_offset),
-				  may_use_cont, va_offset);
+			if (!pte_none(*tbl)) {
+				map_range(pte, start, next, pa, prot, level + 1,
+					  (pte_t *)(__pte_to_phys(*tbl) + va_offset),
+					  may_use_cont, va_offset);
+			}
 		} else {
 			/*
 			 * Start a contiguous range if start and pa are
