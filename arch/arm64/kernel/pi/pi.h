@@ -28,8 +28,9 @@ u64 kaslr_early_init(void *fdt, int chosen);
 void relocate_kernel(u64 offset);
 int scs_patch(const u8 eh_frame[], int size);
 
-int map_range(u64 *pgd, u64 start, u64 end, u64 pa, pgprot_t prot,
-	      int level, pte_t *tbl, bool may_use_cont, u64 va_offset);
+int map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
+	      u64 end, u64 pa, pgprot_t prot, int level, pte_t *tbl,
+	      bool may_use_cont, u64 va_offset);
 
 asmlinkage void early_map_kernel(u64 boot_status, void *fdt);
 

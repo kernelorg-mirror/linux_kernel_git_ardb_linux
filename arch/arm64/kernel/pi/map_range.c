@@ -11,11 +11,21 @@
 
 #include "pi.h"
 
+static u64 __init early_linear_alloc(void *ctx)
+{
+	pte_t (**ptep)[PTRS_PER_PTE] = ctx;
+
+	return (u64)(*ptep)++;
+}
+
 /**
  * map_range - Map a contiguous range of physical pages into virtual memory
  *
- * @pte:		Address of physical pointer to array of pages to
- *			allocate page tables from
+ * @pgalloc:		Callback to allocate a new page table. If %NULL, then
+ *			@pgalloc_ctx is assumed to be the address of a pointer
+ *			variable holding the physical address of an array of
+ *			available pages from which to allocate page tables.
+ * @pgalloc_ctx:	Opaque context argument for @pgalloc
  * @start:		Virtual address of the start of the range
  * @end:		Virtual address of the end of the range (exclusive)
  * @pa:			Physical address of the start of the range
@@ -26,8 +36,9 @@
  * @va_offset:		Offset between a physical page and its current mapping
  * 			in the VA space
  */
-int __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
-		     int level, pte_t *tbl, bool may_use_cont, u64 va_offset)
+int __init map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
+		     u64 end, u64 pa, pgprot_t prot, int level, pte_t *tbl,
+		     bool may_use_cont, u64 va_offset)
 {
 	u64 cmask = (level == 3) ? CONT_PTE_SIZE - 1 : U64_MAX;
 	u64 protval = pgprot_val(prot) & ~PTE_TYPE_MASK;
@@ -47,6 +58,9 @@ int __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
 	if (protval)
 		protval |= (level < 3) ? PMD_TYPE_SECT : PTE_TYPE_PAGE;
 
+	if (!pgalloc)
+		pgalloc = early_linear_alloc;
+
 	while (start < end) {
 		u64 next = min((start | lmask) + 1, PAGE_ALIGN(end));
 		int ret;
@@ -57,13 +71,17 @@ int __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
 			 * table mapping if necessary and recurse.
 			 */
 			if (pte_none(*tbl) && protval) {
-				*tbl = __pte(__phys_to_pte_val(*pte) |
+				u64 pg = pgalloc(pgalloc_ctx);
+
+				if (!pg)
+					return -ENOMEM;
+
+				*tbl = __pte(__phys_to_pte_val(pg) |
 					     PMD_TYPE_TABLE | PMD_TABLE_UXN);
-				*pte += PTRS_PER_PTE * sizeof(pte_t);
 			}
 			if (!pte_none(*tbl)) {
-				ret = map_range(pte, start, next, pa, prot,
-						level + 1,
+				ret = map_range(pgalloc, pgalloc_ctx, start,
+						next, pa, prot, level + 1,
 						(pte_t *)(__pte_to_phys(*tbl) + va_offset),
 						may_use_cont, va_offset);
 				if (ret)
@@ -104,9 +122,9 @@ asmlinkage u64 __init create_init_idmap(pgd_t *pg_dir, pteval_t clrmask)
 	pgprot_val(text_prot) &= ~clrmask;
 	pgprot_val(data_prot) &= ~clrmask;
 
-	map_range(&ptep, (u64)_stext, (u64)__initdata_begin, (u64)_stext,
+	map_range(NULL, &ptep, (u64)_stext, (u64)__initdata_begin, (u64)_stext,
 		  text_prot, IDMAP_ROOT_LEVEL, (pte_t *)pg_dir, false, 0);
-	map_range(&ptep, (u64)__initdata_begin, (u64)_end, (u64)__initdata_begin,
+	map_range(NULL, &ptep, (u64)__initdata_begin, (u64)_end, (u64)__initdata_begin,
 		  data_prot, IDMAP_ROOT_LEVEL, (pte_t *)pg_dir, false, 0);
 
 	return ptep;

@@ -24,7 +24,7 @@ static void __init map_segment(pgd_t *pg_dir, u64 *pgd, u64 va_offset,
 			       void *start, void *end, pgprot_t prot,
 			       bool may_use_cont, int root_level)
 {
-	map_range(pgd, ((u64)start + va_offset) & ~PAGE_OFFSET,
+	map_range(NULL, pgd, ((u64)start + va_offset) & ~PAGE_OFFSET,
 		  ((u64)end + va_offset) & ~PAGE_OFFSET, (u64)start,
 		  prot, root_level, (pte_t *)pg_dir, may_use_cont, 0);
 }
@@ -214,7 +214,8 @@ static void __init map_fdt(u64 fdt)
 	 * Map up to MAX_FDT_SIZE bytes, but avoid overlap with
 	 * the kernel image.
 	 */
-	map_range(&ptep, fdt, (u64)_text > fdt ? min((u64)_text, efdt) : efdt,
+	map_range(NULL, &ptep, fdt,
+		  (u64)_text > fdt ? min((u64)_text, efdt) : efdt,
 		  fdt, PAGE_KERNEL, IDMAP_ROOT_LEVEL,
 		  (pte_t *)init_idmap_pg_dir, false, 0);
 	dsb(ishst);
