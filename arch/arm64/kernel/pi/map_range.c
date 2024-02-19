@@ -26,8 +26,8 @@
  * @va_offset:		Offset between a physical page and its current mapping
  * 			in the VA space
  */
-void __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
-		      int level, pte_t *tbl, bool may_use_cont, u64 va_offset)
+int __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
+		     int level, pte_t *tbl, bool may_use_cont, u64 va_offset)
 {
 	u64 cmask = (level == 3) ? CONT_PTE_SIZE - 1 : U64_MAX;
 	u64 protval = pgprot_val(prot) & ~PTE_TYPE_MASK;
@@ -49,6 +49,7 @@ void __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
 
 	while (start < end) {
 		u64 next = min((start | lmask) + 1, PAGE_ALIGN(end));
+		int ret;
 
 		if (level < 3 && (start | next | pa) & lmask) {
 			/*
@@ -61,9 +62,12 @@ void __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
 				*pte += PTRS_PER_PTE * sizeof(pte_t);
 			}
 			if (!pte_none(*tbl)) {
-				map_range(pte, start, next, pa, prot, level + 1,
-					  (pte_t *)(__pte_to_phys(*tbl) + va_offset),
-					  may_use_cont, va_offset);
+				ret = map_range(pte, start, next, pa, prot,
+						level + 1,
+						(pte_t *)(__pte_to_phys(*tbl) + va_offset),
+						may_use_cont, va_offset);
+				if (ret)
+					return ret;
 			}
 		} else {
 			/*
@@ -87,6 +91,8 @@ void __init map_range(u64 *pte, u64 start, u64 end, u64 pa, pgprot_t prot,
 		start = next;
 		tbl++;
 	}
+
+	return 0;
 }
 
 asmlinkage u64 __init create_init_idmap(pgd_t *pg_dir, pteval_t clrmask)
