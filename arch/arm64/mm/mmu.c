@@ -765,18 +765,20 @@ int __pi_map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
 		   u64 end, u64 pa, pgprot_t prot, int level, pte_t *tbl,
 		   bool may_use_cont, u64 va_offset);
 
-static u8 idmap_ptes[IDMAP_LEVELS - 1][PAGE_SIZE] __aligned(PAGE_SIZE) __ro_after_init,
-	  kpti_ptes[IDMAP_LEVELS - 1][PAGE_SIZE] __aligned(PAGE_SIZE) __ro_after_init;
+static u64 __init idmap_alloc(void *arg)
+{
+	return early_pgtable_alloc(0);
+}
 
 static void __init create_idmap(void)
 {
 	u64 start = __pa_symbol(__idmap_text_start);
 	u64 end   = __pa_symbol(__idmap_text_end);
-	u64 ptep  = __pa_symbol(idmap_ptes);
+	u64 va_offset = __phys_to_virt(0);
 
-	__pi_map_range(NULL, &ptep, start, end, start, PAGE_KERNEL_ROX,
+	__pi_map_range(idmap_alloc, NULL, start, end, start, PAGE_KERNEL_ROX,
 		       IDMAP_ROOT_LEVEL, (pte_t *)idmap_pg_dir, false,
-		       __phys_to_virt(ptep) - ptep);
+		       va_offset);
 
 	if (IS_ENABLED(CONFIG_UNMAP_KERNEL_AT_EL0) && !arm64_use_ng_mappings) {
 		extern u32 __idmap_kpti_flag;
@@ -786,10 +788,9 @@ static void __init create_idmap(void)
 		 * The KPTI G-to-nG conversion code needs a read-write mapping
 		 * of its synchronization flag in the ID map.
 		 */
-		ptep = __pa_symbol(kpti_ptes);
-		__pi_map_range(NULL, &ptep, pa, pa + sizeof(u32), pa, PAGE_KERNEL,
-			       IDMAP_ROOT_LEVEL, (pte_t *)idmap_pg_dir, false,
-			       __phys_to_virt(ptep) - ptep);
+		__pi_map_range(idmap_alloc, NULL, pa, pa + sizeof(u32), pa,
+			       PAGE_KERNEL, IDMAP_ROOT_LEVEL,
+			       (pte_t *)idmap_pg_dir, false, va_offset);
 	}
 }
 
