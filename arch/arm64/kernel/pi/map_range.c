@@ -29,19 +29,20 @@ static u64 __init early_linear_alloc(void *ctx)
  * @start:		Virtual address of the start of the range
  * @end:		Virtual address of the end of the range (exclusive)
  * @pa:			Physical address of the start of the range
- * @prot:		Access permissions of the range
+ * @prot:		Access permissions of the range. If PTE_CONT is included,
+ *			it will be set as appropriate on contiguous level 3 ranges.
  * @level:		Translation level for the mapping
  * @tbl:		The level @level page table to create the mappings in
- * @may_use_cont:	Whether the use of the contiguous attribute is allowed
  * @va_offset:		Offset between a physical page and its current mapping
  * 			in the VA space
  */
 int __init map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
-		     u64 end, u64 pa, pgprot_t prot, int level, pte_t *tbl,
-		     bool may_use_cont, u64 va_offset)
+		     u64 end, u64 pa, const pgprot_t prot, int level, pte_t *tbl,
+		     u64 va_offset)
 {
 	u64 cmask = (level == 3) ? CONT_PTE_SIZE - 1 : U64_MAX;
-	u64 protval = pgprot_val(prot) & ~PTE_TYPE_MASK;
+	u64 protval = pgprot_val(prot) & ~(PTE_CONT | PTE_TYPE_MASK);
+	bool may_use_cont = pgprot_val(prot) & PTE_CONT;
 	int lshift = (3 - level) * (PAGE_SHIFT - 3);
 	u64 lmask = (PAGE_SIZE << lshift) - 1;
 
@@ -83,7 +84,7 @@ int __init map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
 				ret = map_range(pgalloc, pgalloc_ctx, start,
 						next, pa, prot, level + 1,
 						(pte_t *)(__pte_to_phys(*tbl) + va_offset),
-						may_use_cont, va_offset);
+						va_offset);
 				if (ret)
 					return ret;
 			}
@@ -123,9 +124,9 @@ asmlinkage u64 __init create_init_idmap(pgd_t *pg_dir, pteval_t clrmask)
 	pgprot_val(data_prot) &= ~clrmask;
 
 	map_range(NULL, &ptep, (u64)_stext, (u64)__initdata_begin, (u64)_stext,
-		  text_prot, IDMAP_ROOT_LEVEL, (pte_t *)pg_dir, false, 0);
+		  text_prot, IDMAP_ROOT_LEVEL, (pte_t *)pg_dir, 0);
 	map_range(NULL, &ptep, (u64)__initdata_begin, (u64)_end, (u64)__initdata_begin,
-		  data_prot, IDMAP_ROOT_LEVEL, (pte_t *)pg_dir, false, 0);
+		  data_prot, IDMAP_ROOT_LEVEL, (pte_t *)pg_dir, 0);
 
 	return ptep;
 }
