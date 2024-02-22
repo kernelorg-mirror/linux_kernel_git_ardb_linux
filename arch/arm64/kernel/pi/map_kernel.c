@@ -24,6 +24,8 @@ static void __init map_segment(pgd_t *pg_dir, u64 *pgd, u64 va_offset,
 			       void *start, void *end, pgprot_t prot,
 			       bool may_use_cont, int root_level)
 {
+	pgprot_val(prot) &= ~PTE_TABLE_BIT; // allow block mappings
+
 	if (may_use_cont)
 		pgprot_val(prot) |= PTE_CONT;
 

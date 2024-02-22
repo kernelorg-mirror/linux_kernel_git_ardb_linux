@@ -31,6 +31,8 @@ static u64 __init early_linear_alloc(void *ctx)
  * @pa:			Physical address of the start of the range
  * @prot:		Access permissions of the range. If PTE_CONT is included,
  *			it will be set as appropriate on contiguous level 3 ranges.
+ *			If PTE_TABLE_BIT is included, only table and page mappings
+ *			are created, and block mappings are avoided.
  * @level:		Translation level for the mapping
  * @tbl:		The level @level page table to create the mappings in
  * @va_offset:		Offset between a physical page and its current mapping
@@ -42,6 +44,7 @@ int __init map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
 {
 	u64 cmask = (level == 3) ? CONT_PTE_SIZE - 1 : U64_MAX;
 	u64 protval = pgprot_val(prot) & ~(PTE_CONT | PTE_TYPE_MASK);
+	bool pages_only = pgprot_val(prot) & PTE_TABLE_BIT;
 	bool may_use_cont = pgprot_val(prot) & PTE_CONT;
 	int lshift = (3 - level) * (PAGE_SHIFT - 3);
 	u64 lmask = (PAGE_SIZE << lshift) - 1;
@@ -66,7 +69,7 @@ int __init map_range(u64 (*pgalloc)(void *ctx), void *pgalloc_ctx, u64 start,
 		u64 next = min((start | lmask) + 1, PAGE_ALIGN(end));
 		int ret;
 
-		if (level < 3 && (start | next | pa) & lmask) {
+		if (level < 3 && (pages_only || (start | next | pa) & lmask)) {
 			/*
 			 * This chunk needs a finer grained mapping. Create a
 			 * table mapping if necessary and recurse.
@@ -120,6 +123,7 @@ asmlinkage u64 __init create_init_idmap(pgd_t *pg_dir, pteval_t clrmask)
 	pgprot_t text_prot = PAGE_KERNEL_ROX;
 	pgprot_t data_prot = PAGE_KERNEL;
 
+	clrmask |= PTE_TABLE_BIT; // allow block mappings
 	pgprot_val(text_prot) &= ~clrmask;
 	pgprot_val(data_prot) &= ~clrmask;
 
