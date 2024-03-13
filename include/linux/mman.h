@@ -162,6 +162,14 @@ calc_vm_flag_bits(unsigned long flags)
 
 unsigned long vm_commit_limit(void);
 
+#ifndef arch_deny_write_exec
+static inline bool arch_deny_write_exec(void)
+{
+	return false;
+}
+#define arch_deny_write_exec arch_deny_write_exec
+#endif
+
 /*
  * Denies creating a writable executable mapping or gaining executable permissions.
  *
@@ -180,19 +188,25 @@ unsigned long vm_commit_limit(void);
  *
  *	d)	mmap(PROT_READ | PROT_EXEC)
  *		mmap(PROT_READ | PROT_EXEC | PROT_BTI)
+ *
+ * In addition, permit the arch to implement a strict policy regarding
+ * PROT_WRITE|PROT_EXEC even if the MDWE prctl() is not in use.
  */
 static inline bool map_deny_write_exec(struct vm_area_struct *vma,  unsigned long vm_flags)
 {
-	if (!test_bit(MMF_HAS_MDWE, &current->mm->flags))
+	switch (vm_flags & (VM_WRITE | VM_EXEC)) {
+	case VM_EXEC:
+		if (vma->vm_flags & VM_EXEC)
+			return false;
+		break;
+	case VM_WRITE | VM_EXEC:
+		if (arch_deny_write_exec())
+			return true;
+		break;
+	default:
 		return false;
-
-	if ((vm_flags & VM_EXEC) && (vm_flags & VM_WRITE))
-		return true;
-
-	if (!(vma->vm_flags & VM_EXEC) && (vm_flags & VM_EXEC))
-		return true;
-
-	return false;
+	}
+	return test_bit(MMF_HAS_MDWE, &current->mm->flags);
 }
 
 #endif /* _LINUX_MMAN_H */
