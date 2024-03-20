@@ -20,7 +20,7 @@ gcc)
 	if [ "$ARCH" = parisc64 ]; then
 		echo 12.0.0
 	else
-		echo 5.1.0
+		echo 8.1.0
 	fi
 	;;
 llvm)
