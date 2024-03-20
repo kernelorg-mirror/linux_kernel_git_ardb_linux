@@ -86,7 +86,6 @@ static const char * const	sym_regex_kernel[S_NSYMTYPES] = {
 	"(jiffies|jiffies_64)|"
 #if ELF_BITS == 64
 	"__per_cpu_load|"
-	"init_per_cpu__.*|"
 	"__end_rodata_hpage_align|"
 #endif
 	"__vvar_page|"
@@ -822,10 +821,6 @@ static void percpu_init(void)
  * The GNU linker incorrectly associates:
  *	__init_begin
  *	__per_cpu_load
- *
- * The "gold" linker incorrectly associates:
- *	init_per_cpu__fixed_percpu_data
- *	init_per_cpu__gdt_page
  */
 static int is_percpu_sym(ElfW(Sym) *sym, const char *symname)
 {
@@ -833,8 +828,7 @@ static int is_percpu_sym(ElfW(Sym) *sym, const char *symname)
 
 	return (shndx == per_cpu_shndx) &&
 		strcmp(symname, "__init_begin") &&
-		strcmp(symname, "__per_cpu_load") &&
-		strncmp(symname, "init_per_cpu_", 13);
+		strcmp(symname, "__per_cpu_load");
 }
 
 

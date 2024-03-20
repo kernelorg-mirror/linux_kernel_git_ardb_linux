@@ -409,12 +409,6 @@ struct fixed_percpu_data {
 };
 
 DECLARE_PER_CPU_FIRST(struct fixed_percpu_data, fixed_percpu_data) __visible;
-DECLARE_INIT_PER_CPU(fixed_percpu_data);
-
-static inline unsigned long cpu_kernelmode_gs_base(int cpu)
-{
-	return (unsigned long)&per_cpu(fixed_percpu_data, cpu);
-}
 
 extern asmlinkage void entry_SYSCALL32_ignore(void);
 

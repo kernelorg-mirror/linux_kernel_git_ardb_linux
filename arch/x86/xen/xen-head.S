@@ -59,7 +59,7 @@ SYM_CODE_START(startup_xen)
 	 * the per cpu areas are set up.
 	 */
 	movl	$MSR_GS_BASE,%ecx
-	movq	$INIT_PER_CPU_VAR(fixed_percpu_data),%rax
+	xorl	%eax, %eax
 	cdq
 	wrmsr
 

@@ -760,7 +760,7 @@ void __init switch_gdt_and_percpu_base(int cpu)
 	 * This works even with stackprotector enabled because the
 	 * per CPU stack canary is 0 in both per CPU areas.
 	 */
-	wrmsrl(MSR_GS_BASE, cpu_kernelmode_gs_base(cpu));
+	wrmsrl(MSR_GS_BASE, per_cpu_offset(cpu));
 #else
 	/*
 	 * %fs is already set to __KERNEL_PERCPU, but after switching GDT

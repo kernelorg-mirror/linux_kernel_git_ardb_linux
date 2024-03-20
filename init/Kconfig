@@ -1827,7 +1827,6 @@ config KALLSYMS_ALL
 config KALLSYMS_ABSOLUTE_PERCPU
 	bool
 	depends on KALLSYMS
-	default X86_64 && SMP
 
 # end of the "standard kernel features (expert users)" menu
 
