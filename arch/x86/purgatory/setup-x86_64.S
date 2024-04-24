@@ -53,7 +53,7 @@ SYM_DATA_START_LOCAL(gdt)
 SYM_DATA_END_LABEL(gdt, SYM_L_LOCAL, gdt_end)
 
 	.bss
-	.balign 4096
+	.balign 16
 SYM_DATA_START_LOCAL(lstack)
 	.skip 4096
 SYM_DATA_END_LABEL(lstack, SYM_L_LOCAL, lstack_end)

@@ -26,8 +26,6 @@ SYM_CODE_START(entry64)
 	movl    %eax, %fs
 	movl    %eax, %gs
 
-	/* Setup new stack */
-	leaq    stack_init(%rip), %rsp
 	pushq   $0x10 /* CS */
 	leaq    new_cs_exit(%rip), %rax
 	pushq   %rax
@@ -41,7 +39,6 @@ new_cs_exit:
 	movq	rdx(%rip), %rdx
 	movq	rsi(%rip), %rsi
 	movq	rdi(%rip), %rdi
-	movq    rsp(%rip), %rsp
 	movq	rbp(%rip), %rbp
 	movq	r8(%rip), %r8
 	movq	r9(%rip), %r9
@@ -63,7 +60,6 @@ rax:	.quad 0x0
 rcx:	.quad 0x0
 rdx:	.quad 0x0
 rbx:	.quad 0x0
-rsp:	.quad 0x0
 rbp:	.quad 0x0
 rsi:	.quad 0x0
 rdi:	.quad 0x0
@@ -97,7 +93,3 @@ SYM_DATA_START_LOCAL(gdt)
 	/* 0x18 4GB flat data segment */
 	.word 0xFFFF, 0x0000, 0x9200, 0x00CF
 SYM_DATA_END_LABEL(gdt, SYM_L_LOCAL, gdt_end)
-
-SYM_DATA_START_LOCAL(stack)
-	.quad   0, 0
-SYM_DATA_END_LABEL(stack, SYM_L_LOCAL, stack_init)

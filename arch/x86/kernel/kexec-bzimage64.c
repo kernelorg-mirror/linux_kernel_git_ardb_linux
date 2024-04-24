@@ -400,7 +400,6 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 	unsigned long bootparam_load_addr, kernel_load_addr, initrd_load_addr;
 	struct bzimage64_data *ldata;
 	struct kexec_entry64_regs regs64;
-	void *stack;
 	unsigned int setup_hdr_offset = offsetof(struct boot_params, hdr);
 	unsigned int efi_map_offset, efi_map_sz, efi_setup_data_offset;
 	struct kexec_buf kbuf = { .image = image, .buf_max = ULONG_MAX,
@@ -550,14 +549,7 @@ static void *bzImage64_load(struct kimage *image, char *kernel,
 	regs64.rbx = 0; /* Bootstrap Processor */
 	regs64.rsi = bootparam_load_addr;
 	regs64.rip = kernel_load_addr + 0x200;
-	stack = kexec_purgatory_get_symbol_addr(image, "stack_end");
-	if (IS_ERR(stack)) {
-		pr_err("Could not find address of symbol stack_end\n");
-		ret = -EINVAL;
-		goto out_free_params;
-	}
 
-	regs64.rsp = (unsigned long)stack;
 	ret = kexec_purgatory_get_set_symbol(image, "entry64_regs", &regs64,
 					     sizeof(regs64), 0);
 	if (ret)
