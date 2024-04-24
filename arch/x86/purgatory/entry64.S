@@ -23,14 +23,14 @@ SYM_CODE_START(entry64)
 	addq	$10, %rsp
 
 	/* load the data segments */
-	movl    $0x18, %eax     /* data segment */
+	xorl    %eax, %eax     /* data segment */
 	movl    %eax, %ds
 	movl    %eax, %es
 	movl    %eax, %ss
 	movl    %eax, %fs
 	movl    %eax, %gs
 
-	pushq   $0x10 /* CS */
+	pushq   $0x8 /* CS */
 	leaq    new_cs_exit(%rip), %rax
 	pushq   %rax
 	lretq
@@ -84,16 +84,9 @@ SYM_DATA_END(entry64_regs)
 SYM_DATA_START_LOCAL(gdt)
 	/*
 	 * 0x00 unusable segment
-	 * 0x08 unused
-	 * so use them as gdt ptr
 	 */
-	.word 0
 	.quad 0
-	.word 0, 0, 0
 
-	/* 0x10 4GB flat code segment */
+	/* 0x8 4GB flat code segment */
 	.word 0xFFFF, 0x0000, 0x9A00, 0x00AF
-
-	/* 0x18 4GB flat data segment */
-	.word 0xFFFF, 0x0000, 0x9200, 0x00CF
 SYM_DATA_END_LABEL(gdt, SYM_L_LOCAL, gdt_end)
