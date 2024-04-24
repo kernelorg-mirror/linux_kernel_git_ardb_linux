@@ -23,6 +23,9 @@ KBUILD_CFLAGS := $(filter-out -fprofile-sample-use=% -fprofile-use=%,$(KBUILD_CF
 # by kexec. Remove -flto=* flags.
 KBUILD_CFLAGS := $(filter-out $(CC_FLAGS_LTO),$(KBUILD_CFLAGS))
 
+# Drop the function entry padding, which is not needed here
+KBUILD_CFLAGS := $(filter-out $(PADDING_CFLAGS),$(KBUILD_CFLAGS))
+
 # When linking purgatory.ro with -r unresolved symbols are not checked,
 # also link a purgatory.chk binary without -r to check for unresolved symbols.
 PURGATORY_LDFLAGS := -e purgatory_start -z nodefaultlib
