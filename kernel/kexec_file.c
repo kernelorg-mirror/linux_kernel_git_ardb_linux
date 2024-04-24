@@ -1011,6 +1011,62 @@ static int kexec_apply_relocations(struct kimage *image)
 }
 
 /*
+ * kexec_load_purgatory_pie - Load the position independent purgatory object.
+ * @pi:		Purgatory info struct.
+ * @kbuf:	Memory parameters to use.
+ *
+ * Load a purgatory PIE executable. This is a fully linked executable
+ * consisting of a single PT_LOAD segment that does not require any relocation
+ * processing.
+ *
+ * Return: 0 on success, negative errno on error.
+ */
+static int kexec_load_purgatory_pie(struct purgatory_info *pi,
+				    struct kexec_buf *kbuf)
+{
+	const Elf_Phdr *phdr = (void *)pi->ehdr + pi->ehdr->e_phoff;
+	int ret;
+
+	if (pi->ehdr->e_phnum != 1)
+		return -EINVAL;
+
+	kbuf->bufsz = phdr->p_filesz;
+	kbuf->memsz = phdr->p_memsz;
+	kbuf->buf_align = phdr->p_align;
+
+	kbuf->buffer = vzalloc(kbuf->bufsz);
+	if (!kbuf->buffer)
+		return -ENOMEM;
+
+	ret = kexec_add_buffer(kbuf);
+	if (ret)
+		goto out_free_kbuf;
+
+	kbuf->image->start = kbuf->mem + pi->ehdr->e_entry;
+
+	pi->sechdrs = vcalloc(pi->ehdr->e_shnum, pi->ehdr->e_shentsize);
+	if (!pi->sechdrs)
+		goto out_free_kbuf;
+
+	pi->purgatory_buf = memcpy(kbuf->buffer,
+				   (void *)pi->ehdr + phdr->p_offset,
+				   kbuf->bufsz);
+
+	memcpy(pi->sechdrs, (void *)pi->ehdr + pi->ehdr->e_shoff,
+	       pi->ehdr->e_shnum * pi->ehdr->e_shentsize);
+
+	for (int i = 0; i < pi->ehdr->e_shnum; i++)
+		if (pi->sechdrs[i].sh_flags & SHF_ALLOC)
+			pi->sechdrs[i].sh_addr += kbuf->mem;
+
+	return 0;
+
+out_free_kbuf:
+	vfree(kbuf->buffer);
+	return ret;
+}
+
+/*
  * kexec_load_purgatory - Load and relocate the purgatory object.
  * @image:	Image to add the purgatory to.
  * @kbuf:	Memory parameters to use.
@@ -1030,6 +1086,9 @@ int kexec_load_purgatory(struct kimage *image, struct kexec_buf *kbuf)
 		return -EINVAL;
 
 	pi->ehdr = (const Elf_Ehdr *)kexec_purgatory;
+
+	if (pi->ehdr->e_type != ET_REL)
+		return kexec_load_purgatory_pie(pi, kbuf);
 
 	ret = kexec_purgatory_setup_kbuf(pi, kbuf);
 	if (ret)
@@ -1087,7 +1146,8 @@ static const Elf_Sym *kexec_purgatory_find_symbol(struct purgatory_info *pi,
 
 		/* Go through symbols for a match */
 		for (k = 0; k < sechdrs[i].sh_size/sizeof(Elf_Sym); k++) {
-			if (ELF_ST_BIND(syms[k].st_info) != STB_GLOBAL)
+			if (pi->ehdr->e_type == ET_REL &&
+			    ELF_ST_BIND(syms[k].st_info) != STB_GLOBAL)
 				continue;
 
 			if (strcmp(strtab + syms[k].st_name, name) != 0)
@@ -1158,6 +1218,12 @@ int kexec_purgatory_get_set_symbol(struct kimage *image, const char *name,
 	}
 
 	sym_buf = (char *)pi->purgatory_buf + sec->sh_offset + sym->st_value;
+
+	if (pi->ehdr->e_type != ET_REL) {
+		const Elf_Shdr *shdr = (void *)pi->ehdr + pi->ehdr->e_shoff;
+
+		sym_buf -= shdr[sym->st_shndx].sh_addr;
+	}
 
 	if (get_value)
 		memcpy((void *)buf, sym_buf, size);
