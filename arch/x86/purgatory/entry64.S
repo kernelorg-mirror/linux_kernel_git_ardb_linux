@@ -37,45 +37,46 @@ SYM_CODE_START(entry64)
 new_cs_exit:
 
 	/* Load the registers */
-	movq	rax(%rip), %rax
-	movq	rbx(%rip), %rbx
-	movq	rcx(%rip), %rcx
-	movq	rdx(%rip), %rdx
-	movq	rsi(%rip), %rsi
-	movq	rdi(%rip), %rdi
-	movq	rbp(%rip), %rbp
-	movq	r8(%rip), %r8
-	movq	r9(%rip), %r9
-	movq	r10(%rip), %r10
-	movq	r11(%rip), %r11
-	movq	r12(%rip), %r12
-	movq	r13(%rip), %r13
-	movq	r14(%rip), %r14
-	movq	r15(%rip), %r15
+	leaq	entry64_regs(%rip), %r15
+	movq	0x00(%r15), %rax
+	movq	0x08(%r15), %rcx
+	movq	0x10(%r15), %rdx
+	movq	0x18(%r15), %rbx
+	movq	0x20(%r15), %rbp
+	movq	0x28(%r15), %rsi
+	movq	0x30(%r15), %rdi
+	movq	0x38(%r15), %r8
+	movq	0x40(%r15), %r9
+	movq	0x48(%r15), %r10
+	movq	0x50(%r15), %r11
+	movq	0x58(%r15), %r12
+	movq	0x60(%r15), %r13
+	movq	0x68(%r15), %r14
+	movq	0x70(%r15), %r15
 
 	/* Jump to the new code... */
-	jmpq	*rip(%rip)
+	jmpq	*.Lrip(%rip)
 SYM_CODE_END(entry64)
 
 	.section ".rodata"
-	.balign 4
+	.balign	8
 SYM_DATA_START(entry64_regs)
-rax:	.quad 0x0
-rcx:	.quad 0x0
-rdx:	.quad 0x0
-rbx:	.quad 0x0
-rbp:	.quad 0x0
-rsi:	.quad 0x0
-rdi:	.quad 0x0
-r8:	.quad 0x0
-r9:	.quad 0x0
-r10:	.quad 0x0
-r11:	.quad 0x0
-r12:	.quad 0x0
-r13:	.quad 0x0
-r14:	.quad 0x0
-r15:	.quad 0x0
-rip:	.quad 0x0
+.Lrax:	.quad	0x0
+.Lrcx:	.quad	0x0
+.Lrdx:	.quad	0x0
+.Lrbx:	.quad	0x0
+.Lrbp:	.quad	0x0
+.Lrsi:	.quad	0x0
+.Lrdi:	.quad	0x0
+.Lr8:	.quad	0x0
+.Lr9:	.quad	0x0
+.Lr10:	.quad	0x0
+.Lr11:	.quad	0x0
+.Lr12:	.quad	0x0
+.Lr13:	.quad	0x0
+.Lr14:	.quad	0x0
+.Lr15:	.quad	0x0
+.Lrip:	.quad	0x0
 SYM_DATA_END(entry64_regs)
 
 	/* GDT */
