@@ -16,7 +16,11 @@
 
 SYM_CODE_START(entry64)
 	/* Setup a gdt that should be preserved */
-	lgdt gdt(%rip)
+	leaq	gdt(%rip), %rax
+	pushq	%rax
+	pushw	$gdt_end - gdt - 1
+	lgdt	(%rsp)
+	addq	$10, %rsp
 
 	/* load the data segments */
 	movl    $0x18, %eax     /* data segment */
@@ -83,8 +87,8 @@ SYM_DATA_START_LOCAL(gdt)
 	 * 0x08 unused
 	 * so use them as gdt ptr
 	 */
-	.word gdt_end - gdt - 1
-	.quad gdt
+	.word 0
+	.quad 0
 	.word 0, 0, 0
 
 	/* 0x10 4GB flat code segment */
