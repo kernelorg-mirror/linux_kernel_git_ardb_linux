@@ -808,227 +808,30 @@ out:
 
 #ifdef CONFIG_ARCH_SUPPORTS_KEXEC_PURGATORY
 /*
- * kexec_purgatory_setup_kbuf - prepare buffer to load purgatory.
- * @pi:		Purgatory to be loaded.
- * @kbuf:	Buffer to setup.
- *
- * Allocates the memory needed for the buffer. Caller is responsible to free
- * the memory after use.
- *
- * Return: 0 on success, negative errno on error.
- */
-static int kexec_purgatory_setup_kbuf(struct purgatory_info *pi,
-				      struct kexec_buf *kbuf)
-{
-	const Elf_Shdr *sechdrs;
-	unsigned long bss_align;
-	unsigned long bss_sz;
-	unsigned long align;
-	int i, ret;
-
-	sechdrs = (void *)pi->ehdr + pi->ehdr->e_shoff;
-	kbuf->buf_align = bss_align = 1;
-	kbuf->bufsz = bss_sz = 0;
-
-	for (i = 0; i < pi->ehdr->e_shnum; i++) {
-		if (!(sechdrs[i].sh_flags & SHF_ALLOC))
-			continue;
-
-		align = sechdrs[i].sh_addralign;
-		if (sechdrs[i].sh_type != SHT_NOBITS) {
-			if (kbuf->buf_align < align)
-				kbuf->buf_align = align;
-			kbuf->bufsz = ALIGN(kbuf->bufsz, align);
-			kbuf->bufsz += sechdrs[i].sh_size;
-		} else {
-			if (bss_align < align)
-				bss_align = align;
-			bss_sz = ALIGN(bss_sz, align);
-			bss_sz += sechdrs[i].sh_size;
-		}
-	}
-	kbuf->bufsz = ALIGN(kbuf->bufsz, bss_align);
-	kbuf->memsz = kbuf->bufsz + bss_sz;
-	if (kbuf->buf_align < bss_align)
-		kbuf->buf_align = bss_align;
-
-	kbuf->buffer = vzalloc(kbuf->bufsz);
-	if (!kbuf->buffer)
-		return -ENOMEM;
-	pi->purgatory_buf = kbuf->buffer;
-
-	ret = kexec_add_buffer(kbuf);
-	if (ret)
-		goto out;
-
-	return 0;
-out:
-	vfree(pi->purgatory_buf);
-	pi->purgatory_buf = NULL;
-	return ret;
-}
-
-/*
- * kexec_purgatory_setup_sechdrs - prepares the pi->sechdrs buffer.
- * @pi:		Purgatory to be loaded.
- * @kbuf:	Buffer prepared to store purgatory.
- *
- * Allocates the memory needed for the buffer. Caller is responsible to free
- * the memory after use.
- *
- * Return: 0 on success, negative errno on error.
- */
-static int kexec_purgatory_setup_sechdrs(struct purgatory_info *pi,
-					 struct kexec_buf *kbuf)
-{
-	unsigned long bss_addr;
-	unsigned long offset;
-	size_t sechdrs_size;
-	Elf_Shdr *sechdrs;
-	int i;
-
-	/*
-	 * The section headers in kexec_purgatory are read-only. In order to
-	 * have them modifiable make a temporary copy.
-	 */
-	sechdrs_size = array_size(sizeof(Elf_Shdr), pi->ehdr->e_shnum);
-	sechdrs = vzalloc(sechdrs_size);
-	if (!sechdrs)
-		return -ENOMEM;
-	memcpy(sechdrs, (void *)pi->ehdr + pi->ehdr->e_shoff, sechdrs_size);
-	pi->sechdrs = sechdrs;
-
-	offset = 0;
-	bss_addr = kbuf->mem + kbuf->bufsz;
-	kbuf->image->start = pi->ehdr->e_entry;
-
-	for (i = 0; i < pi->ehdr->e_shnum; i++) {
-		unsigned long align;
-		void *src, *dst;
-
-		if (!(sechdrs[i].sh_flags & SHF_ALLOC))
-			continue;
-
-		align = sechdrs[i].sh_addralign;
-		if (sechdrs[i].sh_type == SHT_NOBITS) {
-			bss_addr = ALIGN(bss_addr, align);
-			sechdrs[i].sh_addr = bss_addr;
-			bss_addr += sechdrs[i].sh_size;
-			continue;
-		}
-
-		offset = ALIGN(offset, align);
-
-		/*
-		 * Check if the segment contains the entry point, if so,
-		 * calculate the value of image->start based on it.
-		 * If the compiler has produced more than one .text section
-		 * (Eg: .text.hot), they are generally after the main .text
-		 * section, and they shall not be used to calculate
-		 * image->start. So do not re-calculate image->start if it
-		 * is not set to the initial value, and warn the user so they
-		 * have a chance to fix their purgatory's linker script.
-		 */
-		if (sechdrs[i].sh_flags & SHF_EXECINSTR &&
-		    pi->ehdr->e_entry >= sechdrs[i].sh_addr &&
-		    pi->ehdr->e_entry < (sechdrs[i].sh_addr
-					 + sechdrs[i].sh_size) &&
-		    !WARN_ON(kbuf->image->start != pi->ehdr->e_entry)) {
-			kbuf->image->start -= sechdrs[i].sh_addr;
-			kbuf->image->start += kbuf->mem + offset;
-		}
-
-		src = (void *)pi->ehdr + sechdrs[i].sh_offset;
-		dst = pi->purgatory_buf + offset;
-		memcpy(dst, src, sechdrs[i].sh_size);
-
-		sechdrs[i].sh_addr = kbuf->mem + offset;
-		sechdrs[i].sh_offset = offset;
-		offset += sechdrs[i].sh_size;
-	}
-
-	return 0;
-}
-
-static int kexec_apply_relocations(struct kimage *image)
-{
-	int i, ret;
-	struct purgatory_info *pi = &image->purgatory_info;
-	const Elf_Shdr *sechdrs;
-
-	sechdrs = (void *)pi->ehdr + pi->ehdr->e_shoff;
-
-	for (i = 0; i < pi->ehdr->e_shnum; i++) {
-		const Elf_Shdr *relsec;
-		const Elf_Shdr *symtab;
-		Elf_Shdr *section;
-
-		relsec = sechdrs + i;
-
-		if (relsec->sh_type != SHT_RELA &&
-		    relsec->sh_type != SHT_REL)
-			continue;
-
-		/*
-		 * For section of type SHT_RELA/SHT_REL,
-		 * ->sh_link contains section header index of associated
-		 * symbol table. And ->sh_info contains section header
-		 * index of section to which relocations apply.
-		 */
-		if (relsec->sh_info >= pi->ehdr->e_shnum ||
-		    relsec->sh_link >= pi->ehdr->e_shnum)
-			return -ENOEXEC;
-
-		section = pi->sechdrs + relsec->sh_info;
-		symtab = sechdrs + relsec->sh_link;
-
-		if (!(section->sh_flags & SHF_ALLOC))
-			continue;
-
-		/*
-		 * symtab->sh_link contain section header index of associated
-		 * string table.
-		 */
-		if (symtab->sh_link >= pi->ehdr->e_shnum)
-			/* Invalid section number? */
-			continue;
-
-		/*
-		 * Respective architecture needs to provide support for applying
-		 * relocations of type SHT_RELA/SHT_REL.
-		 */
-		if (relsec->sh_type == SHT_RELA)
-			ret = arch_kexec_apply_relocations_add(pi, section,
-							       relsec, symtab);
-		else if (relsec->sh_type == SHT_REL)
-			ret = arch_kexec_apply_relocations(pi, section,
-							   relsec, symtab);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
-
-/*
- * kexec_load_purgatory_pie - Load the position independent purgatory object.
- * @pi:		Purgatory info struct.
+ * kexec_load_purgatory - Load and relocate the purgatory object.
+ * @image:	Image to add the purgatory to.
  * @kbuf:	Memory parameters to use.
  *
- * Load a purgatory PIE executable. This is a fully linked executable
- * consisting of a single PT_LOAD segment that does not require any relocation
- * processing.
+ * Allocates the memory needed for image->purgatory_info.sechdrs and
+ * image->purgatory_info.purgatory_buf/kbuf->buffer. Caller is responsible
+ * to free the memory after use.
  *
  * Return: 0 on success, negative errno on error.
  */
-static int kexec_load_purgatory_pie(struct purgatory_info *pi,
-				    struct kexec_buf *kbuf)
+int kexec_load_purgatory(struct kimage *image, struct kexec_buf *kbuf)
 {
-	const Elf_Phdr *phdr = (void *)pi->ehdr + pi->ehdr->e_phoff;
+	struct purgatory_info *pi = &image->purgatory_info;
+	const Elf_Phdr *phdr;
 	int ret;
 
+	if (kexec_purgatory_size <= 0)
+		return -EINVAL;
+
+	pi->ehdr = (const Elf_Ehdr *)kexec_purgatory;
 	if (pi->ehdr->e_phnum != 1)
 		return -EINVAL;
+
+	phdr = (void *)pi->ehdr + pi->ehdr->e_phoff;
 
 	kbuf->bufsz = phdr->p_filesz;
 	kbuf->memsz = phdr->p_memsz;
@@ -1063,52 +866,6 @@ static int kexec_load_purgatory_pie(struct purgatory_info *pi,
 
 out_free_kbuf:
 	vfree(kbuf->buffer);
-	return ret;
-}
-
-/*
- * kexec_load_purgatory - Load and relocate the purgatory object.
- * @image:	Image to add the purgatory to.
- * @kbuf:	Memory parameters to use.
- *
- * Allocates the memory needed for image->purgatory_info.sechdrs and
- * image->purgatory_info.purgatory_buf/kbuf->buffer. Caller is responsible
- * to free the memory after use.
- *
- * Return: 0 on success, negative errno on error.
- */
-int kexec_load_purgatory(struct kimage *image, struct kexec_buf *kbuf)
-{
-	struct purgatory_info *pi = &image->purgatory_info;
-	int ret;
-
-	if (kexec_purgatory_size <= 0)
-		return -EINVAL;
-
-	pi->ehdr = (const Elf_Ehdr *)kexec_purgatory;
-
-	if (pi->ehdr->e_type != ET_REL)
-		return kexec_load_purgatory_pie(pi, kbuf);
-
-	ret = kexec_purgatory_setup_kbuf(pi, kbuf);
-	if (ret)
-		return ret;
-
-	ret = kexec_purgatory_setup_sechdrs(pi, kbuf);
-	if (ret)
-		goto out_free_kbuf;
-
-	ret = kexec_apply_relocations(image);
-	if (ret)
-		goto out;
-
-	return 0;
-out:
-	vfree(pi->sechdrs);
-	pi->sechdrs = NULL;
-out_free_kbuf:
-	vfree(pi->purgatory_buf);
-	pi->purgatory_buf = NULL;
 	return ret;
 }
 
