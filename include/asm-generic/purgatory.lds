@@ -11,6 +11,7 @@ SECTIONS
 
 	.text : {
 		*(.text .rodata* .kexec-purgatory .data*)
+		*(.got* .plt*)
 	} :text
 
 	.bss : {
@@ -27,7 +28,8 @@ SECTIONS
 
 	/DISCARD/ : {
 		*(.interp .modinfo .dynsym .dynstr .hash .gnu.* .dynamic .comment)
-		*(.got .plt .got.plt .plt.got .note.* .eh_frame .sframe)
+		*(.note.* .eh_frame .riscv.attributes)
+		*(.alternative __bug_table)
 	}
 }
 
