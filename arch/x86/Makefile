@@ -257,12 +257,17 @@ endif
 
 KBUILD_LDFLAGS += -m elf_$(UTS_MACHINE)
 
+ifdef CONFIG_X86_64
+ldflags-pie-$(CONFIG_LD_IS_LLD)		:= --apply-dynamic-relocs
+ldflags-pie-$(CONFIG_LD_IS_BFD)		:= -z call-nop=suffix-nop
+ldflags-$(CONFIG_RANDOMIZE_BASE)	:= --pie -z notext $(ldflags-pie-y)
+LDFLAGS_vmlinux				+= $(ldflags-y)
+
 #
 # The 64-bit kernel must be aligned to 2MB.  Pass -z max-page-size=0x200000 to
 # the linker to force 2MB page size regardless of the default page size used
 # by the linker.
 #
-ifdef CONFIG_X86_64
 LDFLAGS_vmlinux += -z max-page-size=0x200000
 endif
 
