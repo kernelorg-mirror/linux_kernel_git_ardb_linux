@@ -202,6 +202,11 @@ SECTIONS
 	INIT_DATA_SECTION(16) :data
 
 #ifdef CONFIG_RELOCATABLE_PIE
+	/DISCARD/ : {
+		*(.interp .dynbss .eh_frame .sframe .relr.auth.dyn)
+		*(.dynamic .dynstr .dynsym .gnu.hash .hash)
+	}
+
 	.init.rela.dyn : AT(ADDR(.init.rela.dyn) - LOAD_OFFSET) {
 		BOUNDED_SECTION_POST_LABEL(.rela.* .rela_*, __pi_rela, _start, _end)
 	}

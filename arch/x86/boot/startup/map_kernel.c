@@ -114,6 +114,7 @@ unsigned long __init __startup_64(unsigned long p2v_offset,
 		va_shift = ALIGN_DOWN((range * bp->kaslr_seed) >> 32,
 				      CONFIG_PHYSICAL_ALIGN);
 		bp->kaslr_seed = 0;
+		p2v_offset -= va_shift;
 	}
 
 	/*
