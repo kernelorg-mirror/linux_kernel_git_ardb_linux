@@ -205,6 +205,13 @@ else
         pie-cflags-$(CONFIG_CC_IS_GCC) += $(call cc-option.-mdirect-extern-access)
         pie-cflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
 
+        # Rely on the linker to create a position independent executable (PIE)
+        ldflags-vmlinux-y += --pie -z text --no-dynamic-linker
+
+        # Load link-time defaults into all relocatable quantities so boot time
+        # relocation is only needed when the virtual base address is randomized
+        ldflags-vmlinux-$(CONFIG_LD_IS_LLD) += --apply-dynamic-relocs
+
         ifeq ($(CONFIG_STACKPROTECTOR),y)
             ssp-cflags-y += -mstack-protector-guard-symbol=__ref_stack_chk_guard
             ssp-cflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
@@ -215,6 +222,7 @@ else
         endif
 
         KBUILD_CFLAGS_KERNEL += $(pie-cflags-y)
+        KBUILD_RUSTFLAGS_KERNEL += -Ccode-model=small -Crelocation-model=pie
 endif
 
 #
