@@ -127,6 +127,9 @@ PHDRS {
 	text PT_LOAD FLAGS(5);          /* R_E */
 	data PT_LOAD FLAGS(6);          /* RW_ */
 	note PT_NOTE FLAGS(0);          /* ___ */
+#ifdef CONFIG_RELOCATABLE_PIE
+	dynamic PT_DYNAMIC;
+#endif
 }
 
 SECTIONS
@@ -200,6 +203,21 @@ SECTIONS
 
 	DATA_SEGMENT_START
 	INIT_DATA_SECTION(16) :data
+
+#ifdef CONFIG_RELOCATABLE_PIE
+	/DISCARD/ : {
+		*(.interp .dynbss .eh_frame .sframe .relr.auth.dyn)
+	}
+
+	.dynamic	: { *(.dynamic) } :dynamic :data
+	.dynstr		: { *(.dynstr) } :data
+	.dynsym		: { *(.dynsym) }
+	.gnu.hash	: { *(.gnu.hash) }
+	.hash		: { *(.hash) }
+	.init.rela	: { *(.rela.*) *(.rela_*) }
+	.init.rel	: { *(.rel.*) *(.rel_*) }
+	.init.relr	: { *(.relr.*) }
+#endif
 
 	.x86_cpu_dev.init : AT(ADDR(.x86_cpu_dev.init) - LOAD_OFFSET) {
 		__x86_cpu_dev_start = .;
