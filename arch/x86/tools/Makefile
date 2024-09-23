@@ -40,7 +40,7 @@ $(obj)/insn_sanity.o: $(srctree)/tools/arch/x86/lib/insn.c $(srctree)/tools/arch
 
 HOST_EXTRACFLAGS += -I$(srctree)/tools/include
 hostprogs	+= relocs
-relocs-objs     := relocs_32.o relocs_64.o relocs_common.o
+relocs-objs     := relocs_32.o relocs_common.o
 PHONY += relocs
 relocs: $(obj)/relocs
 	@:
