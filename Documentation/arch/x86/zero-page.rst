@@ -3,7 +3,7 @@
 =========
 Zero Page
 =========
-The additional fields in struct boot_params as a part of 32-bit boot
+The additional fields in struct boot_params as a part of 32/64-bit boot
 protocol of kernel. These should be filled by bootloader or 16-bit
 real-mode setup code of the kernel. References/settings to it mainly
 are in::
@@ -20,6 +20,7 @@ Offset/Size	Proto	Name			Meaning
 060/010		ALL	ist_info		Intel SpeedStep (IST) BIOS support information
 						(struct ist_info)
 070/008		ALL	acpi_rsdp_addr		Physical address of ACPI RSDP table
+078/008		64-bit	kaslr_va_shift		Virtual kASLR displacement of the core kernel
 080/010		ALL	hd0_info		hd0 disk parameter, OBSOLETE!!
 090/010		ALL	hd1_info		hd1 disk parameter, OBSOLETE!!
 0A0/010		ALL	sys_desc_table		System description table (struct sys_desc_table),

@@ -67,6 +67,11 @@ SYM_CODE_START_NOALIGN(startup_64)
 	cdq
 	wrmsr
 
+#ifdef CONFIG_RELOCATABLE
+	movq	%r15, %rdi
+	call	startup_64_apply_relocations
+#endif
+
 	call	startup_64_setup_gdt_idt
 
 	/* Now switch to __KERNEL_CS so IRET works reliably */
