@@ -1370,6 +1370,11 @@ __weak bool arch_is_embedded_insn(struct symbol *sym)
 	return false;
 }
 
+__weak const char *arch_nop_fentry_call(int len)
+{
+	return arch_nop_insn(len);
+}
+
 static struct reloc *insn_reloc(struct objtool_file *file, struct instruction *insn)
 {
 	struct reloc *reloc;
@@ -1467,7 +1472,7 @@ static void annotate_call_site(struct objtool_file *file,
 
 			elf_write_insn(file->elf, insn->sec,
 				       insn->offset, insn->len,
-				       arch_nop_insn(insn->len));
+				       arch_nop_fentry_call(insn->len));
 
 			insn->type = INSN_NOP;
 		}
@@ -1746,11 +1751,32 @@ static int add_call_destinations(struct objtool_file *file)
 	struct reloc *reloc;
 
 	for_each_insn(file, insn) {
-		if (insn->type != INSN_CALL)
+		if (insn->type != INSN_CALL &&
+		    insn->type != INSN_CALL_DYNAMIC)
 			continue;
 
 		reloc = insn_reloc(file, insn);
-		if (!reloc) {
+		if (insn->type == INSN_CALL_DYNAMIC) {
+			/*
+			 * GCC 13 and older on x86 will emit the call to
+			 * __fentry__() using a relaxable GOT-based symbol
+			 * reference when operating in PIC mode, i.e.,
+			 *
+			 *   call   *0x0(%rip)
+			 *             R_X86_64_GOTPCRELX  __fentry__-0x4
+			 *
+			 * where it is left up to the linker to relax this into
+			 *
+			 *   call   __fentry__
+			 *   nop
+			 *
+			 * if __fentry__ can be resolved locally, which is
+			 * always the case for vmlinux.
+			 */
+			if (reloc && arch_ftrace_match(reloc->sym->name))
+				add_call_dest(file, insn, reloc->sym, false);
+
+		} else if (!reloc) {
 			dest_off = arch_jump_destination(insn);
 			dest = find_call_destination(insn->sec, dest_off);
 

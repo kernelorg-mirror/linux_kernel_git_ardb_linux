@@ -783,6 +783,23 @@ const char *arch_nop_insn(int len)
 	return nops[len-1];
 }
 
+const char *arch_nop_fentry_call(int len)
+{
+	static const char nop[] = { BYTES_NOP5, BYTES_NOP1 };
+
+	if (len == 6)
+		/*
+		 * GCC 13 and older may emit 'call *__fentry__@GOTPCREL(%rip)',
+		 * which is a 6-byte instruction, and rely on the linker to
+		 * relax this into 'call __fentry__; nop'. Ftrace will always
+		 * patch in a direct call, and so a 5-byte NOP is needed here,
+		 * plus a 1-byte NOP to cover the remaining space.
+		 */
+		return nop;
+
+	return arch_nop_insn(len);
+}
+
 #define BYTE_RET	0xC3
 
 const char *arch_ret_insn(int len)
