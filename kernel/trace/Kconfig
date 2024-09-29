@@ -784,6 +784,7 @@ config FTRACE_MCOUNT_USE_PATCHABLE_FUNCTION_ENTRY
 config FTRACE_MCOUNT_USE_CC
 	def_bool y
 	depends on $(cc-option,-mrecord-mcount)
+	depends on $(cc-option,-mrecord-mcount -mnop-mcount) || !HAVE_OBJTOOL_NOP_MCOUNT
 	depends on !FTRACE_MCOUNT_USE_PATCHABLE_FUNCTION_ENTRY
 	depends on FTRACE_MCOUNT_RECORD
 
