@@ -400,11 +400,6 @@ struct irq_stack {
 } __aligned(IRQ_STACK_SIZE);
 
 #ifdef CONFIG_X86_64
-struct fixed_percpu_data {
-};
-
-DECLARE_PER_CPU_FIRST(struct fixed_percpu_data, fixed_percpu_data) __visible;
-
 static inline unsigned long cpu_kernelmode_gs_base(int cpu)
 {
 	extern unsigned long __per_cpu_offset[];
