@@ -85,7 +85,6 @@ static const char * const	sym_regex_kernel[S_NSYMTYPES] = {
 	"__initramfs_start|"
 	"(jiffies|jiffies_64)|"
 #if ELF_BITS == 64
-	"__per_cpu_load|"
 	"__end_rodata_hpage_align|"
 #endif
 	"__vvar_page|"

@@ -1047,18 +1047,11 @@
  * PERCPU_SECTION - define output section for percpu area, simple version
  * @cacheline: cacheline size
  *
- * Align to PAGE_SIZE and outputs output section for percpu area.  This
- * macro doesn't manipulate @vaddr or @phdr and __per_cpu_load and
- * __per_cpu_start will be identical.
- *
- * This macro is equivalent to ALIGN(PAGE_SIZE); PERCPU_VADDR(@cacheline,,)
- * except that __per_cpu_load is defined as a relative symbol against
- * .data..percpu which is required for relocatable x86_32 configuration.
+ * Align to PAGE_SIZE and outputs output section for percpu area.
  */
 #define PERCPU_SECTION(cacheline)					\
 	. = ALIGN(PAGE_SIZE);						\
 	.data..percpu	: AT(ADDR(.data..percpu) - LOAD_OFFSET) {	\
-		__per_cpu_load = .;					\
 		PERCPU_INPUT(cacheline)					\
 	}
 
