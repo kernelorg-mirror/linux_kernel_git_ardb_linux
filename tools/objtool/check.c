@@ -2149,8 +2149,19 @@ int add_jump_table(struct objtool_file *file, struct instruction *insn,
 			break;
 
 		/* Make sure the destination is in the same function: */
-		if (!insn_func(dest_insn) || insn_func(dest_insn)->pfunc != pfunc)
+		if (!insn_func(dest_insn) || insn_func(dest_insn)->pfunc != pfunc) {
+			/*
+			 * Only treat this as a stop condition if the size of
+			 * the jump table is unknown. Otherwise, just ignore it:
+			 * the compiler may insert bogus references in slots
+			 * that it knows are never dereferenced.
+			 */
+			if (table_size) {
+				prev_offset = reloc_offset(reloc);
+				continue;
+			}
 			break;
+		}
 
 		if (pcrel)
 			reloc->sym_offset = addend;
