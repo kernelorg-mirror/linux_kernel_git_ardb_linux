@@ -114,6 +114,9 @@ else
 KBUILD_CFLAGS += $(call cc-option,-fcf-protection=none)
 endif
 
+# this should use a -f compiler flag, preferably one shared between GCC and Clang
+KBUILD_CFLAGS += $(call cc-option,-mllvm -annotate-jump-tables)
+
 ifeq ($(CONFIG_X86_32),y)
         BITS := 32
         UTS_MACHINE := i386
