@@ -9,6 +9,7 @@
  */
 
 #include <linux/linkage.h>
+#include <asm/alternative.h>
 #include <asm/assembler.h>
 
 	.cpu		generic+crc+crypto
@@ -142,6 +143,123 @@ SYM_FUNC_END(crc32_be_arm64)
 	in		.req	x1
 	len		.req	x2
 
+	.macro		do_pmull32_3x, a0, a1, a2, b0, b1, b2
+alternative_if_not ARM64_HAS_PMULL
+	b		.La\@
+alternative_else_nop_endif
+	mov		v3.d[0], \a0
+	mov		v4.d[0], \a1
+	mov		v5.d[0], \a2
+	pmull		\b0\().1q, \b0\().1d, v3.1d
+	pmull		\b1\().1q, \b1\().1d, v4.1d
+	pmull		\b2\().1q, \b2\().1d, v5.1d
+.Lb\@:	eor		\b0\().8b, \b0\().8b, \b1\().8b
+	eor		\b0\().8b, \b0\().8b, \b2\().8b
+	mov		\a0, \b0\().d[0]
+
+	.subsection	1
+.La\@:	dup		v3.2s, w\a0
+	dup		v4.2s, w\a1
+	dup		v5.2s, w\a2
+
+	ror		w\a0, w\a0, #8
+	ror		w\a1, w\a1, #8
+	ror		w\a2, w\a2, #8
+
+	dup		\b0\().2s, \b0\().s[0]
+	dup		\b1\().2s, \b1\().s[0]
+	dup		\b2\().2s, \b2\().s[0]
+
+	mov		v3.s[0], w\a0
+	mov		v4.s[0], w\a1
+	mov		v5.s[0], w\a2
+
+	ext		v6.8b, \b0\().8b, \b0\().8b, #2
+	ext		v7.8b, \b1\().8b, \b1\().8b, #2
+	ext		v8.8b, \b2\().8b, \b2\().8b, #2
+
+	/*
+	 * The polynomial multiplication of two 32-bit values x and y can be
+	 * decomposed as follows, where xN denotes the Nth least significant
+	 * byte of x and (*) denotes 8x8->16 bit long polynomial multiplication
+	 *
+	 * rank:
+	 *   0                                            (x0 (*) y0)        ^
+	 *   1                             ((x1 (*) y0) ^ (x0 (*) y1)) <<  8 ^
+	 *   2               ((x2 (*) y0) ^ (x1 (*) y1) ^ (x0 (*) y2)) << 16 ^
+	 *   3 ((x3 (*) y0) ^ (x2 (*) y1) ^ (x1 (*) y2) ^ (x0 (*) y3)) << 24 ^
+	 *   4               ((x3 (*) y1) ^ (x2 (*) y2) ^ (x1 (*) y3)) << 32 ^
+	 *   5                             ((x3 (*) y2) ^ (x2 (*) y3)) << 40 ^
+	 *   6                                            (x3 (*) y3)  << 48
+	 *
+	 * After reorganizing the input vectors into
+	 *
+	 *  { x1, x2, x3, x0 }, { x0, x1, x2, x3 }
+	 *  { y0, y1, y2, y3 }, { y0, y1, y2, y3 }
+	 *  { y2, y3, y0, y1 }, { y2, y3, y0, y1 }
+	 *
+	 * all 16 terms can be obtained by performing 8x8 -> 16 multiplication
+	 * of the first vector with each of the subsequent ones, resulting in
+	 *
+	 *   a := { x1*y0, x2*y1, x3*y2, x0*y3 }, { x0*y0, x1*y1, x2*y2, x3*y3 }
+	 *   b := { x1*y2, x2*y3, x3*y0, x0*y1 }, { x0*y2, x1*y3, x2*y0, x3*y1 }
+	 *
+	 * where each vector element is 16 bits wide.  Only minor manipulation
+	 * is required to move the terms of each rank into the correct column:
+	 *
+	 * - the upper half of result 'a' has all ranks in the right place,
+	 *   given that the elements are 16 bits wide
+	 *
+	 * - the lower half of result 'b' can be rotated left by 16 bits and
+	 *   combined with the lower half of result 'a', to produce
+	 *
+	 *     { x1*y0 ^ x0*y1, x2*y1 ^ x1*y2, x3*y2 ^ x2*y3, x0*y3 ^ x3*y0 }
+	 *
+	 * - the preceding result has the rank 3 term 'x0*y3 ^ x3*y0' appearing
+	 *   out of order, and it needs to be xor'ed with the following to
+	 *   combine it with the other rank 3 term in the vector instead
+	 *
+	 *     { 0, x0*y3 ^ x3*y0, 0, x0*y3 ^ x3*y0 }
+	 *
+	 *   which can be constructed from the preceding result using dup and
+	 *   zip2. The combined result contains elements of ranks 1, 3 and 5,
+	 *   and so it needs to be shifted left by 8 bits.
+	 *
+	 * - ushll2 (long shift left) by 16 bits on the second vector produces
+	 *
+	 *     { 0, x0*y2, x1*y3, 0 }, { 0, x2*y0, x3*y1, 0 }
+	 *
+	 *   each of which has its elements of ranks 2 and 4 appearing in the
+	 *   correct column.
+	 *
+	 * These manipulations are distributive over XOR, so they can be
+	 * applied after combining the partial results of the three interleaved
+	 * multiplications below.
+	 */
+
+	pmull		v6.8h, v6.8b, v3.8b
+	pmull		v7.8h, v7.8b, v4.8b
+	pmull		v8.8h, v8.8b, v5.8b
+	eor		v6.16b, v6.16b, v7.16b
+	pmull		v3.8h, \b0\().8b, v3.8b
+	eor		v6.16b, v6.16b, v8.16b
+	pmull		v4.8h, \b1\().8b, v4.8b
+	pmull		v5.8h, \b2\().8b, v5.8b
+	eor		v3.16b, v3.16b, v4.16b
+	ushll2		\b0\().2d, v6.4s, #16
+	eor		v3.16b, v3.16b, v5.16b
+	ext		v6.8b, v6.8b, v6.8b, #6
+	eor		v6.8b, v6.8b, v3.8b
+	dup		v5.8h, v6.h[3]
+	zip2		v5.8h, v6.8h, v5.8h
+	eor		v3.16b, v3.16b, \b0\().16b
+	eor		v6.8b, v6.8b, v5.8b
+	ext		\b1\().16b, v3.16b, v3.16b, #8
+	shl		\b2\().2d, v6.2d, #8
+	b		.Lb\@
+	.previous
+	.endm
+
 	/*
 	 * w0: input CRC at entry, output CRC at exit
 	 * x1: pointer to input buffer
@@ -195,17 +313,9 @@ SYM_FUNC_END(crc32_be_arm64)
 	cbnz		x3, .Lb\@
 
 	/* Combine the 4 partial results into w0 */
-	mov		v3.d[0], x0
-	mov		v4.d[0], x4
-	mov		v5.d[0], x5
-	pmull		v0.1q, v0.1d, v3.1d
-	pmull		v1.1q, v1.1d, v4.1d
-	pmull		v2.1q, v2.1d, v5.1d
-	eor		v0.8b, v0.8b, v1.8b
-	eor		v0.8b, v0.8b, v2.8b
-	mov		x5, v0.d[0]
-	eor		x5, x5, x17
-	\insn		w0, w6, x5
+	do_pmull32_3x	x0, x4, x5, v0, v1, v2
+	eor		x0, x0, x17
+	\insn		w0, w6, x0
 
 	mov		in, x9
 	cbnz		len, .La\@

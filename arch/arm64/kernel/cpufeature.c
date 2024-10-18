@@ -2599,6 +2599,13 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		ARM64_CPUID_FIELDS(ID_AA64ISAR0_EL1, CRC32, IMP)
 	},
 	{
+		.desc = "PMULL instructions",
+		.capability = ARM64_HAS_PMULL,
+		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
+		.matches = has_cpuid_feature,
+		ARM64_CPUID_FIELDS(ID_AA64ISAR0_EL1, AES, PMULL)
+	},
+	{
 		.desc = "Speculative Store Bypassing Safe (SSBS)",
 		.capability = ARM64_SSBS,
 		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
