@@ -236,8 +236,8 @@ void __init arm64_memblock_init(void)
 	 * we have to move it upward. Since memstart_addr represents the
 	 * physical address of PAGE_OFFSET, we have to *subtract* from it.
 	 */
-	if (IS_ENABLED(CONFIG_ARM64_VA_BITS_52) && (vabits_actual != 52))
-		memstart_addr -= _PAGE_OFFSET(vabits_actual) - _PAGE_OFFSET(52);
+	if (vabits_actual != VA_BITS)
+		memstart_addr -= _PAGE_OFFSET(vabits_actual) - _PAGE_OFFSET(VA_BITS);
 
 	/*
 	 * Apply the memory limit if it was set. Since the kernel may be loaded

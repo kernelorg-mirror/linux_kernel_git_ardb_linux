@@ -326,10 +326,8 @@
  */
 #define TTBR_BADDR_MASK_52	GENMASK_ULL(47, 2)
 
-#ifdef CONFIG_ARM64_VA_BITS_52
 /* Must be at least 64-byte aligned to prevent corruption of the TTBR */
 #define TTBR1_BADDR_4852_OFFSET	(((UL(1) << (52 - PGDIR_SHIFT)) - \
 				 (UL(1) << (48 - PGDIR_SHIFT))) * 8)
-#endif
 
 #endif

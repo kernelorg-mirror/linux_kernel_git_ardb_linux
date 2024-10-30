@@ -53,14 +53,10 @@
 #define PCI_IO_END		(PCI_IO_START + PCI_IO_SIZE)
 #define FIXADDR_TOP		(-UL(SZ_8M))
 
-#if VA_BITS > 48
 #ifdef CONFIG_ARM64_16K_PAGES
 #define VA_BITS_MIN		(47)
 #else
 #define VA_BITS_MIN		(48)
-#endif
-#else
-#define VA_BITS_MIN		(VA_BITS)
 #endif
 
 #define _PAGE_END(va)		(-(UL(1) << ((va) - 1)))

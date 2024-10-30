@@ -111,7 +111,7 @@ config ARM64
 	select ARCH_WANT_DEFAULT_BPF_JIT
 	select ARCH_WANT_DEFAULT_TOPDOWN_MMAP_LAYOUT
 	select ARCH_WANT_FRAME_POINTERS
-	select ARCH_WANT_HUGE_PMD_SHARE if ARM64_4K_PAGES || (ARM64_16K_PAGES && !ARM64_VA_BITS_36)
+	select ARCH_WANT_HUGE_PMD_SHARE if !ARM64_64K_PAGES
 	select ARCH_WANT_LD_ORPHAN_WARN
 	select ARCH_WANTS_EXECMEM_LATE if EXECMEM
 	select ARCH_WANTS_NO_INSTR
@@ -321,9 +321,9 @@ config ARCH_MMAP_RND_BITS_MIN
 # max bits determined by the following formula:
 #  VA_BITS - PAGE_SHIFT - 3
 config ARCH_MMAP_RND_BITS_MAX
-	default 19 if ARM64_VA_BITS=36
-	default 24 if ARM64_VA_BITS=39
-	default 27 if ARM64_VA_BITS=42
+	default 19 if ARM64_USER_VA_BITS_36
+	default 24 if ARM64_USER_VA_BITS_39
+	default 27 if ARM64_USER_VA_BITS_42
 	default 29 if ARM64_64K_PAGES
 	default 30 if ARM64_16K_PAGES
 	default 33
@@ -377,9 +377,6 @@ config FIX_EARLYCON_MEM
 
 config PGTABLE_LEVELS
 	int
-	default 2 if ARM64_16K_PAGES && ARM64_VA_BITS_36
-	default 2 if ARM64_64K_PAGES && ARM64_VA_BITS_42
-	default 3 if ARM64_4K_PAGES && ARM64_VA_BITS_39
 	default 3 if ARM64_64K_PAGES
 	default 4 if ARM64_16K_PAGES
 	default 5 if ARM64_4K_PAGES
@@ -410,16 +407,10 @@ config BUILTIN_RETURN_ADDRESS_STRIPS_PAC
 config KASAN_SHADOW_OFFSET
 	hex
 	depends on KASAN_GENERIC || KASAN_SW_TAGS
-	default 0xdfff800000000000 if ARM64_VA_BITS_52 && !ARM64_16K_PAGES && !KASAN_SW_TAGS
-	default 0xdfffc00000000000 if ARM64_VA_BITS_52 && ARM64_16K_PAGES && !KASAN_SW_TAGS
-	default 0xdffffe0000000000 if ARM64_VA_BITS_42 && !KASAN_SW_TAGS
-	default 0xdfffffc000000000 if ARM64_VA_BITS_39 && !KASAN_SW_TAGS
-	default 0xdffffff800000000 if ARM64_VA_BITS_36 && !KASAN_SW_TAGS
-	default 0xefff800000000000 if ARM64_VA_BITS_52 && !ARM64_16K_PAGES && KASAN_SW_TAGS
-	default 0xefffc00000000000 if ARM64_VA_BITS_52 && ARM64_16K_PAGES && KASAN_SW_TAGS
-	default 0xeffffe0000000000 if ARM64_VA_BITS_42 && KASAN_SW_TAGS
-	default 0xefffffc000000000 if ARM64_VA_BITS_39 && KASAN_SW_TAGS
-	default 0xeffffff800000000 if ARM64_VA_BITS_36 && KASAN_SW_TAGS
+	default 0xdfff800000000000 if !ARM64_16K_PAGES && !KASAN_SW_TAGS
+	default 0xdfffc00000000000 if ARM64_16K_PAGES && !KASAN_SW_TAGS
+	default 0xefff800000000000 if !ARM64_16K_PAGES && KASAN_SW_TAGS
+	default 0xefffc00000000000 if ARM64_16K_PAGES && KASAN_SW_TAGS
 	default 0xffffffffffffffff
 
 config UNWIND_TABLES
@@ -1334,26 +1325,26 @@ config ARM64_64K_PAGES
 endchoice
 
 choice
-	prompt "Virtual address space size"
-	default ARM64_VA_BITS_52
+	prompt "Virtual address space size for user space"
+	default ARM64_USER_VA_BITS_52
 	help
 	  Allows choosing one of multiple possible virtual address
 	  space sizes. The level of translation table is determined by
 	  a combination of page size and virtual address space size.
 
-config ARM64_VA_BITS_36
-	bool "36-bit" if EXPERT
+config ARM64_USER_VA_BITS_36
+	bool "36-bit"
 	depends on PAGE_SIZE_16KB
 
-config ARM64_VA_BITS_39
+config ARM64_USER_VA_BITS_39
 	bool "39-bit"
 	depends on PAGE_SIZE_4KB
 
-config ARM64_VA_BITS_42
+config ARM64_USER_VA_BITS_42
 	bool "42-bit"
 	depends on PAGE_SIZE_64KB
 
-config ARM64_VA_BITS_52
+config ARM64_USER_VA_BITS_52
 	bool "52-bit"
 	help
 	  Enable 52-bit virtual addressing for userspace when explicitly
@@ -1372,7 +1363,7 @@ endchoice
 
 config ARM64_FORCE_52BIT
 	bool "Force 52-bit virtual addresses for userspace"
-	depends on ARM64_VA_BITS_52 && EXPERT
+	depends on ARM64_USER_VA_BITS_52 && EXPERT
 	help
 	  For systems with 52-bit userspace VAs enabled, the kernel will attempt
 	  to maintain compatibility with older software by providing 48-bit VAs
@@ -1385,10 +1376,14 @@ config ARM64_FORCE_52BIT
 
 config ARM64_VA_BITS
 	int
-	default 36 if ARM64_VA_BITS_36
-	default 39 if ARM64_VA_BITS_39
-	default 42 if ARM64_VA_BITS_42
-	default 52 if ARM64_VA_BITS_52
+	default 52
+
+config TASK_SIZE_BITS
+	int
+	default 36 if ARM64_USER_VA_BITS_36
+	default 39 if ARM64_USER_VA_BITS_39
+	default 42 if ARM64_USER_VA_BITS_42
+	default 52
 
 config ARM64_LPA2
 	def_bool y

@@ -380,11 +380,9 @@ SYM_FUNC_START_LOCAL(secondary_startup)
 	 */
 	mov	x20, x0				// preserve boot mode
 
-#ifdef CONFIG_ARM64_VA_BITS_52
 alternative_if ARM64_HAS_VA52
 	bl	__cpu_secondary_check52bitva
 alternative_else_nop_endif
-#endif
 
 	bl	__cpu_setup			// initialise processor
 	adrp	x1, swapper_pg_dir
@@ -488,7 +486,6 @@ SYM_FUNC_START(__enable_mmu)
 	ret
 SYM_FUNC_END(__enable_mmu)
 
-#ifdef CONFIG_ARM64_VA_BITS_52
 SYM_FUNC_START(__cpu_secondary_check52bitva)
 #ifndef CONFIG_ARM64_LPA2
 	mrs_s	x0, SYS_ID_AA64MMFR2_EL1
@@ -509,7 +506,6 @@ SYM_FUNC_START(__cpu_secondary_check52bitva)
 
 2:	ret
 SYM_FUNC_END(__cpu_secondary_check52bitva)
-#endif
 
 SYM_FUNC_START_LOCAL(__no_granule_support)
 	/* Indicate that this CPU can't boot and is stuck in the kernel */

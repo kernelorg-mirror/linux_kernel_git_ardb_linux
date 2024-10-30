@@ -470,7 +470,6 @@ SYM_FUNC_START(__cpu_setup)
 
 	tcr_clear_errata_bits tcr, x9, x5
 
-#ifdef CONFIG_ARM64_VA_BITS_52
 	mov		x9, #64 - VA_BITS
 alternative_if ARM64_HAS_VA52
 	tcr_set_t1sz	tcr, x9
@@ -478,7 +477,6 @@ alternative_if ARM64_HAS_VA52
 	orr		tcr, tcr, #TCR_DS
 #endif
 alternative_else_nop_endif
-#endif
 
 	/*
 	 * Set the IPS bits in TCR_EL1.

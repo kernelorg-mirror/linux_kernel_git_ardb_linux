@@ -2866,7 +2866,6 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.cpu_enable = cpu_enable_fpmr,
 		ARM64_CPUID_FIELDS(ID_AA64PFR2_EL1, FPMR, IMP)
 	},
-#ifdef CONFIG_ARM64_VA_BITS_52
 	{
 		.capability = ARM64_HAS_VA52,
 		.type = ARM64_CPUCAP_BOOT_CPU_FEATURE,
@@ -2883,7 +2882,6 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 #endif
 #endif
 	},
-#endif
 	{
 		.desc = "NV1",
 		.capability = ARM64_HAS_HCR_NV1,
