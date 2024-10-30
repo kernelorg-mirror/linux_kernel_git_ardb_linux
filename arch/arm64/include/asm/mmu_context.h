@@ -55,10 +55,22 @@ static inline void cpu_set_reserved_ttbr0(void)
 
 void cpu_do_switch_mm(phys_addr_t pgd_phys, struct mm_struct *mm);
 
+static inline pgd_t *advance_folded_user_pgd(pgd_t *pgd)
+{
+	int advance = DIV_ROUND_UP(vabits_actual - CONFIG_TASK_SIZE_BITS,
+				   PAGE_SHIFT - 3);
+
+	while (advance-- > 0)
+		pgd = __va(__pgd_to_phys(*pgd));
+
+	return pgd;
+}
+
 static inline void cpu_switch_mm(pgd_t *pgd, struct mm_struct *mm)
 {
 	BUG_ON(pgd == swapper_pg_dir);
-	cpu_do_switch_mm(virt_to_phys(pgd),mm);
+	BUG_ON(pgd == idmap_pg_dir);
+	cpu_do_switch_mm(virt_to_phys(advance_folded_user_pgd(pgd)), mm);
 }
 
 /*
@@ -82,7 +94,8 @@ static inline void __cpu_set_tcr_t0sz(unsigned long t0sz)
 	isb();
 }
 
-#define cpu_set_default_tcr_t0sz()	__cpu_set_tcr_t0sz(TCR_T0SZ(vabits_actual))
+#define cpu_set_default_tcr_t0sz()	__cpu_set_tcr_t0sz(TCR_T0SZ(MIN(vabits_actual, \
+									CONFIG_TASK_SIZE_BITS)))
 #define cpu_set_idmap_tcr_t0sz()	__cpu_set_tcr_t0sz(idmap_t0sz)
 
 /*
@@ -115,7 +128,7 @@ static inline void cpu_install_idmap(void)
 	local_flush_tlb_all();
 	cpu_set_idmap_tcr_t0sz();
 
-	cpu_switch_mm(lm_alias(idmap_pg_dir), &init_mm);
+	cpu_do_switch_mm(__pa_symbol(idmap_pg_dir), &init_mm);
 }
 
 /*
@@ -215,10 +228,13 @@ static inline void update_saved_ttbr0(struct task_struct *tsk,
 	if (!system_uses_ttbr0_pan())
 		return;
 
-	if (mm == &init_mm)
+	if (mm == &init_mm) {
 		ttbr = phys_to_ttbr(__pa_symbol(reserved_pg_dir));
-	else
-		ttbr = phys_to_ttbr(virt_to_phys(mm->pgd)) | ASID(mm) << 48;
+	} else {
+		pgd_t *pgdp = advance_folded_user_pgd(mm->pgd);
+
+		ttbr = phys_to_ttbr(virt_to_phys(pgdp)) | ASID(mm) << 48;
+	}
 
 	WRITE_ONCE(task_thread_info(tsk)->ttbr0, ttbr);
 }
