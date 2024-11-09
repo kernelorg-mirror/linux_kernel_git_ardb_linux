@@ -589,6 +589,10 @@ u64 kvm_get_vtcr(u64 mmfr0, u64 mmfr1, u32 phys_shift)
 	u64 vtcr = VTCR_EL2_FLAGS;
 	s8 lvls;
 
+	/* Cannot map more than 48 bits if LPA2 is unavailable */
+	if (IS_ENABLED(CONFIG_ARM64_LPA2) && !kvm_lpa2_is_enabled())
+		phys_shift = min(phys_shift, 48U);
+
 	vtcr |= kvm_get_parange(mmfr0) << VTCR_EL2_PS_SHIFT;
 	vtcr |= VTCR_EL2_T0SZ(phys_shift);
 	/*

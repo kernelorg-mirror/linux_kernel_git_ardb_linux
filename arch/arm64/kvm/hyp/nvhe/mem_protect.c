@@ -123,14 +123,9 @@ static int prepare_s2_pool(void *pgt_pool_base)
 
 static void prepare_host_vtcr(void)
 {
-	u32 parange, phys_shift;
-
-	/* The host stage 2 is id-mapped, so use parange for T0SZ */
-	parange = kvm_get_parange(id_aa64mmfr0_el1_sys_val);
-	phys_shift = id_aa64mmfr0_parange_to_phys_shift(parange);
-
 	host_mmu.arch.mmu.vtcr = kvm_get_vtcr(id_aa64mmfr0_el1_sys_val,
-					      id_aa64mmfr1_el1_sys_val, phys_shift);
+					      id_aa64mmfr1_el1_sys_val,
+					      PHYS_MASK_SHIFT);
 }
 
 static bool host_stage2_force_pte_cb(u64 addr, u64 end, enum kvm_pgtable_prot prot);

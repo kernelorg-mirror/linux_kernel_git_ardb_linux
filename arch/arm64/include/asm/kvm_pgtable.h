@@ -28,22 +28,10 @@
 
 #define kvm_lpa2_is_enabled()		system_supports_lpa2()
 
-static inline u64 kvm_get_parange_max(void)
-{
-	if (kvm_lpa2_is_enabled() ||
-	   (IS_ENABLED(CONFIG_ARM64_PA_BITS_52) && PAGE_SHIFT == 16))
-		return ID_AA64MMFR0_EL1_PARANGE_52;
-	else
-		return ID_AA64MMFR0_EL1_PARANGE_48;
-}
-
 static inline u64 kvm_get_parange(u64 mmfr0)
 {
-	u64 parange_max = kvm_get_parange_max();
 	u64 parange = cpuid_feature_extract_unsigned_field(mmfr0,
 				ID_AA64MMFR0_EL1_PARANGE_SHIFT);
-	if (parange > parange_max)
-		parange = parange_max;
 
 	return parange;
 }
