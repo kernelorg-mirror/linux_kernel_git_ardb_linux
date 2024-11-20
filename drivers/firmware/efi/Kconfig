@@ -74,7 +74,7 @@ config EFI_GENERIC_STUB
 
 config EFI_ZBOOT
 	bool "Enable the generic EFI decompressor"
-	depends on EFI_GENERIC_STUB && !ARM
+	depends on EFI_STUB && !(ARM || X86_32)
 	select HAVE_KERNEL_GZIP
 	select HAVE_KERNEL_ZSTD
 	help

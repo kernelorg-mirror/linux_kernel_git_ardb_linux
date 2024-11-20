@@ -16,9 +16,12 @@ SECTIONS
 
 	.rodata : ALIGN(8) {
 		__efistub__gzdata_start = .;
+		_gzdata_start = .;
 		*(.gzdata)
+		payload_size = . - 4;
 		__efistub_payload_size = . - 4;
 		__efistub__gzdata_end = .;
+		_gzdata_end = .;
 		*(.rodata* .init.rodata* .srodata*)
 
 		. = ALIGN(4);
@@ -27,6 +30,10 @@ SECTIONS
 
 		_etext = ALIGN(4096);
 		. = _etext;
+	}
+
+	.pecompat : ALIGN(4096) {
+		*(.pecompat)
 	}
 
         .sbat : ALIGN(4096) {
@@ -61,3 +68,5 @@ PROVIDE(__efistub__gzdata_size =
 PROVIDE(__data_rawsize = ABSOLUTE(_edata - _data));
 PROVIDE(__data_size = ABSOLUTE(_end - _data));
 PROVIDE(__sbat_size = ABSOLUTE(_esbat - _sbat));
+
+PROVIDE(efi32_pe_entry_offset = efi32_pe_entry - __efistub_efi_zboot_header);

@@ -127,6 +127,29 @@ __efistub_efi_zboot_header:
 			IMAGE_SCN_MEM_READ | \
 			IMAGE_SCN_MEM_EXECUTE
 
+#ifdef CONFIG_EFI_MIXED
+	.asciz		".compat"
+
+	.long		.Lpecompat_size			# VirtualSize
+	.long		_etext - .Ldoshdr		# VirtualAddress
+	.long		0x1000				# SizeOfRawData
+	.long		_etext - .Ldoshdr		# PointerToRawData
+
+	.long		0, 0, 0
+	.long		IMAGE_SCN_CNT_INITIALIZED_DATA	| \
+			IMAGE_SCN_MEM_READ		| \
+			IMAGE_SCN_MEM_DISCARDABLE	# Characteristics
+
+	.pushsection	".pecompat", "a", @progbits
+.Lpecompat:
+	.byte		0x1				# Version
+	.byte		8				# Size
+	.word		IMAGE_FILE_MACHINE_I386		# PE machine type
+	.long		efi32_pe_entry_offset		# Entrypoint
+	.byte		0x0				# Sentinel
+	.set		.Lpecompat_size, . - .Lpecompat
+	.popsection
+#endif
 #ifdef CONFIG_EFI_SBAT
 	.ascii		".sbat\0\0\0"
 	.long		__sbat_size

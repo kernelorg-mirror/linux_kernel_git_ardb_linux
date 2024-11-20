@@ -25,6 +25,8 @@
 	.text
 	.code32
 #ifdef CONFIG_EFI_HANDOVER_PROTOCOL
+	.weak	_bss
+	.weak	_ebss
 SYM_FUNC_START(efi32_stub_entry)
 	call	1f
 1:	popl	%ecx

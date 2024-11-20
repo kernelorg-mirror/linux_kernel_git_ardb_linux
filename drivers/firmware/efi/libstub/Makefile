@@ -97,8 +97,10 @@ zboot-obj-$(CONFIG_KERNEL_ZSTD)	:= zboot-decompress-zstd.o lib-xxhash.o
 CFLAGS_zboot-decompress-zstd.o	+= -I$(srctree)/lib/zstd
 zboot-obj-$(CONFIG_EFI_ZBOOT_ELF) += zboot-decompress-elf.o
 
+zboot-obj-$(CONFIG_EFI_GENERIC_STUB) += zboot.o
+zboot-obj-$(CONFIG_X86)		+= zboot-x86.o string.o intrinsics.o
 zboot-obj-$(CONFIG_RISCV)	+= lib-clz_ctz.o lib-ashldi3.o
-lib-$(CONFIG_EFI_ZBOOT)		+= zboot.o $(zboot-obj-y)
+lib-$(CONFIG_EFI_ZBOOT)		+= $(zboot-obj-y)
 
 lib-$(CONFIG_UNACCEPTED_MEMORY) += unaccepted_memory.o bitmap.o find.o
 

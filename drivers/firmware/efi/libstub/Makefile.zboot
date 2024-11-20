@@ -55,7 +55,8 @@ ifneq ($(CONFIG_EFI_SBAT_FILE),)
 $(obj)/zboot-header.o: $(CONFIG_EFI_SBAT_FILE)
 endif
 
-ZBOOT_DEPS := $(obj)/zboot-header.o $(objtree)/drivers/firmware/efi/libstub/lib.a
+ZBOOT_DEPS := $(obj)/zboot-header.o $(objtree)/drivers/firmware/efi/libstub/lib.a \
+	      $(EFI_ZBOOT_LIBS)
 
 LDFLAGS_vmlinuz.efi.elf := -T $(srctree)/drivers/firmware/efi/libstub/zboot.lds
 $(obj)/vmlinuz.efi.elf: $(obj)/vmlinuz.o $(ZBOOT_DEPS) FORCE
