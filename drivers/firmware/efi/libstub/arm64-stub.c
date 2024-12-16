@@ -45,7 +45,7 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 
 asmlinkage void primary_entry(void);
 
-unsigned long primary_entry_offset(void)
+unsigned long entry_offset(void)
 {
 	/*
 	 * When built as part of the kernel, the EFI stub cannot branch to the

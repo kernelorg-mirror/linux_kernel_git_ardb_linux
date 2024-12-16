@@ -15,7 +15,11 @@
 __efistub_efi_zboot_header:
 .Ldoshdr:
 	.long		IMAGE_DOS_SIGNATURE
+#ifdef CONFIG_EFI_ZBOOT_ELF
+	.ascii		"zelf"					// image type
+#else
 	.ascii		"zimg"					// image type
+#endif
 	.long		__efistub__gzdata_start - .Ldoshdr	// payload offset
 	.long		__efistub__gzdata_size - ZBOOT_SIZE_LEN	// payload size
 	.long		0, 0					// reserved

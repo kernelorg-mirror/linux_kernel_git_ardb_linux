@@ -1263,7 +1263,18 @@ void process_unaccepted_memory(u64 start, u64 end);
 void accept_memory(phys_addr_t start, unsigned long size);
 void arch_accept_memory(phys_addr_t start, phys_addr_t end);
 
-efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size);
-efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen);
+unsigned long entry_offset(void);
+
+efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size,
+				       unsigned long *entry);
+efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen,
+				  unsigned long va_shift);
+
+bool efi_zboot_check_elf(unsigned long *alloc_size,
+			 unsigned long *entry,
+			 bool (*decompress_slice)(u8 *, unsigned long));
+bool efi_zboot_decompress_segments(u8 *out, unsigned long outlen,
+				   unsigned long va_shift,
+				   bool (*decompress_slice)(u8 *, unsigned long));
 
 #endif

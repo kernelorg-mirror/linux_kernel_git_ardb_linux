@@ -12,6 +12,13 @@ quiet_cmd_copy_and_pad = PAD     $@
 $(obj)/vmlinux.bin: $(obj)/$(EFI_ZBOOT_PAYLOAD) FORCE
 	$(call if_changed,copy_and_pad)
 
+$(obj)/vmlinux: OBJCOPYFLAGS := -R .note -R .note.gnu.build-id -R .comment -S
+$(obj)/vmlinux: vmlinux FORCE
+	$(call if_changed,objcopy)
+
+payload-y				:= vmlinux.bin
+payload-$(CONFIG_EFI_ZBOOT_ELF)		:= vmlinux
+
 # in GZIP, the appended le32 carrying the uncompressed size is part of the
 # format, but in other cases, we just append it at the end for convenience,
 # causing the original tools to complain when checking image integrity.
@@ -23,7 +30,7 @@ comp-type-$(CONFIG_KERNEL_ZSTD)		:= zstd
 zboot-method-$(CONFIG_KERNEL_ZSTD)	:= zstd22_with_size
 zboot-size-len-$(CONFIG_KERNEL_ZSTD)	:= 4
 
-$(obj)/vmlinuz: $(obj)/vmlinux.bin FORCE
+$(obj)/vmlinuz: $(obj)/$(payload-y) FORCE
 	$(call if_changed,$(zboot-method-y))
 
 # avoid eager evaluation to prevent references to non-existent build artifacts
@@ -58,4 +65,4 @@ OBJCOPYFLAGS_vmlinuz.efi := -O binary
 $(obj)/vmlinuz.efi: $(obj)/vmlinuz.efi.elf FORCE
 	$(call if_changed,objcopy)
 
-targets += zboot-header.o vmlinux.bin vmlinuz vmlinuz.o vmlinuz.efi.elf vmlinuz.efi
+targets += zboot-header.o vmlinux vmlinux.bin vmlinuz vmlinuz.o vmlinuz.efi.elf vmlinuz.efi

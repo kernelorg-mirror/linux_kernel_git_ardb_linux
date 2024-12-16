@@ -11,7 +11,7 @@
 
 #include "efistub.h"
 
-unsigned long stext_offset(void)
+unsigned long entry_offset(void)
 {
 	/*
 	 * When built as part of the kernel, the EFI stub cannot branch to the

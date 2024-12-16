@@ -16,7 +16,20 @@ extern u32 __aligned(1) payload_size;
 
 static struct z_stream_s stream;
 
-efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size)
+static bool gzip_decompress_slice(u8 *out, unsigned long outlen)
+{
+	int rc;
+
+	stream.next_out = out;
+	stream.avail_out = outlen;
+
+	rc = zlib_inflate(&stream, 0);
+
+	return rc == Z_OK || rc == Z_STREAM_END;
+}
+
+efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size,
+				       unsigned long *entry)
 {
 	efi_status_t status;
 	int rc;
@@ -38,31 +51,44 @@ efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size)
 		goto out;
 	}
 
-	*alloc_size = payload_size;
+	if (!IS_ENABLED(CONFIG_EFI_ZBOOT_ELF)) {
+		*alloc_size = payload_size;
+		*entry = 0;
+		return EFI_SUCCESS;
+	}
+
+	if (!efi_zboot_check_elf(alloc_size, entry, gzip_decompress_slice)) {
+		status = EFI_LOAD_ERROR;
+		goto out;
+	}
+
 	return EFI_SUCCESS;
 out:
 	efi_free(zlib_inflate_workspacesize(), (unsigned long)stream.workspace);
 	return status;
 }
 
-efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen)
+efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen,
+				  unsigned long va_shift)
 {
-	int rc;
+	bool ret;
 
-	stream.next_out = out;
-	stream.avail_out = outlen;
-
-	rc = zlib_inflate(&stream, 0);
-	zlib_inflateEnd(&stream);
-
-	efi_free(zlib_inflate_workspacesize(), (unsigned long)stream.workspace);
-
-	if (rc != Z_STREAM_END) {
-		efi_err("GZIP decompression failed with status %d\n", rc);
-		return EFI_LOAD_ERROR;
+	if (!IS_ENABLED(CONFIG_EFI_ZBOOT_ELF)) {
+		ret = gzip_decompress_slice(out, outlen);
+		if (ret)
+			efi_cache_sync_image((unsigned long)out, outlen);
+	} else {
+		ret = efi_zboot_decompress_segments(out, outlen, va_shift,
+						    gzip_decompress_slice);
 	}
 
-	efi_cache_sync_image((unsigned long)out, outlen);
+	zlib_inflateEnd(&stream);
+	efi_free(zlib_inflate_workspacesize(), (unsigned long)stream.workspace);
+
+	if (!ret) {
+		efi_err("GZIP decompression failed\n");
+		return EFI_LOAD_ERROR;
+	}
 
 	return EFI_SUCCESS;
 }

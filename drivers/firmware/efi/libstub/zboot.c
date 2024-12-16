@@ -31,6 +31,13 @@ struct screen_info *alloc_screen_info(void)
 	return __alloc_screen_info();
 }
 
+static unsigned long entrypoint;
+
+unsigned long entry_offset(void)
+{
+	return entrypoint;
+}
+
 asmlinkage efi_status_t __efiapi
 efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 {
@@ -54,7 +61,7 @@ efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 
 	efi_info("Decompressing Linux Kernel...\n");
 
-	status = efi_zboot_decompress_init(&alloc_size);
+	status = efi_zboot_decompress_init(&alloc_size, &entrypoint);
 	if (status != EFI_SUCCESS)
 		return status;
 
@@ -92,7 +99,7 @@ efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab)
 	}
 
 	// Decompress the payload into the newly allocated buffer
-	status = efi_zboot_decompress((void *)image_base, alloc_size) ?:
+	status = efi_zboot_decompress((void *)image_base, alloc_size, 0x0) ?:
 	         efi_stub_common(handle, image, image_base, cmdline_ptr);
 
 	efi_free(alloc_size, image_base);
