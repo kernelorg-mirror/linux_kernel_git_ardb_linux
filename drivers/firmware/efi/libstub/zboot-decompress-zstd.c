@@ -74,7 +74,16 @@ efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size)
 		goto out;
 	}
 
-	*alloc_size = header.frameContentSize;
+	if (!IS_ENABLED(CONFIG_EFI_ZBOOT_ELF)) {
+		*alloc_size = header.frameContentSize;
+		return EFI_SUCCESS;
+	}
+
+	if (!efi_zboot_check_elf(alloc_size, zstd_decompress_slice)) {
+		status = EFI_LOAD_ERROR;
+		goto out;
+	}
+
 	return EFI_SUCCESS;
 out:
 	efi_free(wksp_size, (unsigned long)wksp);
@@ -85,7 +94,12 @@ efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen)
 {
 	bool ret;
 
-	ret = zstd_decompress_slice(out, outlen);
+	if (!IS_ENABLED(CONFIG_EFI_ZBOOT_ELF))
+		ret = zstd_decompress_slice(out, outlen);
+	else
+		ret = efi_zboot_decompress_segments(out, outlen,
+						    header.frameContentSize,
+						    zstd_decompress_slice);
 
 	/* the payload must take up the entire frame */
 	if (ret && zstd_rc != 0) {

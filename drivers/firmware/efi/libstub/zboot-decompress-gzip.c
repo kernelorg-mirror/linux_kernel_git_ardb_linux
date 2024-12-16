@@ -60,8 +60,17 @@ efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size)
 		goto out;
 	}
 
-	/* the last 4 bytes of a GZIP stream carry the uncompressed size */
-	*alloc_size = get_unaligned_le32(_gzdata_end - 4);
+	if (!IS_ENABLED(CONFIG_EFI_ZBOOT_ELF)) {
+		/* the last 4 bytes of a GZIP stream carry the uncompressed size */
+		*alloc_size = get_unaligned_le32(_gzdata_end - 4);
+		return EFI_SUCCESS;
+	}
+
+	if (!efi_zboot_check_elf(alloc_size, gzip_decompress_slice)) {
+		status = EFI_LOAD_ERROR;
+		goto out;
+	}
+
 	return EFI_SUCCESS;
 out:
 	efi_free(zlib_inflate_workspacesize(), (unsigned long)stream.workspace);
@@ -72,7 +81,12 @@ efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen)
 {
 	bool ret;
 
-	ret = gzip_decompress_slice(out, outlen);
+	if (!IS_ENABLED(CONFIG_EFI_ZBOOT_ELF))
+		ret = gzip_decompress_slice(out, outlen);
+	else
+		ret = efi_zboot_decompress_segments(out, outlen,
+						    get_unaligned_le32(_gzdata_end - 4),
+						    gzip_decompress_slice);
 
 	/* the payload must take up the entire stream */
 	if (ret && inflate_rc != Z_STREAM_END) {

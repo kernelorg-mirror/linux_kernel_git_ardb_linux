@@ -1310,4 +1310,10 @@ void arch_accept_memory(phys_addr_t start, phys_addr_t end);
 efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size);
 efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen);
 
+bool efi_zboot_check_elf(unsigned long *alloc_size,
+			 bool (*decompress_slice)(u8 *, unsigned long));
+bool efi_zboot_decompress_segments(u8 *out, unsigned long outlen,
+				   unsigned long payload_size,
+				   bool (*decompress_slice)(u8 *, unsigned long));
+
 #endif

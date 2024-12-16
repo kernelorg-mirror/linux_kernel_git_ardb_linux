@@ -12,6 +12,13 @@ quiet_cmd_copy_and_pad = PAD     $@
 $(obj)/vmlinux.bin: $(obj)/$(EFI_ZBOOT_PAYLOAD) FORCE
 	$(call if_changed,copy_and_pad)
 
+$(obj)/vmlinux: OBJCOPYFLAGS := -R .note -R .note.gnu.build-id -R .comment -S
+$(obj)/vmlinux: vmlinux FORCE
+	$(call if_changed,objcopy)
+
+payload-y				:= vmlinux.bin
+payload-$(CONFIG_EFI_ZBOOT_ELF)		:= vmlinux
+
 comp-type-y				:= gzip
 zboot-method-y				:= gzip
 
@@ -21,7 +28,7 @@ zboot-method-$(CONFIG_KERNEL_ZSTD)	:= zstd_zboot
 quiet_cmd_zstd_zboot = ZSTD    $@
       cmd_zstd_zboot = $(ZSTD) -19 -f -q -o $@ $<
 
-$(obj)/vmlinuz: $(obj)/vmlinux.bin FORCE
+$(obj)/vmlinuz: $(obj)/$(payload-y) FORCE
 	+$(call if_changed,$(zboot-method-y))
 
 # subtract the two symbol values to obtain the offset of struct efi_image_info
@@ -64,4 +71,4 @@ OBJCOPYFLAGS_vmlinuz.efi := -O binary
 $(obj)/vmlinuz.efi: $(obj)/vmlinuz.efi.elf FORCE
 	$(call if_changed,objcopy)
 
-targets += zboot-header.o vmlinux.bin vmlinuz vmlinuz.o vmlinuz.efi.elf vmlinuz.efi
+targets += zboot-header.o vmlinux vmlinux.bin vmlinuz vmlinuz.o vmlinuz.efi.elf vmlinuz.efi
