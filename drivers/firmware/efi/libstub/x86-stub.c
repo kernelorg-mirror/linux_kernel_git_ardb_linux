@@ -15,13 +15,10 @@
 #include <asm/setup.h>
 #include <asm/desc.h>
 #include <asm/boot.h>
-#include <asm/kaslr.h>
 #include <asm/sev.h>
 
 #include "efistub.h"
 #include "x86-stub.h"
-
-extern char _bss[], _ebss[];
 
 const efi_system_table_t *efi_system_table;
 const efi_dxe_services_table_t *efi_dxe_table;
@@ -807,22 +804,6 @@ static bool check_snp_features(struct boot_params *bp)
 	return true;
 }
 
-static void efi_get_seed(void *seed, int size)
-{
-	efi_get_random_bytes(size, seed);
-
-	/*
-	 * This only updates seed[0] when running on 32-bit, but in that case,
-	 * seed[1] is not used anyway, as there is no virtual KASLR on 32-bit.
-	 */
-	*(unsigned long *)seed ^= kaslr_get_random_long("EFI");
-}
-
-static void error(char *str)
-{
-	efi_warn("Decompression failed: %s\n", str);
-}
-
 static const char *cmdline_memmap_override;
 
 static efi_status_t parse_options(const char *cmdline)
@@ -843,28 +824,23 @@ static efi_status_t parse_options(const char *cmdline)
 	return efi_parse_options(cmdline);
 }
 
-static efi_status_t efi_decompress_kernel(unsigned long *kernel_entry,
-					  struct boot_params *boot_params)
+efi_status_t efi_allocate_kernel(unsigned long alloc_size,
+				 unsigned long *virt_addr,
+				 unsigned long *alloc,
+				 struct boot_params *boot_params)
 {
-	unsigned long virt_addr = LOAD_PHYSICAL_ADDR;
-	unsigned long addr, alloc_size, entry;
-	efi_status_t status;
 	u32 seed[2] = {};
 
-	boot_params_ptr	= boot_params;
-
-	/* determine the required size of the allocation */
-	alloc_size = ALIGN(max_t(unsigned long, output_len, kernel_total_size),
-			   MIN_KERNEL_ALIGN);
+	*virt_addr = LOAD_PHYSICAL_ADDR;
 
 	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE) && !efi_nokaslr) {
-		u64 range = KERNEL_IMAGE_SIZE - LOAD_PHYSICAL_ADDR - kernel_total_size;
+		u64 range = KERNEL_IMAGE_SIZE - LOAD_PHYSICAL_ADDR - alloc_size;
 		static const efi_char16_t ami[] = L"American Megatrends";
 
 		efi_get_seed(seed, sizeof(seed));
 
-		virt_addr += (range * seed[1]) >> 32;
-		virt_addr &= ~(CONFIG_PHYSICAL_ALIGN - 1);
+		*virt_addr += (range * seed[1]) >> 32;
+		*virt_addr &= ~(CONFIG_PHYSICAL_ALIGN - 1);
 
 		/*
 		 * Older Dell systems with AMI UEFI firmware v2.0 may hang
@@ -886,22 +862,9 @@ static efi_status_t efi_decompress_kernel(unsigned long *kernel_entry,
 		boot_params->hdr.loadflags |= KASLR_FLAG;
 	}
 
-	status = efi_random_alloc(alloc_size, CONFIG_PHYSICAL_ALIGN, &addr,
-				  seed[0], EFI_LOADER_CODE,
-				  LOAD_PHYSICAL_ADDR,
-				  EFI_X86_KERNEL_ALLOC_LIMIT);
-	if (status != EFI_SUCCESS)
-		return status;
-
-	entry = decompress_kernel((void *)addr, virt_addr, error);
-	if (entry == ULONG_MAX) {
-		efi_free(alloc_size, addr);
-		return EFI_LOAD_ERROR;
-	}
-
-	*kernel_entry = addr + entry;
-
-	return efi_adjust_memory_range_protection(addr, kernel_text_size);
+	return efi_random_alloc(alloc_size, CONFIG_PHYSICAL_ALIGN, alloc,
+				seed[0], EFI_LOADER_CODE, LOAD_PHYSICAL_ADDR,
+				EFI_X86_KERNEL_ALLOC_LIMIT);
 }
 
 static void __noreturn enter_kernel(unsigned long kernel_addr,
@@ -1046,28 +1009,3 @@ fail:
 
 	efi_exit(handle, status);
 }
-
-efi_status_t __efiapi efi_pe_entry(efi_handle_t handle,
-				   efi_system_table_t *sys_table_arg)
-{
-	efi_stub_entry(handle, sys_table_arg, NULL);
-}
-
-#ifdef CONFIG_EFI_HANDOVER_PROTOCOL
-void efi_handover_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
-			struct boot_params *boot_params)
-{
-	memset(_bss, 0, _ebss - _bss);
-	efi_stub_entry(handle, sys_table_arg, boot_params);
-}
-
-#ifndef CONFIG_EFI_MIXED
-extern __alias(efi_handover_entry)
-void efi32_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
-		      struct boot_params *boot_params);
-
-extern __alias(efi_handover_entry)
-void efi64_stub_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
-		      struct boot_params *boot_params);
-#endif
-#endif
