@@ -45,7 +45,7 @@ efi_status_t efi_setup_5level_paging(void)
 		return status;
 
 	la57_toggle = memcpy(la57_code, trampoline_32bit_src, tmpl_size);
-	memset(la57_code + tmpl_size, 0x90, PAGE_SIZE - tmpl_size);
+	memset(la57_code + tmpl_size, 0xcc, 2 * PAGE_SIZE - tmpl_size);
 
 	/*
 	 * To avoid the need to allocate a 32-bit addressable stack, the
@@ -79,7 +79,7 @@ void efi_5level_switch(void)
 		 * to be allocated from the 32-bit addressable physical region,
 		 * with its first entry referring to the existing hierarchy.
 		 */
-		new_cr3 = memset(pgt, 0, PAGE_SIZE);
+		new_cr3 = pgt;
 		new_cr3[0] = (u64)cr3 | _PAGE_TABLE_NOENC;
 	} else {
 		/* take the new root table pointer from the current entry #0 */
