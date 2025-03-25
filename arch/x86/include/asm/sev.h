@@ -516,6 +516,8 @@ void snp_accept_memory(phys_addr_t start, phys_addr_t end);
 u64 snp_get_unsupported_features(u64 status);
 u64 sev_get_status(void);
 void sev_show_status(void);
+int sev_check_cpu_support(void);
+bool early_is_sevsnp_guest(void);
 int prepare_pte_enc(struct pte_enc_desc *d);
 void set_pte_enc_mask(pte_t *kpte, unsigned long pfn, pgprot_t new_prot);
 void snp_kexec_finish(void);
@@ -595,6 +597,8 @@ static inline void sev_evict_cache(void *va, int npages)
 		val = bytes[page_idx * PAGE_SIZE + PAGE_SIZE - 1];
 	}
 }
+
+extern u64 boot_svsm_caa_pa;
 
 #else	/* !CONFIG_AMD_MEM_ENCRYPT */
 
