@@ -167,7 +167,7 @@ static enum es_result __vc_decode_kern_insn(struct es_em_ctxt *ctxt)
 		return ES_OK;
 }
 
-static enum es_result vc_decode_insn(struct es_em_ctxt *ctxt)
+enum es_result vc_decode_insn(struct es_em_ctxt *ctxt)
 {
 	if (user_mode(ctxt->regs))
 		return __vc_decode_user_insn(ctxt);

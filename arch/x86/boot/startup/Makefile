@@ -22,8 +22,13 @@ lib-cflags-y			+= -mfunction-return=keep
 
 lib-$(CONFIG_X86_64)		+= la57toggle.o
 lib-$(CONFIG_EFI_MIXED)		+= efi-mixed.o
-lib-$(CONFIG_AMD_MEM_ENCRYPT)	+= sev-status.o
+lib-$(CONFIG_AMD_MEM_ENCRYPT)	+= sev-status.o sev-decode-insn.o
 CFLAGS_sev-status.o		+= $(lib-cflags-y)
+
+# sev-decode-insn.c indirectly includes inat-table.c which is generated during
+# compilation and stored in $(objtree). Add the directory to the includes so
+# that the compiler finds it even with out-of-tree builds (make O=/some/path).
+CFLAGS_sev-decode-insn.o	+= $(lib-cflags-y) -I$(objtree)/arch/x86/lib/
 
 #
 # Disable objtool validation for all library code, which is intended
