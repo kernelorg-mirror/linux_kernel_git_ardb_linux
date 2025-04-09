@@ -114,7 +114,7 @@ u64 __head snp_check_hv_features(void)
 	 * SNP is supported in v2 of the GHCB spec which mandates support for HV
 	 * features.
 	 */
-	if (RIP_REL_REF(sev_status) & MSR_AMD64_SEV_SNP_ENABLED) {
+	if (sev_status & MSR_AMD64_SEV_SNP_ENABLED) {
 		u64 hv_features;
 
 		hv_features = get_hv_features();
@@ -318,7 +318,7 @@ static int svsm_perform_ghcb_protocol(struct ghcb *ghcb, struct svsm_call *call)
 	 * Fill in protocol and format specifiers. This can be called very early
 	 * in the boot, so use rip-relative references as needed.
 	 */
-	ghcb->protocol_version = RIP_REL_REF(ghcb_version);
+	ghcb->protocol_version = ghcb_version;
 	ghcb->ghcb_usage       = GHCB_DEFAULT_USAGE;
 
 	ghcb_set_sw_exit_code(ghcb, SVM_VMGEXIT_SNP_RUN_VMPL);
@@ -675,9 +675,9 @@ snp_cpuid(struct ghcb *ghcb, struct es_em_ctxt *ctxt, struct cpuid_leaf *leaf)
 		leaf->eax = leaf->ebx = leaf->ecx = leaf->edx = 0;
 
 		/* Skip post-processing for out-of-range zero leafs. */
-		if (!(leaf->fn <= RIP_REL_REF(cpuid_std_range_max) ||
-		      (leaf->fn >= 0x40000000 && leaf->fn <= RIP_REL_REF(cpuid_hyp_range_max)) ||
-		      (leaf->fn >= 0x80000000 && leaf->fn <= RIP_REL_REF(cpuid_ext_range_max))))
+		if (!(leaf->fn <= cpuid_std_range_max ||
+		      (leaf->fn >= 0x40000000 && leaf->fn <= cpuid_hyp_range_max) ||
+		      (leaf->fn >= 0x80000000 && leaf->fn <= cpuid_ext_range_max)))
 			return 0;
 	}
 
@@ -1198,11 +1198,11 @@ static void __head setup_cpuid_table(const struct cc_blob_sev_info *cc_info)
 		const struct snp_cpuid_fn *fn = &cpuid_table->fn[i];
 
 		if (fn->eax_in == 0x0)
-			RIP_REL_REF(cpuid_std_range_max) = fn->eax;
+			cpuid_std_range_max = fn->eax;
 		else if (fn->eax_in == 0x40000000)
-			RIP_REL_REF(cpuid_hyp_range_max) = fn->eax;
+			cpuid_hyp_range_max = fn->eax;
 		else if (fn->eax_in == 0x80000000)
-			RIP_REL_REF(cpuid_ext_range_max) = fn->eax;
+			cpuid_ext_range_max = fn->eax;
 	}
 }
 
@@ -1248,11 +1248,7 @@ static void __head pvalidate_4k_page(unsigned long vaddr, unsigned long paddr,
 {
 	int ret;
 
-	/*
-	 * This can be called very early during boot, so use rIP-relative
-	 * references as needed.
-	 */
-	if (RIP_REL_REF(snp_vmpl)) {
+	if (snp_vmpl) {
 		svsm_pval_4k_page(paddr, validate);
 	} else {
 		ret = pvalidate(vaddr, RMP_PG_SIZE_4K, validate);
@@ -1396,7 +1392,7 @@ static bool __head svsm_setup_ca(const struct cc_blob_sev_info *cc_info)
 	if (!secrets_page->svsm_guest_vmpl)
 		sev_es_terminate(SEV_TERM_SET_LINUX, GHCB_TERM_SVSM_VMPL0);
 
-	RIP_REL_REF(snp_vmpl) = secrets_page->svsm_guest_vmpl;
+	snp_vmpl = secrets_page->svsm_guest_vmpl;
 
 	caa = secrets_page->svsm_caa;
 
@@ -1411,8 +1407,8 @@ static bool __head svsm_setup_ca(const struct cc_blob_sev_info *cc_info)
 	 * The CA is identity mapped when this routine is called, both by the
 	 * decompressor code and the early kernel code.
 	 */
-	RIP_REL_REF(boot_svsm_caa) = (struct svsm_ca *)caa;
-	RIP_REL_REF(boot_svsm_caa_pa) = caa;
+	boot_svsm_caa = (struct svsm_ca *)caa;
+	boot_svsm_caa_pa = caa;
 
 	/* Advertise the SVSM presence via CPUID. */
 	cpuid_table = (struct snp_cpuid_table *)snp_cpuid_get_table();
