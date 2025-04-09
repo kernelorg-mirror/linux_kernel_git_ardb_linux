@@ -500,6 +500,7 @@ int snp_issue_svsm_attest_req(u64 call_id, struct svsm_call *call, struct svsm_a
 void snp_accept_memory(phys_addr_t start, phys_addr_t end);
 u64 snp_get_unsupported_features(u64 status);
 u64 sev_get_status(void);
+int sev_check_cpu_support(void);
 void sev_show_status(void);
 void snp_update_svsm_ca(void);
 int prepare_pte_enc(struct pte_enc_desc *d);
