@@ -353,7 +353,7 @@ defined(CONFIG_AUTOFDO_CLANG) || defined(CONFIG_PROPELLER_CLANG)
  */
 #define DATA_DATA							\
 	*(.xiptext)							\
-	*(DATA_MAIN)							\
+	*(DATA_MAIN .data.rel.local)					\
 	*(.data..decrypted)						\
 	*(.ref.data)							\
 	*(.data..shared_aligned) /* percpu related */			\
