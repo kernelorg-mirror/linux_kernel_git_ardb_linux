@@ -22,8 +22,12 @@ obj-$(CONFIG_X86_64)		+= gdt_idt.o map_kernel.o
 obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= sme.o sev-startup.o
 pi-objs				:= $(patsubst %.o,$(obj)/%.o,$(obj-y))
 
+lib-cflags-y			+= -mfunction-return=keep
+
 lib-$(CONFIG_X86_64)		+= la57toggle.o
 lib-$(CONFIG_EFI_MIXED)		+= efi-mixed.o
+lib-$(CONFIG_INTEL_TDX_GUEST)	+= tdcall.o tdx-shared.o
+CFLAGS_tdx-shared.o		+= $(lib-cflags-y)
 
 #
 # Disable objtool validation for all library code, which is intended
