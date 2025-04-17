@@ -1260,7 +1260,6 @@ efi_zboot_entry(efi_handle_t handle, efi_system_table_t *systab);
 efi_status_t allocate_unaccepted_bitmap(__u32 nr_desc,
 					struct efi_boot_memmap *map);
 void process_unaccepted_memory(u64 start, u64 end);
-void accept_memory(phys_addr_t start, unsigned long size);
 void arch_accept_memory(phys_addr_t start, phys_addr_t end);
 
 unsigned long entry_offset(void);
