@@ -1060,4 +1060,3 @@ fail:
 
 	sev_es_terminate(SEV_TERM_SET_GEN, GHCB_SEV_ES_GEN_REQ);
 }
-
