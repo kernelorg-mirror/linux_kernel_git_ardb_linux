@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* cpu_feature_enabled() cannot be used this early */
-#define USE_EARLY_PGTABLE_L5
 
 #include <linux/memblock.h>
 #include <linux/linkage.h>
@@ -1676,18 +1674,16 @@ static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 #endif
 
 	/*
-	 * Later in the boot process pgtable_l5_enabled() relies on
-	 * cpu_feature_enabled(X86_FEATURE_LA57). If 5-level paging is not
-	 * enabled by this point we need to clear the feature bit to avoid
-	 * false-positives at the later stage.
+	 * If 5-level paging is not enabled by this point we need to clear the
+	 * feature bit to avoid false-positives at a later stage.
 	 *
-	 * pgtable_l5_enabled() can be false here for several reasons:
+	 * CR4.LA57 can be false here for several reasons:
 	 *  - 5-level paging is disabled compile-time;
 	 *  - it's 32-bit kernel;
 	 *  - machine doesn't support 5-level paging;
 	 *  - user specified 'no5lvl' in kernel command line.
 	 */
-	if (!pgtable_l5_enabled())
+	if (!(native_read_cr4() & X86_CR4_LA57))
 		setup_clear_cpu_cap(X86_FEATURE_LA57);
 
 	detect_nopl();

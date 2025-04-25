@@ -26,7 +26,8 @@ static inline bool check_la57_support(void)
 	if (!(native_read_cr4() & X86_CR4_LA57))
 		return false;
 
-	__pgtable_l5_enabled	= 1;
+	set_cpu_cap(&boot_cpu_data, X86_FEATURE_LA57);
+
 	pgdir_shift		= 48;
 	ptrs_per_p4d		= 512;
 	page_offset_base	= __PAGE_OFFSET_BASE_L5;
