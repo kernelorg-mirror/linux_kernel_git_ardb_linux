@@ -22,8 +22,6 @@ typedef unsigned long	pgprotval_t;
 typedef struct { pteval_t pte; } pte_t;
 typedef struct { pmdval_t pmd; } pmd_t;
 
-extern unsigned int __pgtable_l5_enabled;
-
 #ifndef pgdir_shift
 DECLARE_PER_CPU_CACHE_HOT(u8, __pgdir_shift);
 
