@@ -58,6 +58,20 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 */
 	mov	%rsi, %r15
 
+#ifdef CONFIG_X86_5LEVEL
+	/*
+	 * Set the X86_FEATURE_5LEVEL_PAGING capability before calling into C
+	 * code, so that it is guaranteed to have a consistent view of any
+	 * global pseudo-constant that is derived from pgtable_l5_enabled().
+	 */
+	mov	%cr4, %rax
+	btl	$X86_CR4_LA57_BIT, %eax
+	jnc	0f
+	btsl	$X86_FEATURE_5LEVEL_PAGING % 8, boot_cpu_data+CPUINFO_x86_capability+(X86_FEATURE_5LEVEL_PAGING / 8)(%rip)
+	btsl	$X86_FEATURE_5LEVEL_PAGING % 8, cpu_caps_set+(X86_FEATURE_5LEVEL_PAGING / 8)(%rip)
+0:
+#endif
+
 	/* Set up the stack for verify_cpu() */
 	leaq	__top_init_kernel_stack(%rip), %rsp
 
