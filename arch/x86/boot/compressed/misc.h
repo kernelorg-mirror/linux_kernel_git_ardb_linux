@@ -16,9 +16,6 @@
 
 #define __NO_FORTIFY
 
-/* cpu_feature_enabled() cannot be used this early */
-#define USE_EARLY_PGTABLE_L5
-
 /*
  * Boot stub deals with identity mappings, physical and virtual addresses are
  * the same, so override these defines.
@@ -27,6 +24,8 @@
  */
 #define __pa(x)  ((unsigned long)(x))
 #define __va(x)  ((void *)((unsigned long)(x)))
+
+#define pgtable_l5_enabled() (native_read_cr4() & X86_CR4_LA57)
 
 #include <linux/linkage.h>
 #include <linux/screen_info.h>
