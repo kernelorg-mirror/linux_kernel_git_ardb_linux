@@ -585,7 +585,8 @@ static void set_pages_state(unsigned long vaddr, unsigned long npages, int op)
 
 	/* Use the MSR protocol when a GHCB is not available. */
 	if (!boot_ghcb)
-		return early_set_pages_state(vaddr, __pa(vaddr), npages, op);
+		return early_set_pages_state(vaddr, __pa(vaddr), npages, op,
+					     svsm_get_caa(), svsm_get_caa_pa());
 
 	vaddr = vaddr & PAGE_MASK;
 	vaddr_end = vaddr + (npages << PAGE_SHIFT);
