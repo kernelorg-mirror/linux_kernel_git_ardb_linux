@@ -71,9 +71,6 @@ static void __page_state_change(unsigned long paddr, enum psc_op op)
 	if (op == SNP_PAGE_STATE_SHARED)
 		pvalidate_4k_page(paddr, paddr, false);
 
-	/* Save the current GHCB MSR value */
-	msr = sev_es_rd_ghcb_msr();
-
 	/* Issue VMGEXIT to change the page state in RMP table. */
 	sev_es_wr_ghcb_msr(GHCB_MSR_PSC_REQ_GFN(paddr >> PAGE_SHIFT, op));
 	VMGEXIT();
@@ -82,9 +79,6 @@ static void __page_state_change(unsigned long paddr, enum psc_op op)
 	val = sev_es_rd_ghcb_msr();
 	if ((GHCB_RESP_CODE(val) != GHCB_MSR_PSC_RESP) || GHCB_MSR_PSC_RESP_VAL(val))
 		sev_es_terminate(SEV_TERM_SET_LINUX, GHCB_TERM_PSC);
-
-	/* Restore the GHCB MSR value */
-	sev_es_wr_ghcb_msr(msr);
 
 	/*
 	 * Now that page state is changed in the RMP table, validate it so that it is
@@ -96,18 +90,26 @@ static void __page_state_change(unsigned long paddr, enum psc_op op)
 
 void snp_set_page_private(unsigned long paddr)
 {
+	u64 msr;
+
 	if (!sev_snp_enabled())
 		return;
 
+	msr = sev_es_rd_ghcb_msr();
 	__page_state_change(paddr, SNP_PAGE_STATE_PRIVATE);
+	sev_es_wr_ghcb_msr(msr);
 }
 
 void snp_set_page_shared(unsigned long paddr)
 {
+	u64 msr;
+
 	if (!sev_snp_enabled())
 		return;
 
+	msr = sev_es_rd_ghcb_msr();
 	__page_state_change(paddr, SNP_PAGE_STATE_SHARED);
+	sev_es_wr_ghcb_msr(msr);
 }
 
 bool early_setup_ghcb(void)
@@ -132,8 +134,11 @@ bool early_setup_ghcb(void)
 
 void snp_accept_memory(phys_addr_t start, phys_addr_t end)
 {
+	u64 msr = sev_es_rd_ghcb_msr();
+
 	for (phys_addr_t pa = start; pa < end; pa += PAGE_SIZE)
 		__page_state_change(pa, SNP_PAGE_STATE_PRIVATE);
+	sev_es_wr_ghcb_msr(msr);
 }
 
 void sev_es_shutdown_ghcb(void)
