@@ -177,6 +177,8 @@ bool arch_efi_call_virt_setup(void)
 		return false;
 
 	efi_virtmap_load();
+	uaccess_ttbr0_enable();
+	post_ttbr_update_workaround();
 	__efi_fpsimd_begin();
 	return true;
 }
@@ -185,6 +187,7 @@ void arch_efi_call_virt_teardown(void)
 {
 	__efi_fpsimd_end();
 	efi_virtmap_unload();
+	uaccess_ttbr0_disable();
 	up(&efi_rt_lock);
 }
 
