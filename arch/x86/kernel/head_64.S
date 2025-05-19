@@ -71,6 +71,14 @@ SYM_CODE_START_NOALIGN(startup_64)
 	xorl	%edx, %edx
 	wrmsr
 
+	/*
+	 * Assign the CR4 shadow for the boot CPU before entering C code, so
+	 * that it always accurately reflects whether 4 or 5 levels of paging
+	 * are being used.
+	 */
+	movq	%cr4, %rax
+	movq	%rax, PER_CPU_VAR(cpu_tlbstate + TLB_STATE_cr4)
+
 	call	startup_64_setup_gdt_idt
 
 	/* Now switch to __KERNEL_CS so IRET works reliably */
