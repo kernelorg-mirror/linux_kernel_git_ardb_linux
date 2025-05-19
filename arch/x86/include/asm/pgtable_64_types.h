@@ -22,13 +22,14 @@ typedef unsigned long	pgprotval_t;
 typedef struct { pteval_t pte; } pte_t;
 typedef struct { pmdval_t pmd; } pmd_t;
 
+extern bool __pgtable_l5_enabled(void);
 #endif	/* !__ASSEMBLER__ */
 
 #ifndef pgtable_l5_enabled
 #ifndef MODULE
 #define pgtable_l5_enabled() !!(this_cpu_read(cpu_tlbstate.cr4) & X86_CR4_LA57)
 #else
-#define pgtable_l5_enabled() cpu_feature_enabled(X86_FEATURE_LA57)
+#define pgtable_l5_enabled() __pgtable_l5_enabled()
 #endif /* MODULE */
 #endif
 
