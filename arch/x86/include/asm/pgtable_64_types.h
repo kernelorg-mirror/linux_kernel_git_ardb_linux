@@ -7,6 +7,7 @@
 #ifndef __ASSEMBLER__
 #include <linux/types.h>
 #include <asm/kaslr.h>
+#include <asm/tlbstate.h>
 
 /*
  * These are used to make use of C type-checking..
@@ -23,23 +24,18 @@ typedef struct { pmdval_t pmd; } pmd_t;
 
 extern unsigned int __pgtable_l5_enabled;
 
-#ifdef USE_EARLY_PGTABLE_L5
-/*
- * cpu_feature_enabled() is not available in early boot code.
- * Use variable instead.
- */
-static inline bool pgtable_l5_enabled(void)
-{
-	return __pgtable_l5_enabled;
-}
-#else
-#define pgtable_l5_enabled() cpu_feature_enabled(X86_FEATURE_LA57)
-#endif /* USE_EARLY_PGTABLE_L5 */
-
 extern unsigned int pgdir_shift;
 extern unsigned int ptrs_per_p4d;
 
 #endif	/* !__ASSEMBLER__ */
+
+#ifndef pgtable_l5_enabled
+#ifndef MODULE
+#define pgtable_l5_enabled() !!(this_cpu_read(cpu_tlbstate.cr4) & X86_CR4_LA57)
+#else
+#define pgtable_l5_enabled() cpu_feature_enabled(X86_FEATURE_LA57)
+#endif /* MODULE */
+#endif
 
 /*
  * PGDIR_SHIFT determines what a top-level page table entry can map
