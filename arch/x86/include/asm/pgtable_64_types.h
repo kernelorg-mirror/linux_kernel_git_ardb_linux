@@ -33,18 +33,8 @@ static __always_inline __attribute_const__ u8 pgdir_shift(void)
 }
 #endif /* pgdir_shift */
 
-#ifdef USE_EARLY_PGTABLE_L5
-/*
- * cpu_feature_enabled() is not available in early boot code.
- * Use variable instead.
- */
-static inline bool pgtable_l5_enabled(void)
-{
-	return __pgtable_l5_enabled;
-}
-#else
-#define pgtable_l5_enabled() cpu_feature_enabled(X86_FEATURE_LA57)
-#endif /* USE_EARLY_PGTABLE_L5 */
+/* PGDIR shift == 39 -> L5 disabled, 48 -> L5 enabled */
+#define pgtable_l5_enabled() !(pgdir_shift() & 1)
 
 #endif	/* !__ASSEMBLER__ */
 
