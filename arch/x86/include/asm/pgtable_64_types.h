@@ -7,6 +7,7 @@
 #ifndef __ASSEMBLER__
 #include <linux/types.h>
 #include <asm/kaslr.h>
+#include <asm/percpu.h>
 
 /*
  * These are used to make use of C type-checking..
@@ -23,6 +24,15 @@ typedef struct { pmdval_t pmd; } pmd_t;
 
 extern unsigned int __pgtable_l5_enabled;
 
+#ifndef pgdir_shift
+DECLARE_PER_CPU_CACHE_HOT(u8, __pgdir_shift);
+
+static __always_inline __attribute_const__ u8 pgdir_shift(void)
+{
+	return this_cpu_read_stable(__pgdir_shift);
+}
+#endif /* pgdir_shift */
+
 #ifdef USE_EARLY_PGTABLE_L5
 /*
  * cpu_feature_enabled() is not available in early boot code.
@@ -36,7 +46,6 @@ static inline bool pgtable_l5_enabled(void)
 #define pgtable_l5_enabled() cpu_feature_enabled(X86_FEATURE_LA57)
 #endif /* USE_EARLY_PGTABLE_L5 */
 
-extern unsigned int pgdir_shift;
 extern unsigned int ptrs_per_p4d;
 
 #endif	/* !__ASSEMBLER__ */
@@ -44,7 +53,7 @@ extern unsigned int ptrs_per_p4d;
 /*
  * PGDIR_SHIFT determines what a top-level page table entry can map
  */
-#define PGDIR_SHIFT	pgdir_shift
+#define PGDIR_SHIFT	pgdir_shift()
 #define PTRS_PER_PGD	512
 
 /*

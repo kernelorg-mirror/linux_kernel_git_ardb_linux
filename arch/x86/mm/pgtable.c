@@ -46,6 +46,10 @@ void ___pud_free_tlb(struct mmu_gather *tlb, pud_t *pud)
 }
 
 #if CONFIG_PGTABLE_LEVELS > 4
+DEFINE_PER_CPU_CACHE_HOT(u8, __pgdir_shift) = 39;
+EXPORT_SYMBOL_GPL(__pgdir_shift);
+SYM_PIC_ALIAS(__pgdir_shift);
+
 void ___p4d_free_tlb(struct mmu_gather *tlb, p4d_t *p4d)
 {
 	paravirt_release_p4d(__pa(p4d) >> PAGE_SHIFT);
