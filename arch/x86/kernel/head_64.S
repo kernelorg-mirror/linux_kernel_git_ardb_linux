@@ -58,6 +58,14 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 */
 	mov	%rsi, %r15
 
+	mov	%cr4, %rax
+	btl	$X86_CR4_LA57_BIT, %eax
+	jnc	0f
+	movl	$1, __pgtable_l5_enabled(%rip)
+	movl	$48, pgdir_shift(%rip)
+	movl	$512, ptrs_per_p4d(%rip)
+0:
+
 	/* Set up the stack for verify_cpu() */
 	leaq	__top_init_kernel_stack(%rip), %rsp
 
