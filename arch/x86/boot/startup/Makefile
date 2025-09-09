@@ -26,8 +26,9 @@ lib-cflags-y			+= -mfunction-return=keep
 
 lib-$(CONFIG_X86_64)		+= la57toggle.o
 lib-$(CONFIG_EFI_MIXED)		+= efi-mixed.o
-lib-$(CONFIG_AMD_MEM_ENCRYPT)	+= sev-status.o
+lib-$(CONFIG_AMD_MEM_ENCRYPT)	+= sev-status.o sev-psc.o
 CFLAGS_sev-status.o		+= $(lib-cflags-y)
+CFLAGS_sev-psc.o		+= $(lib-cflags-y)
 lib-$(CONFIG_INTEL_TDX_GUEST)	+= tdcall.o tdx-shared.o
 CFLAGS_tdx-shared.o		+= $(lib-cflags-y)
 
