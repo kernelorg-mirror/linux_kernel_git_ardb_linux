@@ -43,6 +43,7 @@
 
 /* Include code shared with pre-decompression boot stage */
 #include "sev-shared.c"
+#include "sev-shared-psc.c"
 
 void
 early_set_pages_state(unsigned long vaddr, unsigned long paddr,

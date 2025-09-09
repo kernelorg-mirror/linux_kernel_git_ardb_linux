@@ -39,6 +39,7 @@ u16 ghcb_version;
 
 /* Include code for early handlers */
 #include "../../boot/startup/sev-shared.c"
+#include "../../boot/startup/sev-shared-psc.c"
 
 static bool sev_snp_enabled(void)
 {
@@ -91,18 +92,6 @@ bool early_setup_ghcb(void)
 		snp_register_ghcb_early(__pa(&boot_ghcb_page));
 
 	return true;
-}
-
-void snp_accept_memory(phys_addr_t start, phys_addr_t end)
-{
-	struct psc_desc d = {
-		SNP_PAGE_STATE_PRIVATE,
-		(struct svsm_ca *)boot_svsm_caa_pa,
-		boot_svsm_caa_pa
-	};
-
-	for (phys_addr_t pa = start; pa < end; pa += PAGE_SIZE)
-		__page_state_change(pa, pa, &d);
 }
 
 void sev_es_shutdown_ghcb(void)
