@@ -1009,3 +1009,57 @@ fail:
 
 	efi_exit(handle, status);
 }
+
+#ifdef CONFIG_UNACCEPTED_MEMORY
+#include <asm/shared/tdx.h>
+
+void __weak panic(const char *fmt, ...)
+{
+	/*
+	 * In builds where this implementation of panic() is not superseded,
+	 * the only way we may end up here is right after having called
+	 * ExitBootServices(), at which point there is no console available or
+	 * any other means to communicate that we've panicked.
+	 */
+	for (;;)
+		/* Put the message address in RDI so a debugger can find it */
+		asm("hlt" :: "D"(fmt));
+}
+
+void __weak __tdx_hypercall_failed(void)
+{
+	panic("TDVMCALL failed. TDX module bug?");
+}
+
+static bool early_is_tdx_guest(void)
+{
+	static bool once;
+	static bool is_tdx;
+
+	if (!IS_ENABLED(CONFIG_INTEL_TDX_GUEST))
+		return false;
+
+	if (!once) {
+		u32 eax = TDX_CPUID_LEAF_ID, sig[3] = {};
+
+		native_cpuid(&eax, &sig[0], &sig[2],  &sig[1]);
+		is_tdx = !memcmp(TDX_IDENT, sig, sizeof(sig));
+		once = true;
+	}
+
+	return is_tdx;
+}
+
+void arch_accept_memory(phys_addr_t start, phys_addr_t end)
+{
+	/* Platform-specific memory-acceptance call goes here */
+	if (early_is_tdx_guest()) {
+		if (!tdx_accept_memory(start, end))
+			panic("TDX: Failed to accept memory\n");
+	} else if (early_is_sevsnp_guest()) {
+		snp_accept_memory(start, end);
+	} else {
+		panic("Cannot accept memory: unknown platform\n");
+	}
+}
+#endif
