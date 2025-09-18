@@ -14,6 +14,7 @@
 #include <linux/vmalloc.h>
 
 #include <asm/efi.h>
+#include <asm/simd.h>
 #include <asm/stacktrace.h>
 #include <asm/vmap_stack.h>
 
@@ -169,15 +170,18 @@ static DEFINE_RAW_SPINLOCK(efi_rt_lock);
 
 bool arch_efi_call_virt_setup(void)
 {
+	if (!may_use_simd())
+		return false;
+
 	efi_virtmap_load();
 	raw_spin_lock(&efi_rt_lock);
-	__efi_fpsimd_begin();
+	kernel_neon_begin();
 	return true;
 }
 
 void arch_efi_call_virt_teardown(void)
 {
-	__efi_fpsimd_end();
+	kernel_neon_end();
 	raw_spin_unlock(&efi_rt_lock);
 	efi_virtmap_unload();
 }

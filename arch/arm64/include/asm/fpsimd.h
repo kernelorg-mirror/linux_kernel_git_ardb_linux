@@ -458,10 +458,6 @@ static inline size_t sme_state_size(struct task_struct const *task)
 
 #endif /* ! CONFIG_ARM64_SME */
 
-/* For use by EFI runtime services calls only */
-extern void __efi_fpsimd_begin(void);
-extern void __efi_fpsimd_end(void);
-
 #endif
 
 #endif
