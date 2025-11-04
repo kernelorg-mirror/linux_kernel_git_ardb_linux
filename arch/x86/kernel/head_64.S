@@ -179,8 +179,9 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	xorl	%r15d, %r15d
 
 	/* Derive the runtime physical address of init_top_pgt[] */
-	movq	phys_base(%rip), %rax
-	addq	$(init_top_pgt - __START_KERNEL_map), %rax
+	leaq	init_top_pgt(%rip), %rax
+	subq	$__START_KERNEL_map, %rax
+	addq	phys_base(%rip), %rax
 
 	/*
 	 * Retrieve the modifier (SME encryption mask if SME is active) to be
@@ -231,6 +232,9 @@ SYM_INNER_LABEL(common_startup_64, SYM_L_LOCAL)
 	 */
 	btsl	$X86_CR4_PGE_BIT, %ecx
 	movq	%rcx, %cr4
+
+	/* Use .text as an anchor to emit PC-relative symbol references */
+	leaq	.text(%rip), %rbx
 
 #ifdef CONFIG_SMP
 	/*
@@ -288,10 +292,9 @@ SYM_INNER_LABEL(common_startup_64, SYM_L_LOCAL)
 .Llookup_AP:
 	/* EAX contains the APIC ID of the current CPU */
 	xorl	%ecx, %ecx
-	leaq	cpuid_to_apicid(%rip), %rbx
 
 .Lfind_cpunr:
-	cmpl	(%rbx,%rcx,4), %eax
+	cmpl	cpuid_to_apicid - .text(%rbx,%rcx,4), %eax
 	jz	.Lsetup_cpu
 	inc	%ecx
 #ifdef CONFIG_FORCE_NR_CPUS
@@ -311,7 +314,7 @@ SYM_INNER_LABEL(common_startup_64, SYM_L_LOCAL)
 
 .Lsetup_cpu:
 	/* Get the per cpu offset for the given CPU# which is in ECX */
-	movq	__per_cpu_offset(,%rcx,8), %rdx
+	movq	__per_cpu_offset - .text(%rbx,%rcx,8), %rdx
 #else
 	xorl	%edx, %edx /* zero-extended to clear all of RDX */
 #endif /* CONFIG_SMP */
@@ -322,7 +325,7 @@ SYM_INNER_LABEL(common_startup_64, SYM_L_LOCAL)
 	 *
 	 * RDX contains the per-cpu offset
 	 */
-	movq	current_task(%rdx), %rax
+	movq	current_task - .text(%rbx,%rdx), %rax
 	movq	TASK_threadsp(%rax), %rsp
 
 	/*
@@ -343,7 +346,7 @@ SYM_INNER_LABEL(common_startup_64, SYM_L_LOCAL)
 	 */
 	subq	$16, %rsp
 	movw	$(GDT_SIZE-1), (%rsp)
-	leaq	gdt_page(%rdx), %rax
+	leaq	gdt_page - .text(%rbx,%rdx), %rax
 	movq	%rax, 2(%rsp)
 	lgdt	(%rsp)
 	addq	$16, %rsp
