@@ -8,6 +8,8 @@
 #ifndef _ASM_CMPXCHG_H
 #define _ASM_CMPXCHG_H
 
+#include <asm-generic/cmpxchg-local.h>
+
 /*
  * __arch_xchg - atomically exchange a register and a memory location
  * @x: value to swap
@@ -71,5 +73,7 @@ __arch_xchg(unsigned long x, volatile void *ptr, int size)
 	);							\
 	__oldval;						\
 })
+
+#define arch_cmpxchg64_local __generic_cmpxchg64_local
 
 #endif /* _ASM_CMPXCHG_H */
