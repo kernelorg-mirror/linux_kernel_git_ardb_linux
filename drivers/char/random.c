@@ -507,7 +507,7 @@ struct batch_ ##type {								\
 	 */									\
 	type entropy[CHACHA_BLOCK_SIZE * 3 / (2 * sizeof(type))];		\
 	local_lock_t lock;							\
-	unsigned long generation;						\
+	unsigned int generation;						\
 	unsigned int position;							\
 };										\
 										\
@@ -521,7 +521,7 @@ type get_random_ ##type(void)							\
 	type ret;								\
 	unsigned long flags;							\
 	struct batch_ ##type *batch;						\
-	unsigned long next_gen;							\
+	unsigned int next_gen;							\
 										\
 	warn_unseeded_randomness();						\
 										\
@@ -533,7 +533,7 @@ type get_random_ ##type(void)							\
 	local_lock_irqsave(&batched_entropy_ ##type.lock, flags);		\
 	batch = raw_cpu_ptr(&batched_entropy_##type);				\
 										\
-	next_gen = READ_ONCE(base_crng.generation);				\
+	next_gen = (unsigned int)READ_ONCE(base_crng.generation);		\
 	if (batch->position >= ARRAY_SIZE(batch->entropy) ||			\
 	    next_gen != batch->generation) {					\
 		_get_random_bytes(batch->entropy, sizeof(batch->entropy));	\
