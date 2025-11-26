@@ -496,6 +496,12 @@ out_zero_chacha:
  * should be called and return 0 at least once at any point prior.
  */
 
+#ifdef __LITTLE_ENDIAN
+#define LOHI(a, b)	a, b
+#else
+#define LOHI(a, b)	b, a
+#endif
+
 #define DEFINE_BATCHED_ENTROPY(type)						\
 struct batch_ ##type {								\
 	/*									\
@@ -507,8 +513,12 @@ struct batch_ ##type {								\
 	 */									\
 	type entropy[CHACHA_BLOCK_SIZE * 3 / (2 * sizeof(type))];		\
 	local_lock_t lock;							\
-	unsigned int generation;						\
-	unsigned int position;							\
+	union {									\
+		struct {							\
+			unsigned int LOHI(position, generation);		\
+		};								\
+		u64 posgen;							\
+	};									\
 };										\
 										\
 static DEFINE_PER_CPU(struct batch_ ##type, batched_entropy_ ##type) = {	\
@@ -522,6 +532,7 @@ type get_random_ ##type(void)							\
 	unsigned long flags;							\
 	struct batch_ ##type *batch;						\
 	unsigned int next_gen;							\
+	u64 next;								\
 										\
 	warn_unseeded_randomness();						\
 										\
@@ -530,21 +541,28 @@ type get_random_ ##type(void)							\
 		return ret;							\
 	}									\
 										\
-	local_lock_irqsave(&batched_entropy_ ##type.lock, flags);		\
-	batch = raw_cpu_ptr(&batched_entropy_##type);				\
+	batch = &get_cpu_var(batched_entropy_##type);				\
 										\
 	next_gen = (unsigned int)READ_ONCE(base_crng.generation);		\
-	if (batch->position >= ARRAY_SIZE(batch->entropy) ||			\
-	    next_gen != batch->generation) {					\
-		_get_random_bytes(batch->entropy, sizeof(batch->entropy));	\
-		batch->position = 0;						\
-		batch->generation = next_gen;					\
+	next = (u64)next_gen << 32;						\
+	if (likely(batch->position < ARRAY_SIZE(batch->entropy))) {		\
+		next |=	batch->position; /* always > 0 */			\
+		ret = batch->entropy[batch->position];				\
+	}									\
+	if (!try_cmpxchg64_local(&batch->posgen, &next, next + 1)) {		\
+		local_lock_irqsave(&batched_entropy_ ##type.lock, flags);	\
+		if (batch->position >= ARRAY_SIZE(batch->entropy) ||		\
+		    next_gen != batch->generation) {				\
+			_get_random_bytes(batch->entropy, sizeof(batch->entropy));\
+			batch->position = 0;					\
+			batch->generation = next_gen;				\
+		}								\
+		ret = batch->entropy[batch->position++];			\
+		local_unlock_irqrestore(&batched_entropy_ ##type.lock, flags);	\
 	}									\
 										\
-	ret = batch->entropy[batch->position];					\
-	batch->entropy[batch->position] = 0;					\
-	++batch->position;							\
-	local_unlock_irqrestore(&batched_entropy_ ##type.lock, flags);		\
+	batch->entropy[batch->position - 1] = 0;				\
+	put_cpu_var(batched_entropy_##type);					\
 	return ret;								\
 }										\
 EXPORT_SYMBOL(get_random_ ##type);
