@@ -547,6 +547,7 @@ type get_random_ ##type(void)							\
 	next = (u64)next_gen << 32;						\
 	if (likely(batch->position < ARRAY_SIZE(batch->entropy))) {		\
 		next |=	batch->position + 1; /* next-1 is bogus otherwise */	\
+		batch->entropy[batch->position - 1] = 0;			\
 		ret = batch->entropy[batch->position];				\
 	}									\
 	if (cmpxchg64_local(&batch->posgen, next, next - 1) != next - 1) {	\
