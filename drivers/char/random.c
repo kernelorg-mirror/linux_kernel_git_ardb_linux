@@ -1739,3 +1739,16 @@ static int __init random_sysctls_init(void)
 }
 device_initcall(random_sysctls_init);
 #endif
+
+static int do_bench(void)
+{
+	const u64 iters = 1000000000;
+	u64 t = ktime_get_ns();
+
+	for (u64 i = 0; i < iters; i++)
+		get_random_u8();
+
+	pr_err("### %llu iterations per second\n", div64_u64(iters * 1000 * 1000 * 1000, ktime_get_ns() - t));
+	return 0;
+}
+late_initcall(do_bench);
