@@ -1520,12 +1520,11 @@ config HAVE_ARCH_RANDOMIZE_KSTACK_OFFSET
 	help
 	  An arch should select this symbol if it can support kernel stack
 	  offset randomization with calls to add_random_kstack_offset()
-	  during syscall entry and choose_random_kstack_offset() during
-	  syscall exit. Careful removal of -fstack-protector-strong and
+	  during syscall entry. Careful removal of -fstack-protector-strong and
 	  -fstack-protector should also be applied to the entry code and
-	  closely examined, as the artificial stack bump looks like an array
-	  to the compiler, so it will attempt to add canary checks regardless
-	  of the static branch state.
+	  closely examined, as the artificial stack bump looks like an array to
+	  the compiler, so it will attempt to add canary checks regardless of
+	  the static branch state.
 
 config RANDOMIZE_KSTACK_OFFSET
 	bool "Support for randomizing kernel stack offset on syscall entry" if EXPERT
