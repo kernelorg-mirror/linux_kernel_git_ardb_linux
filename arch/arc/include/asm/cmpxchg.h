@@ -12,6 +12,7 @@
 
 #include <asm/barrier.h>
 #include <asm/smp.h>
+#include <asm-generic/cmpxchg-local.h>
 
 #ifdef CONFIG_ARC_HAS_LLSC
 
@@ -141,5 +142,7 @@
 })
 
 #endif
+
+#define arch_cmpxchg64_local __generic_cmpxchg64_local
 
 #endif
