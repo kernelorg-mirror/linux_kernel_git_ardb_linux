@@ -288,6 +288,7 @@
 #define arch_cmpxchg_local(ptr, o, n)					\
 	arch_cmpxchg_relaxed((ptr), (o), (n))
 
+#ifdef CONFIG_64BIT
 #define arch_cmpxchg64(ptr, o, n)					\
 ({									\
 	BUILD_BUG_ON(sizeof(*(ptr)) != 8);				\
@@ -317,6 +318,10 @@
 	BUILD_BUG_ON(sizeof(*(ptr)) != 8);				\
 	arch_cmpxchg_release((ptr), (o), (n));				\
 })
+#else
+#include <asm-generic/cmpxchg-local.h>
+#define arch_cmpxchg64_local	__generic_cmpxchg64_local
+#endif
 
 #if defined(CONFIG_64BIT) && defined(CONFIG_RISCV_ISA_ZACAS) && defined(CONFIG_TOOLCHAIN_HAS_ZACAS)
 
