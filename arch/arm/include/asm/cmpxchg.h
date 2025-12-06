@@ -247,6 +247,7 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
 				        sizeof(*(ptr)));		\
 })
 
+#ifndef CONFIG_CPU_V7M
 static inline unsigned long long __cmpxchg64(unsigned long long *ptr,
 					     unsigned long long old,
 					     unsigned long long new)
@@ -279,6 +280,9 @@ static inline unsigned long long __cmpxchg64(unsigned long long *ptr,
 })
 
 #define arch_cmpxchg64_local(ptr, o, n) arch_cmpxchg64_relaxed((ptr), (o), (n))
+#else
+#define arch_cmpxchg64_local(ptr, o, n) __generic_cmpxchg64_local((ptr), (o), (n))
+#endif /* CONFIG_CPU_V7M */
 
 #endif	/* __LINUX_ARM_ARCH__ >= 6 */
 
