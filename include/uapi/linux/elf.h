@@ -103,6 +103,9 @@ typedef __u16	Elf64_Versym;
 #define DT_TEXTREL	22
 #define DT_JMPREL	23
 #define DT_ENCODING	32
+#define DT_RELRSZ	35
+#define DT_RELR		36
+#define DT_RELRENT	37
 #define OLD_DT_LOOS	0x60000000
 #define DT_LOOS		0x6000000d
 #define DT_HIOS		0x6ffff000

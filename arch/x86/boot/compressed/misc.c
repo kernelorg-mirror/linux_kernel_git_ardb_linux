@@ -278,7 +278,68 @@ static inline void handle_relocations(void *output, unsigned long output_len,
 { }
 #endif
 
-static size_t parse_elf(void *output)
+#define ELF(type) __PASTE(__PASTE(Elf, __LONG_WIDTH__), __PASTE(_, type))
+
+static void handle_dynamic(const ELF(Dyn) *dyn, unsigned long p2v_offset,
+			   unsigned long va_shift)
+{
+	const ELF(Rela) *rela = NULL;
+	const ELF(Rel) *rel = NULL;
+	unsigned long *relr = NULL;
+	unsigned long *place;
+	int relasize = 0;
+	int relrsize = 0;
+	int relsize = 0;
+
+	for (auto d = dyn; d->d_tag != DT_NULL; d++) {
+		switch (d->d_tag) {
+		case DT_RELA:
+			rela = (void *)(d->d_un.d_ptr + p2v_offset);
+			break;
+		case DT_RELASZ:
+			relasize = d->d_un.d_val;
+			break;
+		case DT_RELR:
+			relr = (void *)(d->d_un.d_ptr + p2v_offset);
+			break;
+		case DT_RELRSZ:
+			relrsize = d->d_un.d_val;
+			break;
+		case DT_REL:
+			rel = (void *)(d->d_un.d_ptr + p2v_offset);
+			break;
+		case DT_RELSZ:
+			relsize = d->d_un.d_val;
+			break;
+		}
+	}
+
+	for (int i = 0; i < relasize / sizeof(*rela); i++) {
+		place = (unsigned long *)(rela[i].r_offset + p2v_offset);
+		*place += va_shift;
+	}
+
+	for (int i = 0; i < relrsize / sizeof(*relr); i++) {
+		if ((relr[i] & 1) == 0) {
+			place = (unsigned long *)(relr[i] + p2v_offset);
+			*place++ += va_shift;
+			continue;
+		}
+
+		for (unsigned long *p = place, r = relr[i] >> 1; r; p++, r >>= 1)
+			if (r & 1)
+				*p += va_shift;
+		place += 8 * sizeof(*relr) - 1;
+	}
+
+	for (int i = 0; i < relsize / sizeof(*rel); i++) {
+		place = (unsigned long *)(rel[i].r_offset + p2v_offset);
+		*place += va_shift;
+	}
+
+}
+
+static size_t parse_elf(void *output, u64 va_shift)
 {
 #ifdef CONFIG_X86_64
 	Elf64_Ehdr ehdr;
@@ -320,6 +381,12 @@ static size_t parse_elf(void *output)
 				dest += (unsigned long)output - LOAD_PHYSICAL_ADDR;
 			memmove(dest, output + phdr->p_offset, phdr->p_filesz);
 			break;
+		case PT_DYNAMIC:
+			if (!va_shift)
+				break;
+			dest = (void *)(output + phdr->p_paddr - LOAD_PHYSICAL_ADDR);
+			handle_dynamic(dest, (unsigned long)dest - phdr->p_vaddr, va_shift);
+			break;
 		default: /* Ignore other PT_* */ break;
 		}
 	}
@@ -351,7 +418,9 @@ unsigned long decompress_kernel(unsigned char *outbuf, unsigned long virt_addr,
 			 NULL, error) < 0)
 		return ULONG_MAX;
 
-	entry = parse_elf(outbuf);
+	if (IS_ENABLED(CONFIG_X86_32))
+		virt_addr = (unsigned long)outbuf;
+	entry = parse_elf(outbuf, virt_addr - LOAD_PHYSICAL_ADDR);
 	handle_relocations(outbuf, output_len, virt_addr);
 
 	return entry;
