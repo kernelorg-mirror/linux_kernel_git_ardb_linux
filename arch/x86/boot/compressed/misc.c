@@ -278,7 +278,57 @@ static inline void handle_relocations(void *output, unsigned long output_len,
 { }
 #endif
 
-static size_t parse_elf(void *output)
+#ifdef CONFIG_X86_64
+static void handle_dynamic(const Elf64_Dyn *dyn, Elf64_Off p2v_offset,
+			   u64 va_shift)
+{
+	const Elf64_Rela *rela = NULL;
+	u64 *relr = NULL;
+	int relasize = 0;
+	int relrsize = 0;
+	u64 *place;
+
+	for (auto d = dyn; d->d_tag != DT_NULL; d++) {
+		switch (d->d_tag) {
+		case DT_RELA:
+			rela = (void *)(d->d_un.d_ptr + p2v_offset);
+			break;
+		case DT_RELASZ:
+			relasize = d->d_un.d_val;
+			break;
+		case DT_RELR:
+			relr = (void *)(d->d_un.d_ptr + p2v_offset);
+			break;
+		case DT_RELRSZ:
+			relrsize = d->d_un.d_val;
+			break;
+		}
+	}
+
+	for (int i = 0; i < relasize / sizeof(*rela); i++) {
+		if (ELF64_R_TYPE(rela[i].r_info) != R_X86_64_RELATIVE)
+			continue;
+
+		place = (u64 *)(rela[i].r_offset + p2v_offset);
+		*place += va_shift;
+	}
+
+	for (int i = 0; i < relrsize / sizeof(u64); i++) {
+		if ((relr[i] & 1) == 0) {
+			place = (u64 *)(relr[i] + p2v_offset);
+			*place++ += va_shift;
+			continue;
+		}
+
+		for (u64 *p = place, r = relr[i] >> 1; r; p++, r >>= 1)
+			if (r & 1)
+				*p += va_shift;
+		place += 63;
+	}
+}
+#endif
+
+static size_t parse_elf(void *output, u64 va_shift)
 {
 #ifdef CONFIG_X86_64
 	Elf64_Ehdr ehdr;
@@ -322,6 +372,14 @@ static size_t parse_elf(void *output)
 #endif
 			memmove(dest, output + phdr->p_offset, phdr->p_filesz);
 			break;
+#ifdef CONFIG_X86_64
+		case PT_DYNAMIC:
+			if (!va_shift)
+				break;
+			dest = (void *)(output + phdr->p_paddr - LOAD_PHYSICAL_ADDR);
+			handle_dynamic(dest, (Elf64_Off)dest - phdr->p_vaddr, va_shift);
+			break;
+#endif
 		default: /* Ignore other PT_* */ break;
 		}
 	}
@@ -353,7 +411,7 @@ unsigned long decompress_kernel(unsigned char *outbuf, unsigned long virt_addr,
 			 NULL, error) < 0)
 		return ULONG_MAX;
 
-	entry = parse_elf(outbuf);
+	entry = parse_elf(outbuf, virt_addr - LOAD_PHYSICAL_ADDR);
 	handle_relocations(outbuf, output_len, virt_addr);
 
 	return entry;
