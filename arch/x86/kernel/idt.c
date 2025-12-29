@@ -173,7 +173,7 @@ static const __initconst struct idt_data apic_idts[] = {
 };
 
 /* Must be page-aligned because the real IDT is used in the cpu entry area */
-static gate_desc idt_table[IDT_ENTRIES] __page_aligned_bss;
+static gate_desc idt_table[IDT_ENTRIES] __aligned(PAGE_SIZE) __ro_after_init;
 
 static struct desc_ptr idt_descr __ro_after_init = {
 	.size		= IDT_TABLE_SIZE - 1,
@@ -310,9 +310,6 @@ void __init idt_setup_apic_and_irq_gates(void)
 	/* Map IDT into CPU entry area and reload it. */
 	idt_map_in_cea();
 	load_idt(&idt_descr);
-
-	/* Make the IDT table read only */
-	set_memory_ro((unsigned long)&idt_table, 1);
 
 	idt_setup_done = true;
 }
