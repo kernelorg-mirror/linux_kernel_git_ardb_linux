@@ -61,8 +61,8 @@ const_cpu_current_top_of_stack = cpu_current_top_of_stack;
 #define X86_ALIGN_RODATA_BEGIN	. = ALIGN(HPAGE_SIZE);
 
 #define X86_ALIGN_RODATA_END					\
-		. = ALIGN(HPAGE_SIZE);				\
-		__end_rodata_aligned = .;
+		. = ALIGN(PAGE_SIZE);				\
+		__end_rodata_aligned = ALIGN(HPAGE_SIZE);
 
 #if defined(CONFIG_MITIGATION_PAGE_TABLE_ISOLATION) || defined(CONFIG_MITIGATION_SRSO)
 #define ALIGN_ENTRY_TEXT_BEGIN	. = ALIGN(PMD_SIZE);
@@ -71,6 +71,12 @@ const_cpu_current_top_of_stack = cpu_current_top_of_stack;
 #define ALIGN_ENTRY_TEXT_BEGIN
 #define ALIGN_ENTRY_TEXT_END
 #endif
+
+#define DATA_SEGMENT_START					\
+	. = ALIGN(HPAGE_SIZE);					\
+	__data_segment_start = .;
+
+#define X86_ALIGN_INIT_END	. = ALIGN(HPAGE_SIZE);
 
 #else
 
@@ -81,9 +87,16 @@ const_cpu_current_top_of_stack = cpu_current_top_of_stack;
 
 #define ALIGN_ENTRY_TEXT_BEGIN
 #define ALIGN_ENTRY_TEXT_END
+
+#define DATA_SEGMENT_START					\
+	. = ALIGN(PAGE_SIZE);					\
+	__data_segment_start = .;
+
+#define X86_ALIGN_INIT_END	. = ALIGN(PAGE_SIZE);
 #endif
 
 #ifdef CONFIG_AMD_MEM_ENCRYPT
+
 /*
  * This section contains data which will be mapped as decrypted. Memory
  * encryption operates on a page basis. Make this section PMD-aligned
@@ -176,43 +189,6 @@ SECTIONS
 	RO_DATA(PAGE_SIZE)
 	X86_ALIGN_RODATA_END
 
-	/* Data */
-	.data : AT(ADDR(.data) - LOAD_OFFSET) {
-		/* Start of data section */
-		_sdata = .;
-
-		/* init_task */
-		INIT_TASK_DATA(THREAD_SIZE)
-
-		/* equivalent to task_pt_regs(&init_task) */
-		__top_init_kernel_stack = __end_init_stack - TOP_OF_KERNEL_STACK_PADDING - PTREGS_SIZE;
-
-#ifdef CONFIG_X86_32
-		/* 32 bit has nosave before _edata */
-		NOSAVE_DATA
-#endif
-
-		PAGE_ALIGNED_DATA(PAGE_SIZE)
-
-		CACHE_HOT_DATA(L1_CACHE_BYTES)
-
-		CACHELINE_ALIGNED_DATA(L1_CACHE_BYTES)
-
-		DATA_DATA
-		CONSTRUCTORS
-		KEXEC_RELOCATE_KERNEL
-
-		/* rarely changed data like cpu maps */
-		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)
-
-		/* End of data section */
-		_edata = .;
-	} :data
-
-	BUG_TABLE
-
-	ORC_UNWIND_TABLE
-
 	/* Init code and data - will be freed after init */
 	. = ALIGN(PAGE_SIZE);
 	.init.begin : AT(ADDR(.init.begin) - LOAD_OFFSET) {
@@ -234,7 +210,8 @@ SECTIONS
 		__inittext_end = .;
 	}
 
-	INIT_DATA_SECTION(16)
+	DATA_SEGMENT_START
+	INIT_DATA_SECTION(16) :data
 
 	.x86_cpu_dev.init : AT(ADDR(.x86_cpu_dev.init) - LOAD_OFFSET) {
 		__x86_cpu_dev_start = .;
@@ -344,12 +321,49 @@ SECTIONS
 	RUNTIME_CONST_VARIABLES
 	RUNTIME_CONST(ptr, USER_PTR_MAX)
 
-	. = ALIGN(PAGE_SIZE);
+	X86_ALIGN_INIT_END
 
 	/* freed after init ends here */
 	.init.end : AT(ADDR(.init.end) - LOAD_OFFSET) {
 		__init_end = .;
 	}
+
+	/* Data */
+	.data : AT(ADDR(.data) - LOAD_OFFSET) {
+		/* Start of data section */
+		_sdata = .;
+
+		/* init_task */
+		INIT_TASK_DATA(THREAD_SIZE)
+
+		/* equivalent to task_pt_regs(&init_task) */
+		__top_init_kernel_stack = __end_init_stack - TOP_OF_KERNEL_STACK_PADDING - PTREGS_SIZE;
+
+#ifdef CONFIG_X86_32
+		/* 32 bit has nosave before _edata */
+		NOSAVE_DATA
+#endif
+
+		PAGE_ALIGNED_DATA(PAGE_SIZE)
+
+		CACHE_HOT_DATA(L1_CACHE_BYTES)
+
+		CACHELINE_ALIGNED_DATA(L1_CACHE_BYTES)
+
+		DATA_DATA
+		CONSTRUCTORS
+		KEXEC_RELOCATE_KERNEL
+
+		/* rarely changed data like cpu maps */
+		READ_MOSTLY_DATA(INTERNODE_CACHE_BYTES)
+
+		/* End of data section */
+		_edata = .;
+	}
+
+	BUG_TABLE
+
+	ORC_UNWIND_TABLE
 
 #ifdef CONFIG_X86_64
 	.data_nosave : AT(ADDR(.data_nosave) - LOAD_OFFSET) {
