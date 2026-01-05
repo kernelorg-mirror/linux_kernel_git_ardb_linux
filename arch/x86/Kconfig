@@ -1937,7 +1937,7 @@ config EFI
 config EFI_STUB
 	bool "EFI stub support"
 	depends on EFI
-	select RELOCATABLE
+	select RELOCATABLE if X86_32
 	help
 	  This kernel feature allows a bzImage to be loaded directly
 	  by EFI firmware without the use of a bootloader.
@@ -2034,8 +2034,9 @@ config PHYSICAL_START
 	help
 	  This gives the physical address where the kernel is loaded.
 
-	  If the kernel is not relocatable (CONFIG_RELOCATABLE=n) then bzImage
-	  will decompress itself to above physical address and run from there.
+	  If the kernel is not relocatable (CONFIG_RELOCATABLE=n) and built for
+	  i386, then the bzImage will decompress itself to the above physical
+	  address and run from there.
 	  Otherwise, bzImage will run from the address where it has been loaded
 	  by the boot loader. The only exception is if it is loaded below the
 	  above physical address, in which case it will relocate itself there.
@@ -2070,16 +2071,22 @@ config PHYSICAL_START
 	  Don't change this unless you know what you are doing.
 
 config RELOCATABLE
-	bool "Build a relocatable kernel"
-	default y
+	bool "Build a relocatable kernel" if X86_32
+	default X86_32
 	help
-	  This builds a kernel image that retains relocation information
-	  so it can be loaded someplace besides the default 1MB.
+	  This builds a kernel image that retains relocation information so it
+	  can be placed someplace besides the default PAGE_OFFSET + 1MB. This
+	  is a prerequisite for KASLR.
 	  The relocations tend to make the kernel binary about 10% larger,
 	  but are discarded at runtime.
 
-	  One use is for the kexec on panic case where the recovery kernel
-	  must live at a different physical address than the primary
+	  On i386, where the virtual and physical load offset of the kernel
+	  must be equal, this also allows the kernel image to be placed at a
+	  physical load address that differs from the compile time default. On
+	  x86_64, this is always permitted.
+
+	  One use is for the kexec on panic case on i386, where the recovery
+	  kernel must live at a different physical address than the primary
 	  kernel.
 
 	  Note: If CONFIG_RELOCATABLE=y, then the kernel runs from the address
@@ -2088,7 +2095,7 @@ config RELOCATABLE
 
 config RANDOMIZE_BASE
 	bool "Randomize the address of the kernel image (KASLR)"
-	depends on RELOCATABLE
+	select RELOCATABLE
 	default y
 	help
 	  In support of Kernel Address Space Layout Randomization (KASLR),
@@ -2124,7 +2131,7 @@ config RANDOMIZE_BASE
 # Relocation on x86 needs some additional build support
 config X86_NEED_RELOCS
 	def_bool y
-	depends on RANDOMIZE_BASE || (X86_32 && RELOCATABLE)
+	depends on RELOCATABLE
 	select ARCH_VMLINUX_NEEDS_RELOCS
 
 config PHYSICAL_ALIGN
@@ -2137,12 +2144,13 @@ config PHYSICAL_ALIGN
 	  where kernel is loaded and run from. Kernel is compiled for an
 	  address which meets above alignment restriction.
 
-	  If bootloader loads the kernel at a non-aligned address and
-	  CONFIG_RELOCATABLE is set, kernel will move itself to nearest
-	  address aligned to above value and run from there.
+	  If the bootloader loads the kernel at a non-aligned address and it
+	  is built for x86_64 or CONFIG_RELOCATABLE is set, the kernel will
+	  move itself to the nearest address aligned to above value and run
+	  from there.
 
-	  If bootloader loads the kernel at a non-aligned address and
-	  CONFIG_RELOCATABLE is not set, kernel will ignore the run time
+	  If the bootloader loads the i386 kernel at a non-aligned address and
+	  CONFIG_RELOCATABLE is not set, the kernel will ignore the run time
 	  load address and decompress itself to the address it has been
 	  compiled for and run from there. The address for which kernel is
 	  compiled already meets above alignment restrictions. Hence the
