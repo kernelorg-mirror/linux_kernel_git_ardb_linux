@@ -181,7 +181,7 @@ endif
 
         percpu_seg := gs
 
-        pie-ccflags-$(CONFIG_CC_IS_GCC) += $(call cc-option.-mdirect-extern-access)
+        pie-ccflags-$(CONFIG_CC_IS_GCC) += $(call cc-option,-mdirect-extern-access)
         pie-ccflags-$(CONFIG_CC_IS_CLANG) += -fdirect-access-external-data
 
         # objtool gets confused by unannotated PIC flavor jump tables
@@ -193,7 +193,10 @@ endif
                                 -Ccode-model=small -Zdirect-access-external-data=yes \
                                 $(rustflags-nojumptables)
 
-        KBUILD_CFLAGS_KERNEL    += $(pie-cflags-y)
+        PIE_CFLAGS_KERNEL := $(pie-cflags-y)
+        export PIE_CFLAGS_KERNEL
+
+        KBUILD_CFLAGS_KERNEL    += $(PIE_CFLAGS_KERNEL)
         KBUILD_RUSTFLAGS_KERNEL += $(pie-rustflags-y)
 endif
 
