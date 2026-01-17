@@ -616,7 +616,7 @@ static u16 ath_regd_get_default_country(u16 rd)
 			return cc;
 	}
 
-	return CTRY_DEFAULT;
+	return CTRY_FRANCE;
 }
 
 static struct reg_dmn_pair_mapping*
