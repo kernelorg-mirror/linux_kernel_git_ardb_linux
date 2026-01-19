@@ -24,6 +24,7 @@
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/set_memory.h>
+#include <linux/suspend.h>
 #include <linux/kfence.h>
 #include <linux/pkeys.h>
 #include <linux/mm_inline.h>
@@ -1024,13 +1025,13 @@ static void __init __map_memblock(pgd_t *pgdp, phys_addr_t start,
 				 prot, early_pgtable_alloc, flags);
 }
 
-static void remap_linear_data_alias(void)
+static void remap_linear_data_alias(bool unmap)
 {
 	extern const u8 __pgdir_start[];
 
 	update_mapping_prot(__pa_symbol(__init_end), (unsigned long)lm_alias(__init_end),
 			    (unsigned long)__pgdir_start - (unsigned long)__init_end,
-			    PAGE_KERNEL_RO);
+			    unmap ? __pgprot(0) : PAGE_KERNEL_RO);
 }
 
 void __init remap_linear_kernel_alias(void)
@@ -1041,7 +1042,7 @@ void __init remap_linear_kernel_alias(void)
 	update_mapping_prot(__pa_symbol(_text), (unsigned long)lm_alias(_text),
 			    (unsigned long)__init_begin - (unsigned long)_text,
 			    PAGE_KERNEL_RO);
-	remap_linear_data_alias();
+	remap_linear_data_alias(true);
 }
 
 #ifdef CONFIG_KFENCE
@@ -2256,4 +2257,32 @@ int arch_set_user_pkey_access(struct task_struct *tsk, int pkey, unsigned long i
 
 	return 0;
 }
+#endif
+
+#ifdef CONFIG_HIBERNATION
+static int arm64_hibernate_pm_notify(struct notifier_block *nb,
+				     unsigned long mode, void *unused)
+{
+	switch (mode) {
+	case PM_HIBERNATION_PREPARE:
+	case PM_RESTORE_PREPARE:
+		remap_linear_data_alias(false);
+		break;
+	case PM_POST_HIBERNATION:
+	case PM_POST_RESTORE:
+		remap_linear_data_alias(true);
+		break;
+	}
+	return 0;
+}
+
+static struct notifier_block arm64_hibernate_pm_notifier = {
+	.notifier_call = arm64_hibernate_pm_notify,
+};
+
+static int arm64_hibernate_register_pm_notifier(void)
+{
+	return register_pm_notifier(&arm64_hibernate_pm_notifier);
+}
+late_initcall(arm64_hibernate_register_pm_notifier);
 #endif
