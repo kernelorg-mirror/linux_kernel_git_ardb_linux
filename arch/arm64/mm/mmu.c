@@ -1023,14 +1023,24 @@ static void __init __map_memblock(pgd_t *pgdp, phys_addr_t start,
 				 prot, early_pgtable_alloc, flags);
 }
 
-void __init mark_linear_text_alias_ro(void)
+static void remap_linear_data_alias(void)
+{
+	extern const u8 __pgdir_start[];
+
+	update_mapping_prot(__pa_symbol(__init_end), (unsigned long)lm_alias(__init_end),
+			    (unsigned long)__pgdir_start - (unsigned long)__init_end,
+			    PAGE_KERNEL_RO);
+}
+
+void __init remap_linear_kernel_alias(void)
 {
 	/*
-	 * Remove the write permissions from the linear alias of .text/.rodata
+	 * Remove the write permissions from the linear alias of the kernel
 	 */
 	update_mapping_prot(__pa_symbol(_text), (unsigned long)lm_alias(_text),
 			    (unsigned long)__init_begin - (unsigned long)_text,
 			    PAGE_KERNEL_RO);
+	remap_linear_data_alias();
 }
 
 #ifdef CONFIG_KFENCE

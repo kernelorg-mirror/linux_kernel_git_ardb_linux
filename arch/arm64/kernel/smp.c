@@ -441,7 +441,7 @@ void __init smp_cpus_done(unsigned int max_cpus)
 	hyp_mode_check();
 	setup_system_features();
 	setup_user_features();
-	mark_linear_text_alias_ro();
+	remap_linear_kernel_alias();
 }
 
 void __init smp_prepare_boot_cpu(void)
