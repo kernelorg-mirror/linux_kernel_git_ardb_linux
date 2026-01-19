@@ -66,9 +66,8 @@ long __section(".mmuoff.data.write") __early_cpu_boot_status;
 
 /*
  * Empty_zero_page is a special page that is used for zero-initialized data
- * and COW.
+ * and COW. Defined in the linker script.
  */
-unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)] __page_aligned_bss;
 EXPORT_SYMBOL(empty_zero_page);
 
 static DEFINE_SPINLOCK(swapper_pgdir_lock);

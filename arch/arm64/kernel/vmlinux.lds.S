@@ -229,6 +229,7 @@ SECTIONS
 #endif
 
 	reserved_pg_dir = .;
+	empty_zero_page = .;
 	. += PAGE_SIZE;
 
 	swapper_pg_dir = .;
