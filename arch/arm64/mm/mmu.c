@@ -1122,7 +1122,9 @@ static void __init map_mem(void)
 {
 	static const u64 direct_map_end = _PAGE_END(VA_BITS_MIN);
 	phys_addr_t kernel_start = __pa_symbol(_text);
-	phys_addr_t kernel_end = __pa_symbol(__init_begin);
+	phys_addr_t init_begin = __pa_symbol(__init_begin);
+	phys_addr_t init_end = __pa_symbol(__init_end);
+	phys_addr_t kernel_end = __pa_symbol(__pgdir_start);
 	phys_addr_t start, end;
 	phys_addr_t early_kfence_pool;
 	int flags = NO_EXEC_MAPPINGS;
@@ -1158,7 +1160,9 @@ static void __init map_mem(void)
 	 * Note that contiguous mappings cannot be remapped in this way,
 	 * so we should avoid them here.
 	 */
-	__map_memblock(kernel_start, kernel_end, PAGE_KERNEL,
+	__map_memblock(kernel_start, init_begin, PAGE_KERNEL,
+		       flags | NO_CONT_MAPPINGS);
+	__map_memblock(init_end, kernel_end, PAGE_KERNEL,
 		       flags | NO_CONT_MAPPINGS);
 
 	/* map all the memory banks */
@@ -1172,6 +1176,8 @@ static void __init map_mem(void)
 			       flags);
 	}
 
+	__map_memblock(init_end, kernel_end, PAGE_KERNEL_RO,
+		       flags | NO_CONT_MAPPINGS);
 	arm64_kfence_map_pool(early_kfence_pool);
 }
 
