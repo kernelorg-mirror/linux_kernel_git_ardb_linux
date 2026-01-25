@@ -141,7 +141,7 @@ bool pgattr_change_is_safe(pteval_t old, pteval_t new)
 		return false;
 
 	/* live contiguous mappings may not be manipulated at all */
-	if ((old | new) & PTE_CONT)
+	if ((old | new) & PTE_CONT && old != new)
 		return false;
 
 	/* Transitioning from Non-Global to Global is unsafe */
