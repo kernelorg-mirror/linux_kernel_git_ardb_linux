@@ -48,7 +48,8 @@ static void __init early_fixmap_init_pte(pmd_t *pmdp, unsigned long addr)
 	if (pmd_none(pmd)) {
 		ptep = bm_pte[BM_PTE_TABLE_IDX(addr)];
 		__pmd_populate(pmdp, __pa_symbol(ptep),
-			       PMD_TYPE_TABLE | PMD_TABLE_AF);
+			       PMD_TYPE_TABLE | PMD_TABLE_AF |
+			       PMD_TABLE_PXN | PMD_TABLE_UXN);
 	}
 }
 
