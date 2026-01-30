@@ -605,7 +605,7 @@ SYM_PIC_ALIAS(vc_no_ghcb);
 
 SYM_DATA_START_PTI_ALIGNED(early_top_pgt)
 	.fill	511,8,0
-	.quad	level3_kernel_pgt - __START_KERNEL_map + _PAGE_TABLE_NOENC
+	.quad	level3_kernel_pgt - early_top_pgt + _PAGE_TABLE_NOENC
 	.fill	PTI_USER_PGD_FILL,8,0
 SYM_DATA_END(early_top_pgt)
 SYM_PIC_ALIAS(early_top_pgt)
@@ -626,15 +626,15 @@ SYM_DATA_END(init_top_pgt)
 
 SYM_DATA_START_PAGE_ALIGNED(level4_kernel_pgt)
 	.fill	511,8,0
-	.quad	level3_kernel_pgt - __START_KERNEL_map + _PAGE_TABLE_NOENC
+	.quad	level3_kernel_pgt - level4_kernel_pgt + _PAGE_TABLE_NOENC
 SYM_DATA_END(level4_kernel_pgt)
 SYM_PIC_ALIAS(level4_kernel_pgt)
 
 SYM_DATA_START_PAGE_ALIGNED(level3_kernel_pgt)
 	.fill	L3_START_KERNEL,8,0
 	/* (2^48-(2*1024*1024*1024)-((2^39)*511))/(2^30) = 510 */
-	.quad	level2_kernel_pgt - __START_KERNEL_map + _KERNPG_TABLE_NOENC
-	.quad	level2_fixmap_pgt - __START_KERNEL_map + _PAGE_TABLE_NOENC
+	.quad	level2_kernel_pgt - level3_kernel_pgt + _KERNPG_TABLE_NOENC
+	.quad	level2_fixmap_pgt - level3_kernel_pgt + _PAGE_TABLE_NOENC
 SYM_DATA_END(level3_kernel_pgt)
 SYM_PIC_ALIAS(level3_kernel_pgt)
 
@@ -660,7 +660,7 @@ SYM_DATA_START_PAGE_ALIGNED(level2_fixmap_pgt)
 	.fill	(512 - 4 - FIXMAP_PMD_NUM),8,0
 	pgtno = 0
 	.rept (FIXMAP_PMD_NUM)
-	.quad level1_fixmap_pgt + (pgtno << PAGE_SHIFT) - __START_KERNEL_map \
+	.quad level1_fixmap_pgt + (pgtno << PAGE_SHIFT) - level2_fixmap_pgt \
 		+ _PAGE_TABLE_NOENC;
 	pgtno = pgtno + 1
 	.endr
