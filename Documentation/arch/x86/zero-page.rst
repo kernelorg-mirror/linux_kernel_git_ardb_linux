@@ -16,6 +16,8 @@ Offset/Size	Proto	Name			Meaning
 000/040		ALL	screen_info		Text mode or frame buffer information
 						(struct screen_info)
 040/014		ALL	apm_bios_info		APM BIOS information (struct apm_bios_info)
+054/004		x86_64	kaslr_seed		Seed used by the startup code to randomize the
+						virtual placement of the kernel image
 058/008		ALL	tboot_addr      	Physical address of tboot shared page
 060/010		ALL	ist_info		Intel SpeedStep (IST) BIOS support information
 						(struct ist_info)
