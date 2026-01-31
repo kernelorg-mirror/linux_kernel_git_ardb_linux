@@ -135,6 +135,10 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 */
 	movq	%rax, %cr3
 
+#ifdef CONFIG_RELOCATABLE_PIE
+	call	__pi_startup_relocate_kernel
+#endif
+
 	/* Branch to the common startup code at its kernel virtual address */
 	ANNOTATE_RETPOLINE_SAFE
 	jmp	*.Lcommon_startup_64(%rip)
