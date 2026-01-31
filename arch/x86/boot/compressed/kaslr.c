@@ -841,6 +841,7 @@ static unsigned long find_random_virt_addr(unsigned long minimum,
 					   unsigned long image_size)
 {
 	unsigned long slots, random_addr;
+	unsigned long seed;
 
 	/*
 	 * There are how many CONFIG_PHYSICAL_ALIGN-sized slots
@@ -849,7 +850,8 @@ static unsigned long find_random_virt_addr(unsigned long minimum,
 	 */
 	slots = 1 + (KERNEL_IMAGE_SIZE - minimum - image_size) / CONFIG_PHYSICAL_ALIGN;
 
-	random_addr = kaslr_get_random_long("Virtual") % slots;
+	boot_params_ptr->kaslr_seed = seed = kaslr_get_random_long("Virtual");
+	random_addr = seed % slots;
 
 	return random_addr * CONFIG_PHYSICAL_ALIGN + minimum;
 }

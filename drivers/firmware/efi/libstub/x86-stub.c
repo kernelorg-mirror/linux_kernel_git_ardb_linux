@@ -873,6 +873,7 @@ static efi_status_t efi_decompress_kernel(unsigned long *kernel_entry,
 		}
 
 		boot_params->hdr.loadflags |= KASLR_FLAG;
+		boot_params->kaslr_seed = seed[1];
 	}
 
 	status = efi_random_alloc(alloc_size, CONFIG_PHYSICAL_ALIGN, &addr,
@@ -1053,6 +1054,7 @@ void efi_handover_entry(efi_handle_t handle, efi_system_table_t *sys_table_arg,
 			struct boot_params *boot_params)
 {
 	memset(_bss, 0, _ebss - _bss);
+	boot_params->kaslr_seed = 0;
 	efi_stub_entry(handle, sys_table_arg, boot_params);
 }
 
