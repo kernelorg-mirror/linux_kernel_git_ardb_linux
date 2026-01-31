@@ -89,6 +89,7 @@ unsigned long __init __startup_64(unsigned long p2v_offset,
 {
 	pmd_t (*early_pgts)[PTRS_PER_PMD] = rip_rel_ptr(early_dynamic_pgts);
 	unsigned long physaddr = (unsigned long)rip_rel_ptr(_text);
+	unsigned long physend = (unsigned long)rip_rel_ptr(_end);
 	unsigned long sme_mask = sme_get_me_mask();
 	unsigned long va_text, va_end;
 	unsigned long pgtable_flags;
@@ -105,6 +106,16 @@ unsigned long __init __startup_64(unsigned long p2v_offset,
 	if (physaddr >> MAX_PHYSMEM_BITS)
 		for (;;);
 
+	if (IS_ENABLED(CONFIG_RELOCATABLE_PIE) &&
+	    (bp->hdr.loadflags & KASLR_FLAG)) {
+		u64 imgsize = physend - physaddr;
+		u64 range = KERNEL_IMAGE_SIZE - LOAD_PHYSICAL_ADDR - imgsize;
+
+		va_shift = ALIGN_DOWN((range * bp->kaslr_seed) >> 32,
+				      CONFIG_PHYSICAL_ALIGN);
+		bp->kaslr_seed = 0;
+	}
+
 	/*
 	 * Compute the delta between the address I am compiled to run at
 	 * and the address I am actually running at.
@@ -116,7 +127,7 @@ unsigned long __init __startup_64(unsigned long p2v_offset,
 		for (;;);
 
 	va_text = physaddr - p2v_offset;
-	va_end  = (unsigned long)rip_rel_ptr(_end) - p2v_offset;
+	va_end  = physend - p2v_offset;
 
 	/* Fixup the physical addresses in the page table */
 

@@ -201,6 +201,15 @@ SECTIONS
 	DATA_SEGMENT_START
 	INIT_DATA_SECTION(16) :data
 
+#ifdef CONFIG_RELOCATABLE_PIE
+	.init.rela.dyn : AT(ADDR(.init.rela.dyn) - LOAD_OFFSET) {
+		BOUNDED_SECTION_POST_LABEL(.rela.* .rela_*, __pi_rela, _start, _end)
+	}
+	.init.relr.dyn : AT(ADDR(.init.relr.dyn) - LOAD_OFFSET) {
+		BOUNDED_SECTION_POST_LABEL(.relr.*, __pi_relr, _start, _end)
+	}
+#endif
+
 	.x86_cpu_dev.init : AT(ADDR(.x86_cpu_dev.init) - LOAD_OFFSET) {
 		__x86_cpu_dev_start = .;
 		*(.x86_cpu_dev.init)
