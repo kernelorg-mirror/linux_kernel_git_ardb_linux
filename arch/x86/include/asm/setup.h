@@ -47,6 +47,7 @@ void early_platform_quirks(void);
 
 extern unsigned long saved_video_mode;
 extern unsigned long acpi_realmode_flags;
+extern unsigned long va_shift;
 
 extern void reserve_standard_io_resources(void);
 extern void i386_reserve_resources(void);
@@ -56,6 +57,7 @@ extern void startup_64_load_idt(void *vc_handler);
 extern void __pi_startup_64_load_idt(void *vc_handler);
 extern void early_setup_idt(void);
 extern void __init do_early_exception(struct pt_regs *regs, int trapnr);
+extern void startup_relocate_kernel(void);
 
 #ifdef CONFIG_X86_INTEL_MID
 extern void x86_intel_mid_early_setup(void);
