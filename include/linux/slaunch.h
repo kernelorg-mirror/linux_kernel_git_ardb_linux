@@ -24,6 +24,7 @@
 
 #define __SL32_CS	0x0008
 #define __SL32_DS	0x0010
+#define __SL64_CS	0x0018
 
 /*
  * Secure Launch Defined Error Codes used in MLE-initiated TXT resets.

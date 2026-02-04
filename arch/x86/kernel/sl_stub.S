@@ -5,18 +5,19 @@
  *
  * Copyright (c) 2025, Oracle and/or its affiliates.
  */
-	.code32
-	.text
 #include <linux/linkage.h>
+#include <linux/init.h>
 #include <asm/segment.h>
 #include <asm/msr.h>
 #include <asm/apicdef.h>
 #include <asm/trapnr.h>
+#include <asm/pgtable_types.h>
 #include <asm/processor-flags.h>
 #include <asm/asm-offsets.h>
 #include <asm/bootparam.h>
 #include <asm/page_types.h>
 #include <asm/irq_vectors.h>
+#include <asm/unwind_hints.h>
 #include <linux/slr_table.h>
 #include <linux/slaunch.h>
 
@@ -63,10 +64,9 @@
 .endm
 
 	.code32
-SYM_FUNC_START(sl_stub_entry)
-	cli
-	cld
-
+	__INIT
+SYM_CODE_START(sl_stub_entry)
+	UNWIND_HINT_END_OF_STACK
 	/*
 	 * On entry, %ebx has the entry absolute offset to sl_stub_entry. The rva()
 	 * macro is used to generate relative references using %ebx as a base, as
@@ -99,9 +99,10 @@ SYM_FUNC_START(sl_stub_entry)
 	lret
 
 .Lsl_cs:
+	UNWIND_HINT_END_OF_STACK
 	/* Save our base pointer reg and page table for MLE */
 	pushl	%ebx
-	pushl	%ecx
+	movl	%ecx, %ebp
 
 	/* See if SMX feature is supported. */
 	movl	$1, %eax
@@ -109,11 +110,10 @@ SYM_FUNC_START(sl_stub_entry)
 	testl	$(X86_FEATURE_BIT_SMX), %ecx
 	jz	.Ldo_unknown_cpu
 
-	popl	%ecx
 	popl	%ebx
 
 	/* Know it is Intel */
-	movl	$(SL_CPU_INTEL), rva(sl_cpu_type)(%ebx)
+	movl	$(SL_CPU_INTEL), rva(__pi_sl_cpu_type)(%ebx)
 
 	/* Locate the base of the MLE using the page tables in %ecx */
 	call	sl_find_mle_base
@@ -200,13 +200,63 @@ SYM_FUNC_START(sl_stub_entry)
 	 * it on the BSP later when it is ready.
 	 */
 
-	/* Done, jump to normal 32b pm entry */
-	jmp	startup_32
-SYM_FUNC_END(sl_stub_entry)
+	/* Set up 1:1 mapping of the lower 4G in the page tables in %EBP */
+	movl	$_PAGE_PRESENT | _PAGE_RW | _PAGE_PSE, %eax
+	leal	(_PAGE_PRESENT | _PAGE_RW)(%ebp), %edx
+1:	movl	%eax, (%ebp)
+	addl	$8, %ebp
+	addl	$PMD_SIZE, %eax
+	jnc	1b
 
-SYM_FUNC_START(sl_find_mle_base)
+	xorl	%eax, %eax
+	movl	%ebp, %edi
+	movl	$(2 * PAGE_SIZE) / 4, %ecx
+	rep	stosl
+
+	movl	$PAGE_SIZE, %eax
+	.irpc	l, 0123
+	movl	%edx, \l * 8(%ebp)
+	addl	%eax, %edx
+	.endr
+	addl	%eax, %ebp
+	movl	%edx, (%ebp)
+	movl	%ebp, %cr3
+
+	/* Enable PAE */
+	movl	%cr4, %eax
+	btsl	$X86_CR4_PAE_BIT, %eax
+	movl	%eax, %cr4
+
+	/* Enable long mode */
+	movl	$MSR_EFER, %ecx
+	rdmsr
+	btsl	$_EFER_LME, %eax
+	wrmsr
+
+	/* Set up long return to 64-bit mode */
+	leal	rva(2f)(%ebx), %eax
+	pushl	$__SL64_CS
+	pushl	%eax
+
+	/* Enable paging */
+	movl	$CR0_STATE, %eax
+	movl	%eax, %cr0
+	lretl
+
+	.code64
+	UNWIND_HINT_END_OF_STACK
+2:	andq	$~0xf, %rsp
+	movq	%rsi, %r15
+	movq	%rsi, %rdi
+	//callq	__pi_sl_main
+	movq	%r15, %rsi
+	jmp	startup_64
+SYM_CODE_END(sl_stub_entry)
+
+	.code32
+SYM_FUNC_START_LOCAL(sl_find_mle_base)
 	/* %ecx has PDPT, get first PD */
-	movl	(%ecx), %eax
+	movl	(%ebp), %eax
 	andl	$(PAGE_MASK), %eax
 	/* Get first PT from first PDE */
 	movl	(%eax), %eax
@@ -215,11 +265,11 @@ SYM_FUNC_START(sl_find_mle_base)
 	movl	(%eax), %eax
 	andl	$(PAGE_MASK), %eax
 
-	movl	%eax, rva(sl_mle_start)(%ebx)
-	ret
+	movl	%eax, rva(__pi_sl_mle_start)(%ebx)
+	RET
 SYM_FUNC_END(sl_find_mle_base)
 
-SYM_FUNC_START(sl_check_buffer_mle_overlap)
+SYM_FUNC_START_LOCAL(sl_check_buffer_mle_overlap)
 	/* %ecx: buffer begin %edx: buffer end */
 	/* %ebx: MLE begin %edi: MLE end */
 	/* %eax: region may be inside MLE */
@@ -250,10 +300,10 @@ SYM_FUNC_START(sl_check_buffer_mle_overlap)
 	TXT_RESET $(SL_ERROR_MLE_BUFFER_OVERLAP)
 
 .Lvalid:
-	ret
+	RET
 SYM_FUNC_END(sl_check_buffer_mle_overlap)
 
-SYM_FUNC_START(sl_txt_verify_os_mle_struct)
+SYM_FUNC_START_LOCAL(sl_txt_verify_os_mle_struct)
 	pushl	%ebx
 	/*
 	 * %eax points to the base of the OS-MLE struct. Need to also
@@ -264,7 +314,7 @@ SYM_FUNC_START(sl_txt_verify_os_mle_struct)
 	leal	(%eax, %ecx), %edx
 
 	/* Load MLE image base absolute offset */
-	movl	rva(sl_mle_start)(%ebx), %ebx
+	movl	rva(__pi_sl_mle_start)(%ebx), %ebx
 
 	/* Verify the value of the low PMR base. It should always be 0. */
 	movl	SL_vtd_pmr_lo_base(%edx), %esi
@@ -315,7 +365,7 @@ SYM_FUNC_START(sl_txt_verify_os_mle_struct)
 
 .Lwake_block_ok:
 	popl	%ebx
-	ret
+	RET
 
 .Loverflow_detected:
 	TXT_RESET $(SL_ERROR_INTEGER_OVERFLOW)
@@ -324,9 +374,8 @@ SYM_FUNC_START(sl_txt_verify_os_mle_struct)
 	TXT_RESET $(SL_ERROR_BUFFER_BEYOND_PMR)
 SYM_FUNC_END(sl_txt_verify_os_mle_struct)
 
-SYM_FUNC_START(sl_txt_ap_entry)
-	cli
-	cld
+SYM_CODE_START_LOCAL(sl_txt_ap_entry)
+	UNWIND_HINT_END_OF_STACK
 	/*
 	 * AP entry point, first order of business is to find where we are and
 	 * save it in %ebx.
@@ -392,6 +441,7 @@ SYM_FUNC_START(sl_txt_ap_entry)
 	lret
 
 .Lsl_ap_cs:
+	UNWIND_HINT_END_OF_STACK
 	/* Load the relocated AP IDT */
 	lidt	(sl_ap_idt_desc - sl_txt_ap_wake_begin)(%ecx)
 
@@ -409,6 +459,7 @@ SYM_FUNC_START(sl_txt_ap_entry)
 	iret
 
 .Lnmi_enabled_ap:
+	UNWIND_HINT_END_OF_STACK
 	/* Put APs in X2APIC mode like the BSP */
 	movl	$(MSR_IA32_APICBASE), %ecx
 	rdmsr
@@ -428,9 +479,10 @@ SYM_FUNC_START(sl_txt_ap_entry)
 	 */
 	movl	rva(sl_txt_ap_wake_block)(%ebx), %eax
 	jmp	*%eax
-SYM_FUNC_END(sl_txt_ap_entry)
+	int3
+SYM_CODE_END(sl_txt_ap_entry)
 
-SYM_FUNC_START(sl_txt_reloc_ap_wake)
+SYM_FUNC_START_LOCAL(sl_txt_reloc_ap_wake)
 	/*
 	 * What is called the "AP wake block" is simply a chunk of protected
 	 * memory that the bootloader handed the MLE. The MLE implementation will
@@ -495,10 +547,10 @@ SYM_FUNC_START(sl_txt_reloc_ap_wake)
 
 .Lap_idt_done:
 	popl	%esi
-	ret
+	RET
 SYM_FUNC_END(sl_txt_reloc_ap_wake)
 
-SYM_FUNC_START(sl_txt_load_regs)
+SYM_FUNC_START_LOCAL(sl_txt_load_regs)
 	/* Save base pointer register */
 	pushl	%ebx
 
@@ -555,10 +607,10 @@ SYM_FUNC_START(sl_txt_load_regs)
 	wrmsr
 
 	popl	%ebx
-	ret
+	RET
 SYM_FUNC_END(sl_txt_load_regs)
 
-SYM_FUNC_START(sl_txt_wake_aps)
+SYM_FUNC_START_LOCAL(sl_txt_wake_aps)
 	/* Save boot params register */
 	pushl	%esi
 
@@ -615,11 +667,11 @@ SYM_FUNC_START(sl_txt_wake_aps)
 	jne	.Laps_awake
 
 	popl	%esi
-	ret
+	RET
 SYM_FUNC_END(sl_txt_wake_aps)
 
+	__INITDATA
 /* This is the beginning of the relocated AP wake code block */
-	.global sl_txt_ap_wake_begin
 sl_txt_ap_wake_begin:
 	/*
 	 * Note on the stack layout for the APs. The individual 128 byte stacks
@@ -687,12 +739,12 @@ sl_ap_jmp_offset:
 	.long	0x00000000
 	.word	__SL32_CS
 
-SYM_FUNC_START(sl_txt_int_nmi)
+SYM_CODE_START_LOCAL(sl_txt_int_nmi)
 	/* NMI context, just IRET */
 	iret
-SYM_FUNC_END(sl_txt_int_nmi)
+SYM_CODE_END(sl_txt_int_nmi)
 
-SYM_FUNC_START(sl_txt_int_reset)
+SYM_FUNC_START_LOCAL(sl_txt_int_reset)
 	TXT_RESET $(SL_ERROR_INV_AP_INTERRUPT)
 SYM_FUNC_END(sl_txt_int_reset)
 
@@ -732,10 +784,8 @@ SYM_DATA_START_LOCAL(sl_stacks)
 SYM_DATA_END_LABEL(sl_stacks, SYM_L_LOCAL, sl_stacks_end)
 
 /* This is the end of the relocated AP wake code block */
-	.global sl_txt_ap_wake_end
 sl_txt_ap_wake_end:
 
-	.data
 	.balign 8
 SYM_DATA_START_LOCAL(sl_gdt_desc)
 	.word	sl_gdt_end - sl_gdt - 1
@@ -747,6 +797,7 @@ SYM_DATA_START_LOCAL(sl_gdt)
 	.quad	0x0000000000000000	/* NULL */
 	.quad	0x00cf9a000000ffff	/* __SL32_CS */
 	.quad	0x00cf92000000ffff	/* __SL32_DS */
+	.quad	0x00af9a000000ffff	/* __SL64_CS */
 SYM_DATA_END_LABEL(sl_gdt, SYM_L_LOCAL, sl_gdt_end)
 
 	.balign 8
@@ -768,3 +819,30 @@ SYM_DATA_LOCAL(sl_txt_stack_index, .long 0x00000000)
 SYM_DATA_LOCAL(sl_txt_cpu_count, .long 0x00000000)
 
 SYM_DATA_LOCAL(sl_txt_ap_wake_block, .long 0x00000000)
+
+	__INITRODATA
+	.balign 8
+	/*
+	 * The MLE Header per the TXT Specification, section 2.1
+	 * MLE capabilities, see table 4. Capabilities set:
+	 * bit 0: Support for GETSEC[WAKEUP] for RLP wakeup
+	 * bit 1: Support for RLP wakeup using MONITOR address
+	 * bit 2: The ECX register will contain the pointer to the MLE page table
+	 * bit 5: TPM 1.2 family: Details/authorities PCR usage support
+	 * bit 9: Supported format of TPM 2.0 event log - TCG compliant
+	 */
+SYM_DATA_START(mle_header)
+0:	.long	0x9082ac5a			/* UUID0 */
+	.long	0x74a7476f			/* UUID1 */
+	.long	0xa2555c0f			/* UUID2 */
+	.long	0x42b651cb			/* UUID3 */
+	.long	0x00000034			/* MLE header size */
+	.long	0x00020002			/* MLE version 2.2 */
+	.long	__sl_stub_entry_offset - 0b	/* Linear entry point of MLE (virt. address) */
+	.long	0x00000000			/* First valid page of MLE */
+	.long	0x00000000			/* Offset within binary of first byte of MLE */
+	.long	__sl_mle_end_offset - 0b	/* Offset within binary of last byte + 1 of MLE */
+	.long	0x00000227			/* Bit vector of MLE-supported capabilities */
+	.long	0x00000000			/* Starting linear address of command line (unused) */
+	.long	0x00000000			/* Ending linear address of command line (unused) */
+SYM_DATA_END(mle_header)
