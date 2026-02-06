@@ -27,6 +27,7 @@ const efi_system_table_t *efi_system_table;
 const efi_dxe_services_table_t *efi_dxe_table;
 static efi_loaded_image_t *image = NULL;
 static efi_memory_attribute_protocol_t *memattr;
+static unsigned long alloc_limit = ULONG_MAX;
 
 typedef union sev_memory_acceptance_protocol sev_memory_acceptance_protocol_t;
 union sev_memory_acceptance_protocol {
@@ -420,7 +421,8 @@ static efi_status_t efi_allocate_bootparams(efi_handle_t handle,
 		return status;
 	}
 
-	status = efi_allocate_pages(PARAM_SIZE, &alloc, ULONG_MAX);
+	status = efi_allocate_pages(PARAM_SIZE + COMMAND_LINE_SIZE, &alloc,
+				    alloc_limit);
 	if (status != EFI_SUCCESS)
 		return status;
 
@@ -441,6 +443,13 @@ static efi_status_t efi_allocate_bootparams(efi_handle_t handle,
 		return EFI_OUT_OF_RESOURCES;
 	}
 
+	if ((unsigned long)cmdline_ptr > alloc_limit - COMMAND_LINE_SIZE) {
+		size_t len = strnlen(cmdline_ptr, COMMAND_LINE_SIZE - 1);
+
+		cmdline_ptr = memcpy((u8 *)alloc + PARAM_SIZE, cmdline_ptr, len);
+		cmdline_ptr[len] = '\0';
+	}
+
 	efi_set_u64_split((unsigned long)cmdline_ptr, &hdr->cmd_line_ptr,
 			  &boot_params->ext_cmd_line_ptr);
 
@@ -451,21 +460,11 @@ static efi_status_t efi_allocate_bootparams(efi_handle_t handle,
 static void add_e820ext(struct boot_params *params,
 			struct setup_data *e820ext, u32 nr_entries)
 {
-	struct setup_data *data;
-
 	e820ext->type = SETUP_E820_EXT;
 	e820ext->len  = nr_entries * sizeof(struct boot_e820_entry);
-	e820ext->next = 0;
+	e820ext->next = (unsigned long)params->hdr.setup_data;
 
-	data = (struct setup_data *)(unsigned long)params->hdr.setup_data;
-
-	while (data && data->next)
-		data = (struct setup_data *)(unsigned long)data->next;
-
-	if (data)
-		data->next = (unsigned long)e820ext;
-	else
-		params->hdr.setup_data = (unsigned long)e820ext;
+	params->hdr.setup_data = (unsigned long)e820ext;
 }
 
 static efi_status_t
@@ -587,13 +586,12 @@ static efi_status_t alloc_e820ext(u32 nr_desc, struct setup_data **e820ext,
 		sizeof(struct e820_entry) * nr_desc;
 
 	if (*e820ext) {
-		efi_bs_call(free_pool, *e820ext);
+		efi_free(*e820ext_size, (unsigned long)*e820ext);
 		*e820ext = NULL;
 		*e820ext_size = 0;
 	}
 
-	status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, size,
-			     (void **)e820ext);
+	status = efi_allocate_pages(size, (unsigned long *)e820ext, alloc_limit);
 	if (status == EFI_SUCCESS)
 		*e820ext_size = size;
 
@@ -778,7 +776,7 @@ static efi_status_t efi_decompress_kernel(unsigned long *kernel_entry,
 	status = efi_random_alloc(alloc_size, CONFIG_PHYSICAL_ALIGN, &addr,
 				  seed[0], EFI_LOADER_CODE,
 				  LOAD_PHYSICAL_ADDR,
-				  EFI_X86_KERNEL_ALLOC_LIMIT);
+				  min(alloc_limit, EFI_X86_KERNEL_ALLOC_LIMIT));
 	if (status != EFI_SUCCESS)
 		return status;
 
@@ -832,7 +830,9 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 	status = efi_secure_launch_init(handle);
 	switch (status) {
 		case EFI_SUCCESS:
-		case EFI_UNSUPPORTED:
+			alloc_limit = U32_MAX;
+			break;
+		case EFI_NOT_FOUND:
 			break;
 		default:
 			efi_exit(handle, status);
