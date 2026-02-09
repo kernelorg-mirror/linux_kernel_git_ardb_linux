@@ -72,7 +72,7 @@ static inline void tpm_buf_free_page(void)
 
 #include "../../../../drivers/char/tpm/tpm-buf.c"
 
-static u32 tpm_get_alg_size(u16 alg_id)
+static u32 __init tpm_get_alg_size(u16 alg_id)
 {
 	switch (alg_id) {
 	case TPM_ALG_SHA1:
@@ -147,7 +147,7 @@ static inline void __tis_cancel(struct tpm_chip *chip)
 	tpm_write8(chip, TPM_STS(chip->locality), TPM_STS_COMMAND_READY);
 }
 
-static int __tis_get_burstcount(struct tpm_chip *chip)
+static int __init __tis_get_burstcount(struct tpm_chip *chip)
 {
 	ktime_t stop;
 	int burstcnt;
@@ -166,7 +166,7 @@ static int __tis_get_burstcount(struct tpm_chip *chip)
 	return -EBUSY;
 }
 
-static int __tis_wait_for_stat(struct tpm_chip *chip, u8 mask, ktime_t timeout)
+static int __init __tis_wait_for_stat(struct tpm_chip *chip, u8 mask, ktime_t timeout)
 {
 	ktime_t stop;
 	u8 status;
@@ -186,7 +186,7 @@ static int __tis_wait_for_stat(struct tpm_chip *chip, u8 mask, ktime_t timeout)
 	return -ETIME;
 }
 
-static int __tis_recv_data(struct tpm_chip *chip, u8 *buf, int count)
+static int __init __tis_recv_data(struct tpm_chip *chip, u8 *buf, int count)
 {
 	int size = 0;
 	int burstcnt;
@@ -208,7 +208,7 @@ static int __tis_recv_data(struct tpm_chip *chip, u8 *buf, int count)
  *
  * Return: true - locality active, false - not active
  */
-bool tpm_tis_check_locality(struct tpm_chip *chip, int loc)
+bool __init tpm_tis_check_locality(struct tpm_chip *chip, int loc)
 {
 	if ((tpm_read8(chip, TPM_ACCESS(loc)) & (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) == (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) {
 		chip->locality = loc;
@@ -222,7 +222,7 @@ bool tpm_tis_check_locality(struct tpm_chip *chip, int loc)
  * tpm_tis_release_locality - Release the active locality
  * @chip:	The TPM chip instance
  */
-void tpm_tis_release_locality(struct tpm_chip *chip)
+void __init tpm_tis_release_locality(struct tpm_chip *chip)
 {
 	if ((tpm_read8(chip, TPM_ACCESS(chip->locality)) & (TPM_ACCESS_REQUEST_PENDING | TPM_ACCESS_VALID)) == (TPM_ACCESS_REQUEST_PENDING | TPM_ACCESS_VALID))
 		tpm_write8(chip, TPM_ACCESS(chip->locality), TPM_ACCESS_RELINQUISH_LOCALITY);
@@ -239,7 +239,7 @@ void tpm_tis_release_locality(struct tpm_chip *chip)
  *  >= 0 - Success, new active locality returned or locality already active
  *  < 0  - Error occurred
  */
-int tpm_tis_request_locality(struct tpm_chip *chip, int loc)
+int __init tpm_tis_request_locality(struct tpm_chip *chip, int loc)
 {
 	ktime_t stop;
 
@@ -264,7 +264,7 @@ int tpm_tis_request_locality(struct tpm_chip *chip, int loc)
  * tpm_tis_disable_interrupts - Disable interrupts for the TPM, use polling mode only
  * @chip:	The TPM chip instance
  */
-void tpm_tis_disable_interrupts(struct tpm_chip *chip)
+void __init tpm_tis_disable_interrupts(struct tpm_chip *chip)
 {
 	u32 intmask;
 
@@ -285,7 +285,7 @@ void tpm_tis_disable_interrupts(struct tpm_chip *chip)
  *  > 0 - Success, value is the response data length
  *  < 0 - Error occurred
  */
-static int tpm_tis_recv(struct tpm_chip *chip, u8 *buf, int count)
+static int __init tpm_tis_recv(struct tpm_chip *chip, u8 *buf, int count)
 {
 	int expected, status, size = 0, rc = -EIO;
 
@@ -332,7 +332,7 @@ out:
  *  = len - Success, all data sent
  *  < 0	  - Error occurred
  */
-static int tpm_tis_send(struct tpm_chip *chip, u8 *buf, int len)
+static int __init tpm_tis_send(struct tpm_chip *chip, u8 *buf, int len)
 {
 	int status, burstcnt = 0;
 	int count = 0;
@@ -391,7 +391,7 @@ out_err:
  *  > 0 - Success, value is the return data length
  *  < 0 - Error occurred
  */
-static int tpm_tis_transmit(struct tpm_chip *chip, u8 *buf, u32 bufsize)
+static int __init tpm_tis_transmit(struct tpm_chip *chip, u8 *buf, u32 bufsize)
 {
 	ktime_t stop;
 	u32 count;
@@ -448,7 +448,7 @@ out:
  *
  * Return: TPM family ID enum
  */
-static enum tpm_family tpm_find_interface_and_family(struct tpm_chip *chip)
+static enum tpm_family __init tpm_find_interface_and_family(struct tpm_chip *chip)
 {
 	struct tpm_intf_capability intf_cap;
 	struct tpm_interface_id intf_id;
@@ -479,7 +479,7 @@ static enum tpm_family tpm_find_interface_and_family(struct tpm_chip *chip)
  * * -errno	- A system error
  * * TPM_RC	- A TPM error
  */
-int tpm1_pcr_extend(struct tpm_chip *chip, u32 pcr_idx, const u8 *hash)
+int __init tpm1_pcr_extend(struct tpm_chip *chip, u32 pcr_idx, const u8 *hash)
 {
 	int rc = 0;
 	struct tpm_buf *buf = tpm_buf_alloc_page();
@@ -517,7 +517,7 @@ int tpm1_pcr_extend(struct tpm_chip *chip, u32 pcr_idx, const u8 *hash)
  * * -errno	- A system error
  * * TPM_RC	- A TPM error
  */
-int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
+int __init tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 		    struct tpm_digest *digests, u32 digest_count)
 {
 	struct tpm_buf *buf = tpm_buf_alloc_page();
@@ -561,7 +561,7 @@ int tpm2_pcr_extend(struct tpm_chip *chip, u32 pcr_idx,
 	return rc;
 }
 
-int early_tpm_init(struct tpm_chip *chip, u64 baseaddr)
+int __init early_tpm_init(struct tpm_chip *chip, u64 baseaddr)
 {
 	u32 didvid;
 
@@ -586,7 +586,7 @@ int early_tpm_init(struct tpm_chip *chip, u64 baseaddr)
 	return TPM_SUCCESS;
 }
 
-int early_tpm_fini(struct tpm_chip *chip)
+int __init early_tpm_fini(struct tpm_chip *chip)
 {
 	tpm_tis_release_locality(chip);
 	memset(chip, 0, sizeof(*chip));
