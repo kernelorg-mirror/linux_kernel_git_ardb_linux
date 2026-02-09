@@ -422,6 +422,8 @@ void efi_native_runtime_setup(void);
 
 #define RISCV_EFI_BOOT_PROTOCOL_GUID		EFI_GUID(0xccd15fec, 0x6f73, 0x4eec,  0x83, 0x95, 0x3e, 0x69, 0xe4, 0xb9, 0x40, 0xbf)
 
+#define GRUB_SLAUNCH_PROTOCOL_GUID		EFI_GUID(0x534189e0, 0x6fde, 0x413d,  0xbe, 0x91, 0xcd, 0x4e, 0x8d, 0x67, 0x2f, 0xea)
+
 /*
  * This GUID may be installed onto the kernel image's handle as a NULL protocol
  * to signal to the stub that the placement of the image should be respected,
