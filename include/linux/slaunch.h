@@ -68,6 +68,7 @@
 #define SL_ERROR_INVALID_SLRT		0xc0008022
 #define SL_ERROR_SLRT_MISSING_ENTRY	0xc0008023
 #define SL_ERROR_SLRT_MAP		0xc0008024
+#define SL_ERROR_TPM_MAP		0xc0008025
 
 /*
  * Secure Launch Defined Limits
@@ -216,8 +217,12 @@ static inline bool slaunch_is_txt_launch(void)
 	return (slaunch_get_flags() & mask) == mask;
 }
 
-void sl_main(void *bootparams);
+struct slr_table;
 
+void sl_main(void *bootparams);
+void sl_main_stage2(u64 tpm_base_addr, struct slr_table *slrt);
+void __pi_sl_main_stage2(u64 tpm_base_addr, struct slr_table *slrt);
+void slaunch_measure_stage2(void);
 #else
 
 static inline void slaunch_setup(void)
@@ -247,6 +252,7 @@ static inline bool slaunch_is_txt_launch(void)
 	return false;
 }
 
+static inline void slaunch_measure_stage2(void) {}
 #endif /* !CONFIG_SECURE_LAUNCH */
 
 #endif /* !__ASSEMBLER__ */

@@ -258,7 +258,7 @@ pmr_check:
 	if (evtlog_base > txt_heap && evtlog_end < txt_end)
 		return;
 
-	sl_check_pmr_coverage(evtlog_base, evtlog_size, true);
+	sl_check_pmr_coverage(evtlog_base, evtlog_size, false);
 }
 
 static void __init sl_find_event_log_algorithms(void)
@@ -388,16 +388,10 @@ static void __init sl_tpm_extend(u32 pcr, u32 type, const u8 *data, u32 length, 
 		sl_tpm1_extend(pcr, type, data, length, (const u8 *)desc, strlen(desc));
 }
 
-static struct setup_data * __init sl_handle_setup_data(struct setup_data *curr,
-					       struct slr_policy_entry *entry)
+static void __init sl_handle_setup_data(struct setup_data *curr,
+					struct slr_policy_entry *entry)
 {
 	struct setup_indirect *ind;
-	struct setup_data *next;
-
-	if (!curr)
-		return NULL;
-
-	next = (struct setup_data *)(unsigned long)curr->next;
 
 	/* SETUP_INDIRECT instances have to be handled differently */
 	if (curr->type == SETUP_INDIRECT) {
@@ -407,8 +401,7 @@ static struct setup_data * __init sl_handle_setup_data(struct setup_data *curr,
 
 		sl_tpm_extend(entry->pcr, SL_EVTYPE_SECURE_LAUNCH, (void *)ind->addr, ind->len,
 			      entry->evt_info);
-
-		return next;
+		return;
 	}
 
 	sl_check_pmr_coverage(((u8 *)curr) + sizeof(*curr),
@@ -416,8 +409,22 @@ static struct setup_data * __init sl_handle_setup_data(struct setup_data *curr,
 
 	sl_tpm_extend(entry->pcr, SL_EVTYPE_SECURE_LAUNCH, ((u8 *)curr) + sizeof(*curr), curr->len,
 		      entry->evt_info);
+}
 
-	return next;
+/* Returns whether the entry covers any memory over 4G */
+static bool setup_data_entry_is_over_4g(const struct setup_data *entry)
+{
+	struct setup_indirect *ind;
+
+	if ((unsigned long)entry + struct_size(entry, data, entry->len) > SZ_4G)
+		return true;
+
+	if (entry->type != SETUP_INDIRECT)
+		return false;
+
+	ind = (struct setup_indirect *)entry->data;
+
+	return ind->addr + ind->len > SZ_4G;
 }
 
 /*
@@ -425,18 +432,32 @@ static struct setup_data * __init sl_handle_setup_data(struct setup_data *curr,
  * processed element by element. Indirect elements need to have their
  * pointers followed to the actual data to measure.
  */
-static void __init sl_extend_setup_data(struct slr_policy_entry *entry)
+static void __init sl_extend_setup_data(struct slr_policy_entry *entry, bool under4g)
 {
-	struct setup_data *data;
+	struct setup_data *data = (void *)(unsigned long)entry->entity;
+
+	if (!under4g) {
+		/*
+		 * Skip all leading entries placed under 4G, these were
+		 * processed the first time around.
+		 */
+		while (data && !setup_data_entry_is_over_4g(data))
+			data = (void *)(unsigned long)data->next;
+	}
+
 
 	/*
 	 * Measure any setup_data entries including e820 extended entries.
 	 * Note that the e820 fixed entries are in the boot params structure
 	 * itself and measured there.
 	 */
-	data = (struct setup_data *)(unsigned long)entry->entity;
-	while (data)
-		data = sl_handle_setup_data(data, entry);
+	while (data) {
+		if (under4g && setup_data_entry_is_over_4g(data))
+			break;
+
+		sl_handle_setup_data(data, entry);
+		data = (void *)(unsigned long)data->next;
+	}
 }
 
 static void __init sl_extend_slrt(struct slr_policy_entry *entry)
@@ -490,7 +511,7 @@ static void __init sl_extend_txt_os2mle(struct slr_policy_entry *entry)
  * Process all policy entries and extend the measurements to the evtlog. Note
  * that some entries need special processing which is done in subroutines.
  */
-static void __init sl_process_extend_policy(struct slr_table *slrt)
+static void __init sl_process_extend_policy(struct slr_table *slrt, bool under4g)
 {
 	struct slr_entry_policy *policy;
 	u16 i;
@@ -500,23 +521,32 @@ static void __init sl_process_extend_policy(struct slr_table *slrt)
 		sl_txt_reset(SL_ERROR_SLRT_MISSING_ENTRY);
 
 	for (i = 0; i < policy->nr_entries; i++) {
+		u64 end;
+
 		switch (policy->policy_entries[i].entity_type) {
 		case SLR_ET_SETUP_DATA:
-			sl_extend_setup_data(&policy->policy_entries[i]);
+			sl_extend_setup_data(&policy->policy_entries[i], under4g);
 			break;
 		case SLR_ET_SLRT:
-			sl_extend_slrt(&policy->policy_entries[i]);
+			if (under4g)
+				sl_extend_slrt(&policy->policy_entries[i]);
 			break;
 		case SLR_ET_TXT_OS2MLE:
-			sl_extend_txt_os2mle(&policy->policy_entries[i]);
+			if (under4g)
+				sl_extend_txt_os2mle(&policy->policy_entries[i]);
 			break;
 		case SLR_ET_UNUSED:
 			continue;
 		default:
-			sl_tpm_extend(policy->policy_entries[i].pcr, SL_EVTYPE_SECURE_LAUNCH,
-				      (void *)policy->policy_entries[i].entity,
-				      policy->policy_entries[i].size,
-				      policy->policy_entries[i].evt_info);
+			end = policy->policy_entries[i].entity +
+			      policy->policy_entries[i].size - 1;
+
+			if (under4g ^ (end > U32_MAX))
+				sl_tpm_extend(policy->policy_entries[i].pcr,
+					      SL_EVTYPE_SECURE_LAUNCH,
+					      (void *)policy->policy_entries[i].entity,
+					      policy->policy_entries[i].size,
+					      policy->policy_entries[i].evt_info);
 		}
 	}
 }
@@ -524,7 +554,7 @@ static void __init sl_process_extend_policy(struct slr_table *slrt)
 /*
  * Process all EFI config entries and extend the measurements to the evtlog
  */
-static void __init sl_process_extend_uefi_config(struct slr_table *slrt)
+static void __init sl_process_extend_uefi_config(struct slr_table *slrt, bool under4g)
 {
 	struct slr_entry_uefi_config *uefi_config;
 	u16 i;
@@ -536,10 +566,15 @@ static void __init sl_process_extend_uefi_config(struct slr_table *slrt)
 		return;
 
 	for (i = 0; i < uefi_config->nr_entries; i++) {
-		sl_tpm_extend(uefi_config->uefi_cfg_entries[i].pcr, SL_EVTYPE_SECURE_LAUNCH,
-			      (void *)uefi_config->uefi_cfg_entries[i].cfg,
-			      uefi_config->uefi_cfg_entries[i].size,
-			      uefi_config->uefi_cfg_entries[i].evt_info);
+		u64 end = uefi_config->uefi_cfg_entries[i].cfg +
+			  uefi_config->uefi_cfg_entries[i].size - 1;
+
+		if (under4g ^ (end > U32_MAX))
+			sl_tpm_extend(uefi_config->uefi_cfg_entries[i].pcr,
+				      SL_EVTYPE_SECURE_LAUNCH,
+				      (void *)uefi_config->uefi_cfg_entries[i].cfg,
+				      uefi_config->uefi_cfg_entries[i].size,
+				      uefi_config->uefi_cfg_entries[i].evt_info);
 	}
 }
 
@@ -606,10 +641,18 @@ asmlinkage __visible __init void sl_main(void *bootparams)
 
 	/*
 	 * Extend measurements into the TPM for entities specified in the
-	 * SLRT policies.
+	 * SLRT policies. On the first pass, measure at least the assets that
+	 * are consumed by the kernel before it maps all of DRAM:
+	 * - bootparams
+	 * - command line
+	 * - extended E820 map in setup_data
+	 *
+	 * These were all placed below 4G by the pre-loader or EFI stub, so
+	 * they can be accessed from the early 1:1 mapping that is active at
+	 * this point.
 	 */
-	sl_process_extend_policy(slrt);
-	sl_process_extend_uefi_config(slrt);
+	sl_process_extend_policy(slrt, true);
+	sl_process_extend_uefi_config(slrt, true);
 
 	/* No PMR check is needed, the TXT heap is covered by the DPR */
 	txt_heap = (void *)sl_txt_read(TXT_CR_HEAP_BASE);
@@ -620,6 +663,15 @@ asmlinkage __visible __init void sl_main(void *bootparams)
 	 * misc enable MSRs are what we expect.
 	 */
 	sl_txt_validate_msrs(os_mle_data);
+}
+
+void __init sl_main_stage2(u64 tpm_base_addr, struct slr_table *slrt)
+{
+	/* switch from 1:1 mapping to early I/O remap */
+	chip.baseaddr = tpm_base_addr;
+
+	sl_process_extend_policy(slrt, false);
+	sl_process_extend_uefi_config(slrt, false);
 
 	/* Shut down early TPM driver, release localities */
 	early_tpm_fini(&chip);

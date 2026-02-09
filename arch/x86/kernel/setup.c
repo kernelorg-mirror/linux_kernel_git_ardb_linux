@@ -1126,6 +1126,8 @@ void __init setup_arch(char **cmdline_p)
 
 	init_mem_mapping();
 
+	slaunch_measure_stage2();
+
 	/*
 	 * init_mem_mapping() relies on the early IDT page fault handling.
 	 * Now either enable FRED or install the real page fault handler

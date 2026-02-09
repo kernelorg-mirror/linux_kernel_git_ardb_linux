@@ -21,12 +21,19 @@
 #include <asm/realmode.h>
 #include <linux/slr_table.h>
 #include <linux/slaunch.h>
+#include <linux/tpm_ptp.h>
+
+#define TIS_MEM_X86_LPC_BASE	0xFED40000
+#define TIS_MEM_X86_LEN		0x5000
 
 static u32 sl_flags __ro_after_init;
 static struct sl_ap_wake_info ap_wake_info __ro_after_init;
 static u64 evtlog_addr __ro_after_init;
 static u32 evtlog_size __ro_after_init;
 static u64 vtd_pmr_lo_size __ro_after_init;
+
+static u64 slrt_base __initdata;
+static u32 slrt_size __initdata;
 
 /* This should be plenty of room */
 static u8 txt_dmar[PAGE_SIZE] __aligned(16);
@@ -377,7 +384,6 @@ static void __init slaunch_fetch_values(void __iomem *txt)
 	struct slr_entry_log_info *log_info;
 	u8 *jmp_offset, *stacks_offset;
 	struct slr_table *slrt;
-	u32 size;
 
 	os_mle_data = txt_early_get_heap_table(txt, TXT_OS_MLE_DATA_TABLE,
 					       sizeof(*os_mle_data));
@@ -395,10 +401,11 @@ static void __init slaunch_fetch_values(void __iomem *txt)
 	if (!slrt)
 		slaunch_reset(txt, "Error early_memremap of SLRT failed\n", SL_ERROR_SLRT_MAP);
 
-	size = slrt->size;
+	slrt_base = os_mle_data->slrt;
+	slrt_size = slrt->size;
 	early_memunmap(slrt, sizeof(*slrt));
 
-	slrt = (struct slr_table *)early_memremap(os_mle_data->slrt, size);
+	slrt = (struct slr_table *)early_memremap(os_mle_data->slrt, slrt_size);
 	if (!slrt)
 		slaunch_reset(txt, "Error early_memremap of SLRT failed\n", SL_ERROR_SLRT_MAP);
 
@@ -410,7 +417,7 @@ static void __init slaunch_fetch_values(void __iomem *txt)
 	evtlog_addr = log_info->addr;
 	evtlog_size = log_info->size;
 
-	early_memunmap(slrt, size);
+	early_memunmap(slrt, slrt_size);
 
 	txt_early_put_heap_table(os_mle_data, sizeof(*os_mle_data));
 }
@@ -506,6 +513,35 @@ void __init slaunch_setup(void)
 
 	if (boot_cpu_has(X86_FEATURE_SMX))
 		slaunch_setup_txt();
+}
+
+void __init slaunch_measure_stage2(void)
+{
+	struct slr_table *slrt;
+	void __iomem *tpm_base;
+	void __iomem *txt;
+
+	if (!(boot_params.hdr.loadflags & SLAUNCH_FLAG))
+		return;
+
+	txt = early_ioremap(TXT_PRIV_CONFIG_REGS_BASE,
+			    TXT_NR_CONFIG_PAGES * PAGE_SIZE);
+	if (!txt)
+		panic("Error early_ioremap in TXT setup failed\n");
+
+	tpm_base = early_ioremap(TIS_MEM_X86_LPC_BASE, TIS_MEM_X86_LEN);
+	if (!tpm_base)
+		slaunch_reset(txt, "Error early_ioremap of TPM failed\n", SL_ERROR_TPM_MAP);
+
+	slrt = early_memremap(slrt_base, slrt_size);
+	if (!slrt)
+		slaunch_reset(txt, "Error early_memremap of SLRT failed\n", SL_ERROR_SLRT_MAP);
+
+	__pi_sl_main_stage2((u64)tpm_base, slrt);
+
+	early_memunmap(slrt, slrt_size);
+	early_iounmap(tpm_base, TIS_MEM_X86_LEN);
+	early_iounmap(txt, TXT_NR_CONFIG_PAGES * PAGE_SIZE);
 }
 
 /*
