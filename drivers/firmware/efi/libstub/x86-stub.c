@@ -790,6 +790,10 @@ static efi_status_t efi_decompress_kernel(unsigned long *kernel_entry,
 
 	*kernel_entry = addr + entry;
 
+	status = efi_secure_launch_prepare(boot_params, addr);
+	if (status != EFI_SUCCESS)
+		return status;
+
 	return efi_adjust_memory_range_protection(addr, kernel_text_size) ?:
 	       efi_adjust_memory_range_protection(addr + kernel_inittext_offset,
 						  kernel_inittext_size);
@@ -824,6 +828,15 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 	/* Check if we were booted by the EFI firmware */
 	if (efi_system_table->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
 		efi_exit(handle, EFI_INVALID_PARAMETER);
+
+	status = efi_secure_launch_init(handle);
+	switch (status) {
+		case EFI_SUCCESS:
+		case EFI_UNSUPPORTED:
+			break;
+		default:
+			efi_exit(handle, status);
+	}
 
 	if (!IS_ENABLED(CONFIG_EFI_HANDOVER_PROTOCOL) || !boot_params) {
 		status = efi_allocate_bootparams(handle, &boot_params);
@@ -928,6 +941,9 @@ void __noreturn efi_stub_entry(efi_handle_t handle,
 		efi_err("exit_boot() failed!\n");
 		goto fail;
 	}
+
+	/* If a Secure Launch is in progress, this never returns */
+	efi_secure_launch();
 
 	/*
 	 * Call the SEV init code while still running with the firmware's
