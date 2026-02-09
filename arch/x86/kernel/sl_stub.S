@@ -248,7 +248,7 @@ SYM_CODE_START(sl_stub_entry)
 2:	andq	$~0xf, %rsp
 	movq	%rsi, %r15
 	movq	%rsi, %rdi
-	//callq	__pi_sl_main
+	callq	__pi_sl_main
 	movq	%r15, %rsi
 	jmp	startup_64
 SYM_CODE_END(sl_stub_entry)
@@ -807,10 +807,6 @@ SYM_DATA_START_LOCAL(sl_smx_rlp_mle_join)
 	.long	__SL32_CS	/* Seg Sel - CS (DS, ES, SS = seg_sel+8) */
 	.long	0x00000000	/* Entry point physical address */
 SYM_DATA_END(sl_smx_rlp_mle_join)
-
-SYM_DATA(sl_cpu_type, .long 0x00000000)
-
-SYM_DATA(sl_mle_start, .long 0x00000000)
 
 SYM_DATA_LOCAL(sl_txt_spin_lock, .long 0x00000000)
 

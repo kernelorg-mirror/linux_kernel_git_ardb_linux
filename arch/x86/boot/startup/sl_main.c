@@ -15,7 +15,6 @@
 #include <asm/processor-flags.h>
 #include <asm/asm-offsets.h>
 #include <asm/bootparam.h>
-#include <asm/bootparam_utils.h>
 #include <linux/slr_table.h>
 #include <linux/slaunch.h>
 
@@ -36,29 +35,28 @@ static struct tcg_efi_specid_event_algs *tpm_algs;
 static u8 event_buf[PAGE_SIZE];
 
 /* Simple instance of a TPM chip object */
-static struct tpm_chip chip;
+static struct tpm_chip chip __initdata;
 
-extern u32 sl_cpu_type;
-extern u32 sl_mle_start;
+static struct slr_table *slrt __initdata;
 
-void __cold __noreturn __fortify_panic(const u8 reason, const size_t avail, const size_t size)
+u32 sl_cpu_type __initdata;
+u32 sl_mle_start __initdata;
+
+void __warn_printk(const char *fmt, ...)
 {
-	asm volatile ("ud2");
-
-	unreachable();
 }
 
-static u64 sl_txt_read(u32 reg)
+static u64 __init sl_txt_read(u32 reg)
 {
 	return readq((void *)(u64)(TXT_PRIV_CONFIG_REGS_BASE + reg));
 }
 
-static void sl_txt_write(u32 reg, u64 val)
+static void __init sl_txt_write(u32 reg, u64 val)
 {
 	writeq(val, (void *)(u64)(TXT_PRIV_CONFIG_REGS_BASE + reg));
 }
 
-static void __noreturn sl_txt_reset(u64 error)
+static void __noreturn __init sl_txt_reset(u64 error)
 {
 	/* Reading the E2STS register acts as a barrier for TXT registers */
 	sl_txt_write(TXT_CR_ERRORCODE, error);
@@ -73,7 +71,7 @@ static void __noreturn sl_txt_reset(u64 error)
 	unreachable();
 }
 
-static inline u64 sl_rdmsr(u32 reg)
+static inline __init u64 sl_rdmsr(u32 reg)
 {
 	struct msr m;
 
@@ -82,7 +80,7 @@ static inline u64 sl_rdmsr(u32 reg)
 	return m.q;
 }
 
-static struct slr_table *sl_locate_and_validate_slrt(void)
+static struct slr_table *__init sl_locate_and_validate_slrt(void)
 {
 	struct txt_os_mle_data *os_mle_data;
 	struct slr_table *slrt;
@@ -110,7 +108,7 @@ static struct slr_table *sl_locate_and_validate_slrt(void)
  * is protected from external access by being in a PMR range. If allow_hi is set,
  * ranges above 4GB are allowed.
  */
-static void sl_check_pmr_coverage(void *base, u32 size, bool allow_hi)
+static void __init sl_check_pmr_coverage(void *base, u32 size, bool allow_hi)
 {
 	struct txt_os_sinit_data *os_sinit_data;
 	void *end = base + size;
@@ -149,7 +147,7 @@ static void sl_check_pmr_coverage(void *base, u32 size, bool allow_hi)
  * The early MLE code has to restore these values. This code validates
  * the values after they are measured.
  */
-static void sl_txt_validate_msrs(struct txt_os_mle_data *os_mle_data)
+static void __init sl_txt_validate_msrs(struct txt_os_mle_data *os_mle_data)
 {
 	struct slr_txt_mtrr_state *saved_bsp_mtrrs;
 	u64 mtrr_caps, mtrr_def_type, mtrr_var;
@@ -186,7 +184,7 @@ static void sl_txt_validate_msrs(struct txt_os_mle_data *os_mle_data)
 		sl_txt_reset(SL_ERROR_MSR_INV_MISC_EN);
 }
 
-static void sl_find_drtm_event_log(struct slr_table *slrt)
+static void __init sl_find_drtm_event_log(struct slr_table *slrt)
 {
 	struct txt_os_sinit_data *os_sinit_data;
 	struct slr_entry_log_info *log_info;
@@ -222,7 +220,7 @@ static void sl_find_drtm_event_log(struct slr_table *slrt)
 		tpm_log_ver = SL_TPM2_LOG;
 }
 
-static void sl_validate_event_log_buffer(void)
+static void __init sl_validate_event_log_buffer(void)
 {
 	struct txt_os_sinit_data *os_sinit_data;
 	void *txt_heap, *txt_end;
@@ -263,7 +261,7 @@ pmr_check:
 	sl_check_pmr_coverage(evtlog_base, evtlog_size, true);
 }
 
-static void sl_find_event_log_algorithms(void)
+static void __init sl_find_event_log_algorithms(void)
 {
 	struct tcg_efi_specid_event_head *efi_head =
 		(struct tcg_efi_specid_event_head *)(evtlog_base + sizeof(struct tcg_pcr_event));
@@ -284,7 +282,7 @@ static void sl_find_event_log_algorithms(void)
 	}
 }
 
-static void sl_tpm1_extend(u32 pcr, u32 event_type,
+static void __init sl_tpm1_extend(u32 pcr, u32 event_type,
 			   const u8 *data, u32 length,
 			   const u8 *event_data, u32 event_size)
 {
@@ -317,11 +315,10 @@ static void sl_tpm1_extend(u32 pcr, u32 event_type,
 		sl_txt_reset(SL_ERROR_TPM_LOGGING_FAILED);
 }
 
-static void sl_tpm2_extend(u32 pcr, u32 event_type,
+static void __init sl_tpm2_extend(u32 pcr, u32 event_type,
 			   const u8 *data, u32 length,
 			   const u8 *event_data, u32 event_size)
 {
-	struct sha256_ctx sctx256 = {0};
 	struct tcg_pcr_event2_head *head;
 	struct tcg_event_field *event;
 	u8 digest[TPM2_MAX_DIGEST_SIZE];
@@ -346,9 +343,7 @@ static void sl_tpm2_extend(u32 pcr, u32 event_type,
 		dgst_ptr = (u8 *)alg_ptr + sizeof(u16);
 
 		if (tpm_algs[alg_idx].alg_id == TPM_ALG_SHA256) {
-			sha256_init(&sctx256);
-			sha256_update(&sctx256, data, length);
-			sha256_final(&sctx256, &digest[0]);
+			sha256(data, length, &digest[0]);
 		} else if (tpm_algs[alg_idx].alg_id == TPM_ALG_SHA1) {
 			sha1(data, length, &digest[0]);
 		} else {
@@ -385,7 +380,7 @@ static void sl_tpm2_extend(u32 pcr, u32 event_type,
 		sl_txt_reset(SL_ERROR_TPM_LOGGING_FAILED);
 }
 
-static void sl_tpm_extend(u32 pcr, u32 type, const u8 *data, u32 length, const char *desc)
+static void __init sl_tpm_extend(u32 pcr, u32 type, const u8 *data, u32 length, const char *desc)
 {
 	if (chip.family == TPM_FAMILY_20)
 		sl_tpm2_extend(pcr, type, data, length, (const u8 *)desc, strlen(desc));
@@ -393,7 +388,7 @@ static void sl_tpm_extend(u32 pcr, u32 type, const u8 *data, u32 length, const c
 		sl_tpm1_extend(pcr, type, data, length, (const u8 *)desc, strlen(desc));
 }
 
-static struct setup_data *sl_handle_setup_data(struct setup_data *curr,
+static struct setup_data * __init sl_handle_setup_data(struct setup_data *curr,
 					       struct slr_policy_entry *entry)
 {
 	struct setup_indirect *ind;
@@ -430,7 +425,7 @@ static struct setup_data *sl_handle_setup_data(struct setup_data *curr,
  * processed element by element. Indirect elements need to have their
  * pointers followed to the actual data to measure.
  */
-static void sl_extend_setup_data(struct slr_policy_entry *entry)
+static void __init sl_extend_setup_data(struct slr_policy_entry *entry)
 {
 	struct setup_data *data;
 
@@ -444,7 +439,7 @@ static void sl_extend_setup_data(struct slr_policy_entry *entry)
 		data = sl_handle_setup_data(data, entry);
 }
 
-static void sl_extend_slrt(struct slr_policy_entry *entry)
+static void __init sl_extend_slrt(struct slr_policy_entry *entry)
 {
 	struct slr_table *slrt = (struct slr_table *)entry->entity;
 	struct slr_entry_intel_info *intel_info;
@@ -475,7 +470,7 @@ static void sl_extend_slrt(struct slr_policy_entry *entry)
 	}
 }
 
-static void sl_extend_txt_os2mle(struct slr_policy_entry *entry)
+static void __init sl_extend_txt_os2mle(struct slr_policy_entry *entry)
 {
 	struct txt_os_mle_data *os_mle_data;
 	void *txt_heap;
@@ -495,7 +490,7 @@ static void sl_extend_txt_os2mle(struct slr_policy_entry *entry)
  * Process all policy entries and extend the measurements to the evtlog. Note
  * that some entries need special processing which is done in subroutines.
  */
-static void sl_process_extend_policy(struct slr_table *slrt)
+static void __init sl_process_extend_policy(struct slr_table *slrt)
 {
 	struct slr_entry_policy *policy;
 	u16 i;
@@ -529,7 +524,7 @@ static void sl_process_extend_policy(struct slr_table *slrt)
 /*
  * Process all EFI config entries and extend the measurements to the evtlog
  */
-static void sl_process_extend_uefi_config(struct slr_table *slrt)
+static void __init sl_process_extend_uefi_config(struct slr_table *slrt)
 {
 	struct slr_entry_uefi_config *uefi_config;
 	u16 i;
@@ -548,16 +543,10 @@ static void sl_process_extend_uefi_config(struct slr_table *slrt)
 	}
 }
 
-asmlinkage __visible void sl_check_region(void *base, u32 size)
-{
-	sl_check_pmr_coverage(base, size, false);
-}
-
-asmlinkage __visible void sl_main(void *bootparams)
+asmlinkage __visible __init void sl_main(void *bootparams)
 {
 	struct boot_params *bp = (struct boot_params *)bootparams;
 	struct txt_os_mle_data *os_mle_data;
-	struct slr_table *slrt;
 	void *txt_heap;
 
 	/*
@@ -608,10 +597,9 @@ asmlinkage __visible void sl_main(void *bootparams)
 	tpm_tis_disable_interrupts(&chip);
 
 	/*
-	 * Sanitize them before measuring. Set the SLAUNCH_FLAG early since if
-	 * anything fails, the system will reset anyway.
+	 * Set the SLAUNCH_FLAG early since if anything fails, the system will
+	 * reset anyway.
 	 */
-	sanitize_boot_params(bp);
 	bp->hdr.loadflags |= SLAUNCH_FLAG;
 
 	sl_check_pmr_coverage(bootparams, PAGE_SIZE, false);

@@ -216,6 +216,8 @@ static inline bool slaunch_is_txt_launch(void)
 	return (slaunch_get_flags() & mask) == mask;
 }
 
+void sl_main(void *bootparams);
+
 #else
 
 static inline void slaunch_setup(void)
