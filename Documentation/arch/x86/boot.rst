@@ -75,6 +75,9 @@ Protocol 2.14	BURNT BY INCORRECT COMMIT
 		DO NOT USE!!! ASSUME SAME AS 2.13.
 
 Protocol 2.15	(Kernel 5.5) Added the kernel_info and kernel_info.setup_type_max.
+
+Protocol 2.16   (Kernel 7.1) Added the secure launch resource table (SLRT)
+
 =============	============================================================
 
 .. note::
