@@ -104,7 +104,8 @@ struct slr_bl_context {
 /*
  * Dynamic Launch Callback Function type
  */
-typedef void (*dl_handler_func)(struct slr_bl_context *bl_context);
+typedef void (*dl_handler_func)(struct slr_bl_context *bl_context,
+				u32 mle_header_offset);
 
 /*
  * DRTM Dynamic Launch Configuration

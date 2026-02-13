@@ -17,6 +17,7 @@
 #include "../string.h"
 #include "../voffset.h"
 #include <asm/bootparam_utils.h>
+#include <linux/slr_table.h>
 
 /*
  * WARNING!!
@@ -391,6 +392,23 @@ static void early_sev_detect(void)
 		lines = cols = 0;
 }
 
+static void sl_initiate_launch(unsigned long table)
+{
+	struct slr_table *slrt = (void *)table;
+	struct slr_entry_dl_info *dl_info;
+	dl_handler_func fn;
+
+	if (!IS_ENABLED(CONFIG_SECURE_LAUNCH) || !slrt)
+		return;
+
+	dl_info = slr_next_entry_by_tag (slrt, NULL, SLR_ENTRY_DL_INFO);
+	if (!dl_info)
+		return;
+
+	fn = (void *)(unsigned long)dl_info->dl_handler;
+	fn(&dl_info->bl_context, mle_header_offset);
+}
+
 /*
  * The compressed kernel image (ZO), has been moved so that its position
  * is against the end of the buffer used to hold the uncompressed kernel
@@ -491,10 +509,15 @@ asmlinkage __visible void *extract_kernel(void *rmode, unsigned char *output)
 	debug_putaddr(trampoline_32bit);
 #endif
 
-	choose_random_location((unsigned long)input_data, input_len,
-				(unsigned long *)&output,
-				needed_size,
-				&virt_addr);
+	/*
+	 * When doing a secure launch, the actual launch will be initiated by
+	 * jumping back to the bootloader. Omit physical KASLR in that case, to
+	 * avoid trampling on its code or data inadvertently.
+	 */
+	if (!boot_params_ptr->slr_table_addr)
+		choose_random_location((unsigned long)input_data, input_len,
+				       (unsigned long *)&output,
+				       needed_size, &virt_addr);
 
 	/* Validate memory location choices. */
 	if ((unsigned long)output & (MIN_KERNEL_ALIGN - 1))
@@ -527,6 +550,13 @@ asmlinkage __visible void *extract_kernel(void *rmode, unsigned char *output)
 	debug_putstr("done.\nBooting the kernel (entry_offset: 0x");
 	debug_puthex(entry_offset);
 	debug_putstr(").\n");
+
+	/*
+	 * The secure launch involves calling back into the bootloader, so this
+	 * needs to happen before disabling exception handling, to ensure that
+	 * the entry point will be mapped on demand if needed.
+	 */
+	sl_initiate_launch(boot_params_ptr->slr_table_addr);
 
 	/* Disable exception handling before booting the kernel */
 	cleanup_exception_handling();
