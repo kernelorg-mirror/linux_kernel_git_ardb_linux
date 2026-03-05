@@ -401,10 +401,8 @@ static int __init efi_add_range_to_free(u64 range_start, u64 range_end,
 
 void __init efi_unmap_boot_services(void)
 {
-	struct efi_memory_map_data data = { 0 };
 	efi_memory_desc_t *md;
-	int num_entries = 0;
-	void *new, *new_md;
+	void *new_md;
 
 	/* Keep all regions for /sys/kernel/debug/efi */
 	if (efi_enabled(EFI_DBG))
@@ -425,7 +423,6 @@ void __init efi_unmap_boot_services(void)
 
 		if (md->type != EFI_BOOT_SERVICES_CODE &&
 		    md->type != EFI_BOOT_SERVICES_DATA) {
-			num_entries++;
 			continue;
 		}
 
@@ -438,7 +435,6 @@ void __init efi_unmap_boot_services(void)
 
 		/* Do not free, someone else owns it: */
 		if (md->attribute & EFI_MEMORY_RUNTIME) {
-			num_entries++;
 			continue;
 		}
 
@@ -452,23 +448,6 @@ void __init efi_unmap_boot_services(void)
 			pr_err("Failed to reallocate storage for freeable EFI regions\n");
 			return;
 		}
-
-		if (has_reservations)
-			num_entries++;
-	}
-
-	if (!num_entries)
-		return;
-
-	if (efi_memmap_alloc(num_entries, &data) != 0) {
-		pr_err("Failed to allocate new EFI memmap\n");
-		return;
-	}
-
-	new = memremap(data.phys_map, data.size, MEMREMAP_WB);
-	if (!new) {
-		pr_err("Failed to map new EFI memmap\n");
-		return;
 	}
 
 	/*
@@ -476,7 +455,7 @@ void __init efi_unmap_boot_services(void)
 	 * regions that are not tagged EFI_MEMORY_RUNTIME, since those
 	 * regions have now been freed.
 	 */
-	new_md = new;
+	new_md = efi.memmap.map;
 	for_each_efi_memory_desc(md) {
 		if (!(md->attribute & EFI_MEMORY_RUNTIME) &&
 		    (md->type == EFI_BOOT_SERVICES_CODE ||
@@ -486,16 +465,12 @@ void __init efi_unmap_boot_services(void)
 			continue;
 		}
 
-		memcpy(new_md, md, efi.memmap.desc_size);
+		if (new_md != md)
+			memcpy(new_md, md, efi.memmap.desc_size);
 		new_md += efi.memmap.desc_size;
 	}
 
-	memunmap(new);
-
-	if (efi_memmap_install(&data) != 0) {
-		pr_err("Could not install new EFI memmap\n");
-		return;
-	}
+	efi.memmap.num_valid_entries = (new_md - efi.memmap.map) / efi.memmap.desc_size;
 }
 
 static int __init efi_free_boot_services(void)
