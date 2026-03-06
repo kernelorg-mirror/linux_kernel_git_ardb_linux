@@ -469,18 +469,6 @@ void __init efi_unmap_boot_services(void)
 		}
 
 		/*
-		 * Don't free memory under 1M for two reasons:
-		 * - BIOS might clobber it
-		 * - Crash kernel needs it to be reserved
-		 */
-		if (start + size < SZ_1M)
-			continue;
-		if (start < SZ_1M) {
-			size -= (SZ_1M - start);
-			start = SZ_1M;
-		}
-
-		/*
 		 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT parts of the memory
 		 * map are still not initialized and we can't reliably free
 		 * memory here.
@@ -537,12 +525,20 @@ static int __init efi_free_boot_services(void)
 	if (!ranges_to_free)
 		return 0;
 
-	while (range->start) {
-		void *start = phys_to_virt(range->start);
+	while (range->start || range->end) {
+		/*
+		 * Don't free memory under 1M for two reasons:
+		 * - BIOS might clobber it
+		 * - Crash kernel needs it to be reserved
+		 */
+		unsigned long s = max(range->start, SZ_1M);
+		void *start = phys_to_virt(s);
 		void *end = phys_to_virt(range->end);
 
-		free_reserved_area(start, end, -1, NULL);
-		freed += (end - start);
+		if (start < end) {
+			free_reserved_area(start, end, -1, NULL);
+			freed += (end - start);
+		}
 		range++;
 	}
 	kfree(ranges_to_free);
