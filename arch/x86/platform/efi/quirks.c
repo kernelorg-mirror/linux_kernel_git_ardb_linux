@@ -350,37 +350,10 @@ static void __init efi_unmap_pages(efi_memory_desc_t *md)
 		pr_err("Failed to unmap VA mapping for 0x%llx\n", va);
 }
 
-struct efi_freeable_range {
-	u64 start;
-	u64 end;
-};
-
-static struct efi_freeable_range *ranges_to_free;
-
 void __init efi_unmap_boot_services(void)
 {
-	struct efi_memory_map_data data = {
-		.phys_map	= efi.memmap.phys_map,
-		.desc_version	= efi.memmap.desc_version,
-		.desc_size	= efi.memmap.desc_size,
-	};
 	efi_memory_desc_t *md;
-	void *new_md;
-	int idx = 0;
-	size_t sz;
 
-	/* Keep all regions for /sys/kernel/debug/efi */
-	if (efi_enabled(EFI_DBG))
-		return;
-
-	sz = sizeof(*ranges_to_free) * efi.memmap.nr_map + 1;
-	ranges_to_free = kzalloc(sz, GFP_KERNEL);
-	if (!ranges_to_free) {
-		pr_err("Failed to allocate storage for freeable EFI regions\n");
-		return;
-	}
-
-	new_md = efi.memmap.map;
 	for_each_efi_memory_desc(md) {
 		unsigned long long start = md->phys_addr;
 		unsigned long long size = md->num_pages << EFI_PAGE_SHIFT;
@@ -394,14 +367,9 @@ void __init efi_unmap_boot_services(void)
 		/*
 		 * Before calling set_virtual_address_map(), EFI boot services
 		 * code/data regions were mapped as a quirk for buggy firmware.
-		 * Unmap them from efi_pgd before freeing them up.
+		 * Unmap them from efi_pgd, they will be freed later.
 		 */
 		efi_unmap_pages(md);
-
-		/* Do not free, someone else owns it: */
-		if (md->attribute & EFI_MEMORY_RUNTIME) {
-			continue;
-		}
 
 		/*
 		 * Nasty quirk: if all sub-1MB memory is used for boot
@@ -416,49 +384,14 @@ void __init efi_unmap_boot_services(void)
 		 * this happened, but Linux should still try to boot rather
 		 * panicking early.)
 		 */
-		rm_size = real_mode_size_needed();
+		rm_size = PAGE_ALIGN(real_mode_size_needed());
 		if (rm_size && (start + rm_size) < (1<<20) && size >= rm_size) {
 			set_real_mode_mem(start);
-			start += rm_size;
-			size -= rm_size;
+
+			/* Remove the allocated space from the descriptor */
+			md->phys_addr += rm_size;
+			md->num_pages -= rm_size / EFI_PAGE_SIZE;
 		}
-
-		/*
-		 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT parts of the memory
-		 * map are still not initialized and we can't reliably free
-		 * memory here.
-		 * Queue the ranges to free at a later point.
-		 */
-		ranges_to_free[idx].start = start;
-		ranges_to_free[idx].end = start + size;
-		idx++;
-	}
-
-	/*
-	 * Build a new EFI memmap that excludes any boot services
-	 * regions that are not tagged EFI_MEMORY_RUNTIME, since those
-	 * regions have now been freed.
-	 */
-	new_md = efi.memmap.map;
-	for_each_efi_memory_desc(md) {
-		if (!(md->attribute & EFI_MEMORY_RUNTIME) &&
-		    (md->type == EFI_BOOT_SERVICES_CODE ||
-		     md->type == EFI_BOOT_SERVICES_DATA) &&
-		    !e820__mapped_any(md->phys_addr,
-				      md->phys_addr + md->num_pages * EFI_PAGE_SIZE,
-				      E820_TYPE_RESERVED)) {
-			continue;
-		}
-
-		memcpy(new_md, md, efi.memmap.desc_size);
-		new_md += efi.memmap.desc_size;
-	}
-
-	data.size = new_md - efi.memmap.map;
-
-	if (efi_memmap_install(&data) != 0) {
-		pr_err("Could not install new EFI memmap\n");
-		return;
 	}
 }
 
@@ -498,24 +431,53 @@ efi_free_unreserved_subregions(u64 range_start, u64 range_end)
 
 static int __init efi_free_boot_services(void)
 {
-	struct efi_freeable_range *range = ranges_to_free;
+	struct efi_memory_map_data data = {
+		.phys_map	= efi.memmap.phys_map,
+		.desc_version	= efi.memmap.desc_version,
+		.desc_size	= efi.memmap.desc_size,
+	};
 	unsigned long freed = 0;
+	efi_memory_desc_t *md;
+	void *new_md;
 
-	if (!ranges_to_free)
+	/* Keep all regions for /sys/kernel/debug/efi */
+	if (efi_enabled(EFI_DBG))
 		return 0;
 
-	while (range->start) {
-		/*
-		 * Don't free memory under 1M for two reasons:
-		 * - BIOS might clobber it
-		 * - Crash kernel needs it to be reserved
-		 */
-		u64 start = max(range->start, SZ_1M);
+	new_md = efi.memmap.map;
+	for_each_efi_memory_desc(md) {
+		u64 md_start = max(md->phys_addr, SZ_1M);
+		u64 md_end = md->phys_addr + md->num_pages * EFI_PAGE_SIZE;
+		bool preserve_entry = true;
 
-		freed += efi_free_unreserved_subregions(start, range->end);
-		range++;
+		if (!(md->attribute & EFI_MEMORY_RUNTIME) &&
+		    (md->type == EFI_BOOT_SERVICES_CODE ||
+		     md->type == EFI_BOOT_SERVICES_DATA)) {
+			u64 f = efi_free_unreserved_subregions(md_start, md_end);
+
+			/*
+			 * Omit the memory map entry of this region only if it
+			 * has been freed entirely. This ensures that boot data
+			 * regions for things like ESRT and BGRT tables carry
+			 * over correctly during kexec.
+			 */
+			if (f == md_end - md_start)
+				preserve_entry = false;
+
+			freed += f;
+		}
+
+		if (preserve_entry) {
+			if (new_md != md)
+				memcpy(new_md, md, efi.memmap.desc_size);
+			new_md += efi.memmap.desc_size;
+		}
 	}
-	kfree(ranges_to_free);
+
+	data.size = new_md - efi.memmap.map;
+
+	if (efi_memmap_install(&data) != 0)
+		pr_err("Could not install new EFI memmap\n");
 
 	if (freed)
 		pr_info("Freeing EFI boot services memory: %ldK\n", freed / SZ_1K);
