@@ -475,9 +475,14 @@ static int __init efi_free_boot_services(void)
 	}
 
 	data.size = new_md - efi.memmap.map;
+	md = efi.memmap.map_end;
 
 	if (efi_memmap_install(&data) != 0)
 		pr_err("Could not install new EFI memmap\n");
+
+	/* Free the part of the memory map allocation that has become unused */
+	free_reserved_area(new_md, md, -1, NULL);
+	freed += (void *)md - new_md;
 
 	if (freed)
 		pr_info("Freeing EFI boot services memory: %ldK\n", freed / SZ_1K);
