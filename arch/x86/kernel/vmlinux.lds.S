@@ -62,7 +62,6 @@ const_cpu_current_top_of_stack = cpu_current_top_of_stack;
 
 #define X86_ALIGN_RODATA_END					\
 		. = ALIGN(HPAGE_SIZE);				\
-		__end_rodata_hpage_align = .;			\
 		__end_rodata_aligned = .;
 
 #define ALIGN_ENTRY_TEXT_BEGIN	. = ALIGN(PMD_SIZE);

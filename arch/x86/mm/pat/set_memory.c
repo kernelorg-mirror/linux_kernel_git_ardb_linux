@@ -554,7 +554,7 @@ static pgprotval_t protect_kernel_text(unsigned long start, unsigned long end)
 static pgprotval_t protect_kernel_text_ro(unsigned long start,
 					  unsigned long end)
 {
-	unsigned long t_end = (unsigned long)__end_rodata_hpage_align - 1;
+	unsigned long t_end = (unsigned long)__end_rodata_aligned - 1;
 	unsigned long t_start = (unsigned long)_text;
 	unsigned int level;
 
