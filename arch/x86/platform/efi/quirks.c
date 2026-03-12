@@ -410,7 +410,7 @@ void __init efi_unmap_boot_services(void)
 	if (efi_enabled(EFI_DBG))
 		return;
 
-	num_to_free = efi.memmap.nr_map;
+	num_to_free = efi.memmap.num_valid_entries;
 	ranges_to_free = kmalloc_array(num_to_free, sizeof(ranges_to_free[0]),
 				       GFP_KERNEL);
 	if (!ranges_to_free) {
