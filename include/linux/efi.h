@@ -568,7 +568,7 @@ struct efi_memory_map {
 	phys_addr_t phys_map;
 	void *map;
 	void *map_end;
-	int nr_map;
+	int num_valid_entries;
 	unsigned long desc_version;
 	unsigned long desc_size;
 #define EFI_MEMMAP_LATE (1UL << 0)
@@ -803,9 +803,9 @@ extern int efi_memattr_apply_permissions(struct mm_struct *mm,
 
 /* Iterate through an efi_memory_map */
 #define for_each_efi_memory_desc_in_map(m, md)				   \
-	for ((md) = (m)->map;						   \
-	     (md) && ((void *)(md) + (m)->desc_size) <= (m)->map_end;	   \
-	     (md) = (void *)(md) + (m)->desc_size)
+	for (int __idx = 0;						   \
+	     (md) = efi_memdesc_ptr((m)->map, (m)->desc_size, __idx),	   \
+	     __idx < (m)->num_valid_entries; ++__idx)
 
 /**
  * for_each_efi_memory_desc - iterate over descriptors in efi.memmap

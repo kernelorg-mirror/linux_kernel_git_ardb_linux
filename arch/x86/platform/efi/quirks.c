@@ -278,7 +278,7 @@ void __init efi_arch_mem_reserve(phys_addr_t addr, u64 size)
 	mr.attribute = md.attribute | EFI_MEMORY_RUNTIME;
 
 	num_entries = efi_memmap_split_count(&md, &mr.range);
-	num_entries += efi.memmap.nr_map;
+	num_entries += efi.memmap.num_valid_entries;
 
 	if (efi_memmap_alloc(num_entries, &data) != 0) {
 		pr_err("Could not allocate boot services memmap\n");
@@ -424,7 +424,7 @@ void __init efi_unmap_boot_services(void)
 	if (efi_enabled(EFI_DBG))
 		return;
 
-	sz = sizeof(*ranges_to_free) * (efi.memmap.nr_map + 1);
+	sz = sizeof(*ranges_to_free) * (efi.memmap.num_valid_entries + 1);
 	ranges_to_free = kzalloc(sz, GFP_KERNEL);
 	if (!ranges_to_free) {
 		pr_err("Failed to allocate storage for freeable EFI regions\n");
