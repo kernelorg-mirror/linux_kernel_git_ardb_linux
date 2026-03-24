@@ -18,11 +18,11 @@ KMSAN_SANITIZE	:= n
 UBSAN_SANITIZE	:= n
 KCOV_INSTRUMENT	:= n
 
-obj-$(CONFIG_X86_64)		+= gdt_idt.o map_kernel.o
+obj-y				+= gdt_idt.o map_kernel.o
 obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= sme.o sev-startup.o
 pi-objs				:= $(patsubst %.o,$(obj)/%.o,$(obj-y))
 
-lib-$(CONFIG_X86_64)		+= la57toggle.o
+lib-y				+= la57toggle.o
 lib-$(CONFIG_EFI_MIXED)		+= efi-mixed.o
 
 #
