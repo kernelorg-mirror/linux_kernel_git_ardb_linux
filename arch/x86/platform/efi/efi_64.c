@@ -507,29 +507,6 @@ static DEFINE_SPINLOCK(efi_runtime_lock);
 	__s;								\
 })
 
-static efi_status_t __init __no_sanitize_address
-efi_thunk_set_virtual_address_map(unsigned long memory_map_size,
-				  unsigned long descriptor_size,
-				  u32 descriptor_version,
-				  efi_memory_desc_t *virtual_map)
-{
-	efi_status_t status;
-	unsigned long flags;
-
-	efi_sync_low_kernel_mappings();
-	local_irq_save(flags);
-
-	efi_enter_mm();
-
-	status = __efi_thunk(set_virtual_address_map, memory_map_size,
-			     descriptor_size, descriptor_version, virtual_map);
-
-	efi_leave_mm();
-	local_irq_restore(flags);
-
-	return status;
-}
-
 static efi_status_t efi_thunk_get_time(efi_time_t *tm, efi_time_cap_t *tc)
 {
 	return EFI_UNSUPPORTED;
@@ -814,10 +791,8 @@ efi_set_virtual_address_map(unsigned long memory_map_size,
 	unsigned long flags;
 
 	if (efi_is_mixed())
-		return efi_thunk_set_virtual_address_map(memory_map_size,
-							 descriptor_size,
-							 descriptor_version,
-							 virtual_map);
+		return EFI_SUCCESS;
+
 	efi_enter_mm();
 
 	efi_fpu_begin();

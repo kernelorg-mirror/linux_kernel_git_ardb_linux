@@ -754,6 +754,23 @@ static efi_status_t exit_boot_func(struct efi_boot_memmap *map,
 	return EFI_SUCCESS;
 }
 
+static void efistub_set_virtual_address_map(const struct efi_info *info)
+{
+	void *map = (void *)(unsigned long)info->efi_memmap;
+	efi_memory_desc_t *desc;
+
+	if (efi_is_native())
+		return;
+
+	for (int i = 0; i < info->efi_memmap_size / info->efi_memdesc_size; i++) {
+		desc = efi_memdesc_ptr(map, info->efi_memdesc_size, i);
+		desc->virt_addr = desc->phys_addr;
+	}
+
+	efi_rt_call(set_virtual_address_map, info->efi_memmap_size,
+		    info->efi_memdesc_size, info->efi_memdesc_version, map);
+}
+
 static efi_status_t exit_boot(struct boot_params *boot_params, void *handle)
 {
 	struct setup_data *e820ext = NULL;
@@ -772,6 +789,8 @@ static efi_status_t exit_boot(struct boot_params *boot_params, void *handle)
 	status = efi_exit_boot_services(handle, &priv, exit_boot_func);
 	if (status != EFI_SUCCESS)
 		return status;
+
+	efistub_set_virtual_address_map(&boot_params->efi_info);
 
 	/* Historic? */
 	boot_params->alt_mem_k	= 32 * 1024;
