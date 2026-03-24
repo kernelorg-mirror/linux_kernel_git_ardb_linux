@@ -20,6 +20,7 @@ KCOV_INSTRUMENT	:= n
 
 obj-y				+= gdt_idt.o map_kernel.o
 obj-$(CONFIG_AMD_MEM_ENCRYPT)	+= sme.o sev-startup.o
+obj-$(CONFIG_EFI)		+= efi-memmap.o
 pi-objs				:= $(patsubst %.o,$(obj)/%.o,$(obj-y))
 
 lib-y				+= la57toggle.o

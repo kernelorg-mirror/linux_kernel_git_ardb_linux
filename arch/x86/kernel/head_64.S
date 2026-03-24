@@ -61,6 +61,11 @@ SYM_CODE_START_NOALIGN(startup_64)
 	/* Set up the stack for verify_cpu() */
 	leaq	__top_init_kernel_stack(%rip), %rsp
 
+#ifdef CONFIG_EFI
+	mov	%r15, %rdi
+	callq	__pi_efi_init_virtual_address_map
+#endif
+
 	/*
 	 * Set up GSBASE.
 	 * Note that on SMP the boot CPU uses the init data section until

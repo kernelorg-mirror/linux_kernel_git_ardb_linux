@@ -49,11 +49,6 @@
 #include <asm/pgalloc.h>
 #include <asm/sev.h>
 
-/*
- * We allocate runtime services regions top-down, starting from -4G, i.e.
- * 0xffff_ffff_0000_0000 and limit EFI VA mapping space to 64G.
- */
-static u64 efi_va = EFI_VA_START;
 static struct mm_struct *efi_prev_mm;
 
 /*
@@ -305,9 +300,6 @@ static void __init __map_region(efi_memory_desc_t *md, u64 va)
 
 void __init efi_map_region(efi_memory_desc_t *md)
 {
-	unsigned long size = md->num_pages << PAGE_SHIFT;
-	u64 pa = md->phys_addr;
-
 	/*
 	 * Make sure the 1:1 mappings are present as a catch-all for b0rked
 	 * firmware which doesn't update all internal pointers after switching
@@ -325,30 +317,13 @@ void __init efi_map_region(efi_memory_desc_t *md)
 		return;
 	}
 
-	efi_va -= size;
-
-	/* Is PA 2M-aligned? */
-	if (!(pa & (PMD_SIZE - 1))) {
-		efi_va &= PMD_MASK;
-	} else {
-		u64 pa_offset = pa & (PMD_SIZE - 1);
-		u64 prev_va = efi_va;
-
-		/* get us the same offset within this 2M page */
-		efi_va = (efi_va & PMD_MASK) + pa_offset;
-
-		if (efi_va > prev_va)
-			efi_va -= PMD_SIZE;
-	}
-
-	if (efi_va < EFI_VA_END) {
+	if (md->virt_addr == U64_MAX) {
 		pr_warn(FW_WARN "VA address range overflow!\n");
 		return;
 	}
 
 	/* Do the VA map */
-	__map_region(md, efi_va);
-	md->virt_addr = efi_va;
+	__map_region(md, md->virt_addr);
 }
 
 /*
