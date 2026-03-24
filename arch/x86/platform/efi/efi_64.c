@@ -753,38 +753,3 @@ void __init efi_thunk_runtime_setup(void)
 	efi.update_capsule = efi_thunk_update_capsule;
 	efi.query_capsule_caps = efi_thunk_query_capsule_caps;
 }
-
-efi_status_t __init __no_sanitize_address
-efi_set_virtual_address_map(unsigned long memory_map_size,
-			    unsigned long descriptor_size,
-			    u32 descriptor_version,
-			    efi_memory_desc_t *virtual_map,
-			    unsigned long systab_phys)
-{
-	const efi_system_table_t *systab = (efi_system_table_t *)systab_phys;
-	efi_status_t status;
-	unsigned long flags;
-
-	if (efi_is_mixed())
-		return EFI_SUCCESS;
-
-	efi_enter_mm();
-
-	efi_fpu_begin();
-
-	/* Disable interrupts around EFI calls: */
-	local_irq_save(flags);
-	status = arch_efi_call_virt(efi.runtime, set_virtual_address_map,
-				    memory_map_size, descriptor_size,
-				    descriptor_version, virtual_map);
-	local_irq_restore(flags);
-
-	efi_fpu_end();
-
-	/* grab the virtually remapped EFI runtime services table pointer */
-	efi.runtime = READ_ONCE(systab->runtime);
-
-	efi_leave_mm();
-
-	return status;
-}

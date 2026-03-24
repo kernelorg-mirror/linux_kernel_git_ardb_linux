@@ -19,6 +19,7 @@ void __init efi_init_virtual_address_map(struct boot_params *bp)
 	struct efi_info *info = &bp->efi_info;
 	void *map = (void *)((u64)info->efi_memmap_hi << 32 | info->efi_memmap);
 	int num_entries = info->efi_memmap_size / info->efi_memdesc_size;
+	efi_system_table_t *systab;
 	efi_memory_desc_t *desc;
 
 	if (info->efi_loader_signature != sig.v)
@@ -61,4 +62,16 @@ void __init efi_init_virtual_address_map(struct boot_params *bp)
 			desc->virt_addr = efi_va;
 		}
 	}
+
+	systab = (void *)((u64)info->efi_systab_hi << 32 | info->efi_systab);
+	if (systab->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
+		return;
+
+	efi_fw_vendor		= systab->fw_vendor;
+	efi_config_table	= systab->tables;
+
+	systab->runtime->set_virtual_address_map(info->efi_memmap_size,
+						 info->efi_memdesc_size,
+						 info->efi_memdesc_version,
+						 map);
 }

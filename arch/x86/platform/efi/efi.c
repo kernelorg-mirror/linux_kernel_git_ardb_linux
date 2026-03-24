@@ -56,7 +56,12 @@
 static unsigned long efi_systab_phys __initdata;
 static unsigned long efi_runtime, efi_nr_tables;
 
-unsigned long efi_fw_vendor, efi_config_table;
+unsigned long efi_fw_vendor, efi_config_table __ro_after_init;
+
+#ifdef CONFIG_X86_64
+SYM_PIC_ALIAS(efi_fw_vendor);
+SYM_PIC_ALIAS(efi_config_table);
+#endif
 
 static const efi_config_table_type_t arch_tables[] __initconst = {
 #ifdef CONFIG_X86_UV
@@ -402,7 +407,7 @@ static int __init efi_systab_init(unsigned long phys)
 				  data->tables		> U32_MAX;
 
 			early_memunmap(data, sizeof(*data));
-		} else {
+		} else if (IS_ENABLED(CONFIG_X86_32)) {
 			efi_fw_vendor		= systab64->fw_vendor;
 			efi_config_table	= systab64->tables;
 
@@ -726,15 +731,17 @@ static void __init __efi_enter_virtual_mode(void)
 
 	efi_sync_low_kernel_mappings();
 
-	status = efi_set_virtual_address_map(efi.memmap.desc_size * count,
-					     efi.memmap.desc_size,
-					     efi.memmap.desc_version,
-					     (efi_memory_desc_t *)pa,
-					     efi_systab_phys);
-	if (status != EFI_SUCCESS) {
-		pr_err("Unable to switch EFI into virtual mode (status=%lx)!\n",
-		       status);
-		goto err;
+	if (IS_ENABLED(CONFIG_X86_32)) {
+		status = efi_set_virtual_address_map(efi.memmap.desc_size * count,
+						     efi.memmap.desc_size,
+						     efi.memmap.desc_version,
+						     (efi_memory_desc_t *)pa,
+						     efi_systab_phys);
+		if (status != EFI_SUCCESS) {
+			pr_err("Unable to switch EFI into virtual mode (status=%lx)!\n",
+			       status);
+			goto err;
+		}
 	}
 
 	efi_check_for_embedded_firmwares();
