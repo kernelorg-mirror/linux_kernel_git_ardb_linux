@@ -8,7 +8,7 @@
 #include <linux/efi.h>
 #include <linux/init.h>
 #include <linux/io.h>
-#include <linux/memblock.h>
+#include <linux/mm.h>
 
 #include <asm/early_ioremap.h>
 
@@ -75,7 +75,7 @@ void __init efi_memattr_init(void)
 	}
 
 	tbl_size = sizeof(*tbl) + tbl->num_entries * tbl->desc_size;
-	memblock_reserve(efi_mem_attr_table, tbl_size);
+	efi_mem_reserve(efi_mem_attr_table, tbl_size);
 	set_bit(EFI_MEM_ATTR, &efi.flags);
 
 unmap:
