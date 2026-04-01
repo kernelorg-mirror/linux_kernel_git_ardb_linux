@@ -6,7 +6,7 @@
 #include <linux/types.h>
 #include <asm/neon-intrinsics.h>
 
-u64 crc64_nvme_arm64_c(u64 crc, const u8 *p, size_t len);
+u64 crc64_nvme_neon(u64 crc, const u8 *p, size_t len);
 
 /* x^191 mod G, x^127 mod G */
 static const u64 fold_consts_val[2] = { 0xeadc41fd2ba3d420ULL,
@@ -35,7 +35,7 @@ static inline uint64x2_t pmull64_hi_lo(uint64x2_t a, uint64x2_t b)
 						vgetq_lane_u64(b, 0)));
 }
 
-u64 crc64_nvme_arm64_c(u64 crc, const u8 *p, size_t len)
+u64 crc64_nvme_neon(u64 crc, const u8 *p, size_t len)
 {
 	uint64x2_t fold_consts = vld1q_u64(fold_consts_val);
 	uint64x2_t v0 = { crc, 0 };
