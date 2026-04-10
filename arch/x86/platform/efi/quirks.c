@@ -406,19 +406,41 @@ static int num_to_free __initdata;
 
 static int __init efi_add_range_to_free(u64 range_start, u64 range_end)
 {
+	struct memblock_region *region;
 	static int idx __initdata;
 
-	ranges_to_free[idx].start = range_start;
-	ranges_to_free[idx].end = range_end;
+	for_each_reserved_mem_region(region) {
+		u64 region_end = region->base + region->size;
+		u64 start, end;
 
-	if (++idx >= num_to_free) {
-		num_to_free *= 2;
-		ranges_to_free = krealloc_array(ranges_to_free,
-						num_to_free,
-						sizeof(ranges_to_free[0]),
-						GFP_KERNEL);
-		if (!ranges_to_free)
-			return -ENOMEM;
+		/* memblock tables are sorted so no need to carry on */
+		if (region->base >= range_end)
+			break;
+
+		if (region_end < range_start)
+			continue;
+
+		if (region->flags & MEMBLOCK_RSRV_KERN)
+			continue;
+
+		start = PAGE_ALIGN(max(range_start, region->base));
+		end = PAGE_ALIGN_DOWN(min(range_end, region_end));
+
+		if (start >= end)
+			continue;
+
+		ranges_to_free[idx].start = start;
+		ranges_to_free[idx].end = end;
+
+		if (++idx >= num_to_free) {
+			num_to_free *= 2;
+			ranges_to_free = krealloc_array(ranges_to_free,
+							num_to_free,
+							sizeof(ranges_to_free[0]),
+							GFP_KERNEL);
+			if (!ranges_to_free)
+				return -ENOMEM;
+		}
 	}
 
 	/* add a terminating entry at the end */
