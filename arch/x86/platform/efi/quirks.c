@@ -401,23 +401,46 @@ struct efi_freeable_range {
 	u64 end;
 };
 
-static struct efi_freeable_range *ranges_to_free;
+static struct efi_freeable_range *ranges_to_free __initdata;
+static int num_to_free __initdata;
+
+static int __init efi_add_range_to_free(u64 range_start, u64 range_end)
+{
+	static int idx __initdata;
+
+	ranges_to_free[idx].start = range_start;
+	ranges_to_free[idx].end = range_end;
+
+	if (++idx >= num_to_free) {
+		num_to_free *= 2;
+		ranges_to_free = krealloc_array(ranges_to_free,
+						num_to_free,
+						sizeof(ranges_to_free[0]),
+						GFP_KERNEL);
+		if (!ranges_to_free)
+			return -ENOMEM;
+	}
+
+	/* add a terminating entry at the end */
+	ranges_to_free[idx].start = ranges_to_free[idx].end = 0;
+
+	return 0;
+}
 
 void __init efi_unmap_boot_services(void)
 {
 	struct efi_memory_map_data data = { 0 };
 	efi_memory_desc_t *md;
 	int num_entries = 0;
-	int idx = 0;
-	size_t sz;
 	void *new, *new_md;
 
 	/* Keep all regions for /sys/kernel/debug/efi */
 	if (efi_enabled(EFI_DBG))
 		return;
 
-	sz = sizeof(*ranges_to_free) * (efi.memmap.nr_map + 1);
-	ranges_to_free = kzalloc(sz, GFP_KERNEL);
+	num_to_free = efi.memmap.nr_map;
+	ranges_to_free = kmalloc_array(num_to_free, sizeof(ranges_to_free[0]),
+				       GFP_KERNEL);
 	if (!ranges_to_free) {
 		pr_err("Failed to allocate storage for freeable EFI regions\n");
 		return;
@@ -452,9 +475,10 @@ void __init efi_unmap_boot_services(void)
 		 * memory here.
 		 * Queue the ranges to free at a later point.
 		 */
-		ranges_to_free[idx].start = start;
-		ranges_to_free[idx].end = start + size;
-		idx++;
+		if (efi_add_range_to_free(start, start + size)) {
+			pr_err("Failed to reallocate storage for freeable EFI regions\n");
+			return;
+		}
 	}
 
 	if (!num_entries)
