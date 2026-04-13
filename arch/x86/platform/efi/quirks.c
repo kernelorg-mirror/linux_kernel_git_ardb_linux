@@ -416,13 +416,23 @@ void __init efi_unmap_boot_services(void)
 		return;
 	}
 
+	new_md = efi.memmap.map;
 	for_each_efi_memory_desc(md) {
 		unsigned long long start = md->phys_addr;
 		unsigned long long size = md->num_pages << EFI_PAGE_SHIFT;
 		bool has_reservations = false;
 
+		/*
+		 * Build a new EFI memmap that excludes any boot services data
+		 * regions that do not cover any reserved areas, since those
+		 * regions are being freed.
+		 */
+		if (new_md != md)
+			memcpy(new_md, md, efi.memmap.desc_size);
+
 		if (md->type != EFI_BOOT_SERVICES_CODE &&
 		    md->type != EFI_BOOT_SERVICES_DATA) {
+			new_md += efi.memmap.desc_size;
 			continue;
 		}
 
@@ -433,40 +443,26 @@ void __init efi_unmap_boot_services(void)
 		 */
 		efi_unmap_pages(md);
 
-		/* Do not free, someone else owns it: */
-		if (md->attribute & EFI_MEMORY_RUNTIME) {
-			continue;
+		if (!(md->attribute & EFI_MEMORY_RUNTIME)) {
+			/*
+			 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT parts of the memory
+			 * map are still not initialized and we can't reliably free
+			 * memory here.
+			 * Queue the ranges to free at a later point.
+			 */
+			if (efi_add_range_to_free(start, start + size, &has_reservations)) {
+				pr_err("Failed to reallocate storage for freeable EFI regions\n");
+				clear_bit(EFI_MEMMAP, &efi.flags);
+				return;
+			}
+
+			/* Continue without advancing new_md so this region is omitted */
+			if (!has_reservations)
+				continue;
+
 		}
 
-		/*
-		 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT parts of the memory
-		 * map are still not initialized and we can't reliably free
-		 * memory here.
-		 * Queue the ranges to free at a later point.
-		 */
-		if (efi_add_range_to_free(start, start + size, &has_reservations)) {
-			pr_err("Failed to reallocate storage for freeable EFI regions\n");
-			return;
-		}
-	}
-
-	/*
-	 * Build a new EFI memmap that excludes any boot services
-	 * regions that are not tagged EFI_MEMORY_RUNTIME, since those
-	 * regions have now been freed.
-	 */
-	new_md = efi.memmap.map;
-	for_each_efi_memory_desc(md) {
-		if (!(md->attribute & EFI_MEMORY_RUNTIME) &&
-		    (md->type == EFI_BOOT_SERVICES_CODE ||
-		     md->type == EFI_BOOT_SERVICES_DATA) &&
-		    can_free_region(md->phys_addr,
-				    md->num_pages << EFI_PAGE_SHIFT)) {
-			continue;
-		}
-
-		if (new_md != md)
-			memcpy(new_md, md, efi.memmap.desc_size);
+		/* Advance new_md so this region is preserved in the EFI memory map */
 		new_md += efi.memmap.desc_size;
 	}
 
