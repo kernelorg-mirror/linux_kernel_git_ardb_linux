@@ -273,7 +273,6 @@ void __init efi_reserve_boot_services(void)
 		u64 start = max(md->phys_addr, SZ_1M);
 		u64 end = md->phys_addr + (md->num_pages << EFI_PAGE_SHIFT);
 		u64 size = end - start;
-		bool already_reserved;
 
 		if (end <= start)
 			continue;
@@ -282,37 +281,11 @@ void __init efi_reserve_boot_services(void)
 		    md->type != EFI_BOOT_SERVICES_DATA)
 			continue;
 
-		already_reserved = memblock_is_region_reserved(start, size);
+		/* upgrade existing reservations to MEMBLOCK_RSRV_KERN */
+		if (memblock_is_region_reserved(start, size))
+			memblock_reserved_mark_kern(start, size);
 
-		/*
-		 * Because the following memblock_reserve() is paired
-		 * with free_reserved_area() for this region in
-		 * efi_free_boot_services(), we must be extremely
-		 * careful not to reserve, and subsequently free, critical
-		 * regions of memory that somebody else has already reserved.
-		 */
-		if (!already_reserved) {
-			memblock_reserve(start, size);
-
-			/*
-			 * If we are the first to reserve the region, no
-			 * one else cares about it. We own it and can
-			 * free it later.
-			 */
-			if (can_free_region(start, size))
-				continue;
-		}
-
-		/*
-		 * We don't own the region. We must not free it.
-		 *
-		 * Setting this bit for a boot services region really
-		 * doesn't make sense as far as the firmware is
-		 * concerned, but it does provide us with a way to tag
-		 * those regions that must not be paired with
-		 * memblock_phys_free().
-		 */
-		md->attribute |= EFI_MEMORY_RUNTIME;
+		memblock_reserve(start, size);
 	}
 }
 
@@ -443,24 +416,21 @@ void __init efi_unmap_boot_services(void)
 		 */
 		efi_unmap_pages(md);
 
-		if (!(md->attribute & EFI_MEMORY_RUNTIME)) {
-			/*
-			 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT parts of the memory
-			 * map are still not initialized and we can't reliably free
-			 * memory here.
-			 * Queue the ranges to free at a later point.
-			 */
-			if (efi_add_range_to_free(start, start + size, &has_reservations)) {
-				pr_err("Failed to reallocate storage for freeable EFI regions\n");
-				clear_bit(EFI_MEMMAP, &efi.flags);
-				return;
-			}
-
-			/* Continue without advancing new_md so this region is omitted */
-			if (!has_reservations)
-				continue;
-
+		/*
+		 * With CONFIG_DEFERRED_STRUCT_PAGE_INIT parts of the memory
+		 * map are still not initialized and we can't reliably free
+		 * memory here.
+		 * Queue the ranges to free at a later point.
+		 */
+		if (efi_add_range_to_free(start, start + size, &has_reservations)) {
+			pr_err("Failed to reallocate storage for freeable EFI regions\n");
+			clear_bit(EFI_MEMMAP, &efi.flags);
+			return;
 		}
+
+		/* Continue without advancing new_md so this region is omitted */
+		if (!has_reservations)
+			continue;
 
 		/* Advance new_md so this region is preserved in the EFI memory map */
 		new_md += efi.memmap.desc_size;
