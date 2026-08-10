@@ -12,20 +12,26 @@
 
 enum {
 	SYSTAB,
+	MEMMAP,
+#ifdef CONFIG_XEN
 	MMBASE,
 	MMSIZE,
 	DCSIZE,
 	DCVERS,
+#endif
 
 	PARAMCOUNT
 };
 
 static __initconst const char name[][22] = {
 	[SYSTAB] = "System Table         ",
+	[MEMMAP] = "Boot Memory Map      ",
+#ifdef CONFIG_XEN
 	[MMBASE] = "MemMap Address       ",
 	[MMSIZE] = "MemMap Size          ",
 	[DCSIZE] = "MemMap Desc. Size    ",
 	[DCVERS] = "MemMap Desc. Version ",
+#endif
 };
 
 static __initconst const struct {
@@ -49,10 +55,7 @@ static __initconst const struct {
 		.path = "/chosen",
 		.params = {	//  <-----------26----------->
 			[SYSTAB] = "linux,uefi-system-table",
-			[MMBASE] = "linux,uefi-mmap-start",
-			[MMSIZE] = "linux,uefi-mmap-size",
-			[DCSIZE] = "linux,uefi-mmap-desc-size",
-			[DCVERS] = "linux,uefi-mmap-desc-ver",
+			[MEMMAP] = "linux,uefi-boot-memmap",
 		}
 	}
 };
@@ -84,17 +87,20 @@ static int __init efi_get_fdt_prop(const void *fdt, int node, const char *pname,
 u64 __init efi_get_fdt_params(struct efi_memory_map_data *mm)
 {
 	const void *fdt = initial_boot_params;
-	unsigned long systab;
+	unsigned long systab, memmap;
 	int i, j, node;
 	struct {
 		void	*var;
 		int	size;
 	} target[] = {
 		[SYSTAB] = { &systab,		sizeof(systab) },
+		[MEMMAP] = { &memmap,		sizeof(memmap) },
+#ifdef CONFIG_XEN
 		[MMBASE] = { &mm->phys_map,	sizeof(mm->phys_map) },
 		[MMSIZE] = { &mm->size,		sizeof(mm->size) },
 		[DCSIZE] = { &mm->desc_size,	sizeof(mm->desc_size) },
 		[DCVERS] = { &mm->desc_version,	sizeof(mm->desc_version) },
+#endif
 	};
 
 	BUILD_BUG_ON(ARRAY_SIZE(target) != ARRAY_SIZE(name));
@@ -115,6 +121,9 @@ u64 __init efi_get_fdt_params(struct efi_memory_map_data *mm)
 		for (j = 0; j < ARRAY_SIZE(target); j++) {
 			const char *pname = dt_params[i].params[j];
 
+			if (pname[0] == '\0')
+				continue;
+
 			if (!efi_get_fdt_prop(fdt, node, pname, name[j],
 					      target[j].var, target[j].size))
 				continue;
@@ -123,8 +132,24 @@ u64 __init efi_get_fdt_params(struct efi_memory_map_data *mm)
 			pr_err("Can't find property '%s' in DT!\n", pname);
 			return 0;
 		}
-		if (dt_params[i].paravirt)
+		if (IS_ENABLED(CONFIG_XEN) && dt_params[i].paravirt) {
 			set_bit(EFI_PARAVIRT, &efi.flags);
+		} else {
+			struct efi_boot_memmap *bm;
+
+			bm = early_memremap_ro(memmap, sizeof(*bm));
+			if (!bm) {
+				pr_err("Cannot remap EFI boot memory map\n");
+				return 0;
+			}
+
+			mm->phys_map		= memmap + sizeof(*bm);
+			mm->size		= bm->map_size;
+			mm->desc_size		= bm->desc_size;
+			mm->desc_version	= bm->desc_ver;
+
+			early_memunmap(bm, sizeof(*bm));
+		}
 		return systab;
 	}
 notfound:

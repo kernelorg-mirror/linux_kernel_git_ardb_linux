@@ -32,7 +32,6 @@ static efi_status_t update_fdt(void *orig_fdt, unsigned long orig_fdt_size,
 {
 	int node, num_rsv;
 	int status;
-	fdt32_t fdt_val32;
 	fdt64_t fdt_val64;
 
 	/* Do some checks on provided FDT, if it exists: */
@@ -102,21 +101,7 @@ static efi_status_t update_fdt(void *orig_fdt, unsigned long orig_fdt_size,
 
 	fdt_val64 = cpu_to_fdt64(U64_MAX); /* placeholder */
 
-	status = fdt_setprop_var(fdt, node, "linux,uefi-mmap-start", fdt_val64);
-	if (status)
-		goto fdt_set_fail;
-
-	fdt_val32 = cpu_to_fdt32(U32_MAX); /* placeholder */
-
-	status = fdt_setprop_var(fdt, node, "linux,uefi-mmap-size", fdt_val32);
-	if (status)
-		goto fdt_set_fail;
-
-	status = fdt_setprop_var(fdt, node, "linux,uefi-mmap-desc-size", fdt_val32);
-	if (status)
-		goto fdt_set_fail;
-
-	status = fdt_setprop_var(fdt, node, "linux,uefi-mmap-desc-ver", fdt_val32);
+	status = fdt_setprop_var(fdt, node, "linux,uefi-boot-memmap", fdt_val64);
 	if (status)
 		goto fdt_set_fail;
 
@@ -148,33 +133,14 @@ static efi_status_t update_fdt_memmap(void *fdt, struct efi_boot_memmap *map)
 {
 	int node = fdt_path_offset(fdt, "/chosen");
 	fdt64_t fdt_val64;
-	fdt32_t fdt_val32;
 	int err;
 
 	if (node < 0)
 		return EFI_LOAD_ERROR;
 
-	fdt_val64 = cpu_to_fdt64((unsigned long)map->map);
+	fdt_val64 = cpu_to_fdt64((unsigned long)map);
 
-	err = fdt_setprop_inplace_var(fdt, node, "linux,uefi-mmap-start", fdt_val64);
-	if (err)
-		return EFI_LOAD_ERROR;
-
-	fdt_val32 = cpu_to_fdt32(map->map_size);
-
-	err = fdt_setprop_inplace_var(fdt, node, "linux,uefi-mmap-size", fdt_val32);
-	if (err)
-		return EFI_LOAD_ERROR;
-
-	fdt_val32 = cpu_to_fdt32(map->desc_size);
-
-	err = fdt_setprop_inplace_var(fdt, node, "linux,uefi-mmap-desc-size", fdt_val32);
-	if (err)
-		return EFI_LOAD_ERROR;
-
-	fdt_val32 = cpu_to_fdt32(map->desc_ver);
-
-	err = fdt_setprop_inplace_var(fdt, node, "linux,uefi-mmap-desc-ver", fdt_val32);
+	err = fdt_setprop_inplace_var(fdt, node, "linux,uefi-boot-memmap", fdt_val64);
 	if (err)
 		return EFI_LOAD_ERROR;
 
