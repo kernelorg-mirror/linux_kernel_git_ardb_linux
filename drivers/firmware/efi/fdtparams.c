@@ -87,14 +87,15 @@ static int __init efi_get_fdt_prop(const void *fdt, int node, const char *pname,
 u64 __init efi_get_fdt_params(struct efi_memory_map_data *mm)
 {
 	const void *fdt = initial_boot_params;
-	unsigned long systab, memmap;
+	unsigned long systab, memmap = 0;
 	int i, j, node;
 	struct {
 		void	*var;
 		int	size;
+		int	optional;
 	} target[] = {
 		[SYSTAB] = { &systab,		sizeof(systab) },
-		[MEMMAP] = { &memmap,		sizeof(memmap) },
+		[MEMMAP] = { &memmap,		sizeof(memmap), 1 },
 #ifdef CONFIG_XEN
 		[MMBASE] = { &mm->phys_map,	sizeof(mm->phys_map) },
 		[MMSIZE] = { &mm->size,		sizeof(mm->size) },
@@ -129,13 +130,46 @@ u64 __init efi_get_fdt_params(struct efi_memory_map_data *mm)
 				continue;
 			if (!j)
 				goto notfound;
-			pr_err("Can't find property '%s' in DT!\n", pname);
-			return 0;
+			if (!target[j].optional) {
+				pr_err("Can't find property '%s' in DT!\n", pname);
+				return 0;
+			}
 		}
 		if (IS_ENABLED(CONFIG_XEN) && dt_params[i].paravirt) {
 			set_bit(EFI_PARAVIRT, &efi.flags);
 		} else {
 			struct efi_boot_memmap *bm;
+
+			if (!memmap) {
+				unsigned long tables, nr_tables;
+				efi_system_table_t *st;
+				efi_config_table_t *tbl;
+
+				st = early_memremap_ro(systab, sizeof(*st));
+				if (!st) {
+					pr_err("Cannot remap EFI system table\n");
+					return 0;
+				}
+
+				tables		= st->tables;
+				nr_tables	= st->nr_tables;
+
+				early_memunmap(st, sizeof(*st));
+
+				tbl = early_memremap_ro(tables, sizeof(*tbl) * nr_tables);
+				if (!tbl) {
+					pr_err("Cannot remap EFI config table array\n");
+					return 0;
+				}
+
+				for (int i = 0; i < nr_tables; i++) {
+					if (!efi_guidcmp(tbl[i].guid, LINUX_EFI_BOOT_MEMMAP_GUID)) {
+						memmap = (unsigned long)tbl[i].table;
+						break;
+					}
+				}
+				early_memunmap(tbl, sizeof(*tbl) * nr_tables);
+			}
 
 			bm = early_memremap_ro(memmap, sizeof(*bm));
 			if (!bm) {
