@@ -54,16 +54,8 @@ Name                        Type     Description
 ==========================  ======   ===========================================
 linux,uefi-system-table     64-bit   Physical address of the UEFI System Table.
 
-linux,uefi-mmap-start       64-bit   Physical address of the UEFI memory map,
+linux,uefi-boot-memmap      64-bit   Physical address of a struct efi_boot_memmap
                                      populated by the UEFI GetMemoryMap() call.
-
-linux,uefi-mmap-size        32-bit   Size in bytes of the UEFI memory map
-                                     pointed to in previous entry.
-
-linux,uefi-mmap-desc-size   32-bit   Size in bytes of each entry in the UEFI
-                                     memory map.
-
-linux,uefi-mmap-desc-ver    32-bit   Version of the mmap descriptor format.
 
 kaslr-seed                  64-bit   Entropy used to randomize the kernel image
                                      base address location.
