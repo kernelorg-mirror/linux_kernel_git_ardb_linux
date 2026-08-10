@@ -650,6 +650,9 @@ extern struct efi {
 	unsigned long			mokvar_table;		/* MOK variable config table */
 	unsigned long			coco_secret;		/* Confidential computing secret table */
 	unsigned long			unaccepted;		/* Unaccepted memory table */
+#ifdef CONFIG_EFI_GENERIC_STUB
+	unsigned long			boot_memmap;		/* The EFI memory map captured by the stub */
+#endif
 
 	efi_get_time_t			*get_time;
 	efi_set_time_t			*set_time;

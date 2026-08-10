@@ -28,12 +28,10 @@
 static unsigned long efi_nr_tables;
 static unsigned long efi_config_table;
 
-static unsigned long __initdata boot_memmap = EFI_INVALID_TABLE_ADDR;
 static unsigned long __initdata fdt_pointer = EFI_INVALID_TABLE_ADDR;
 
 static efi_system_table_t *efi_systab;
 static efi_config_table_type_t arch_tables[] __initdata = {
-	{LINUX_EFI_BOOT_MEMMAP_GUID,	&boot_memmap,	"MEMMAP" },
 	{DEVICE_TREE_GUID,		&fdt_pointer,	"FDTPTR" },
 	{},
 };
@@ -132,14 +130,14 @@ void __init efi_init(void)
 	if (IS_ENABLED(CONFIG_EFI_EARLYCON) || IS_ENABLED(CONFIG_SYSFB))
 		init_primary_display();
 
-	if (boot_memmap == EFI_INVALID_TABLE_ADDR)
+	if (efi.boot_memmap == EFI_INVALID_TABLE_ADDR)
 		return;
 
-	tbl = early_memremap_ro(boot_memmap, sizeof(*tbl));
+	tbl = early_memremap_ro(efi.boot_memmap, sizeof(*tbl));
 	if (tbl) {
 		struct efi_memory_map_data data;
 
-		data.phys_map		= boot_memmap + sizeof(*tbl);
+		data.phys_map		= efi.boot_memmap + sizeof(*tbl);
 		data.size		= tbl->map_size;
 		data.desc_size		= tbl->desc_size;
 		data.desc_version	= tbl->desc_ver;
@@ -156,7 +154,7 @@ void __init efi_init(void)
 		 * Also, set the EFI_PRESERVE_BS_REGIONS flag to indicate that
 		 * critical boot services code/data regions like this are preserved.
 		 */
-		memblock_reserve((phys_addr_t)boot_memmap, sizeof(*tbl) + data.size);
+		memblock_reserve((phys_addr_t)efi.boot_memmap, sizeof(*tbl) + data.size);
 		set_bit(EFI_PRESERVE_BS_REGIONS, &efi.flags);
 
 		early_memunmap(tbl, sizeof(*tbl));
