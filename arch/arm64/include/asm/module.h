@@ -16,6 +16,7 @@ struct mod_plt_sec {
 struct mod_arch_specific {
 	struct mod_plt_sec	core;
 	struct mod_plt_sec	init;
+	struct mod_plt_sec	bti;
 
 	/* for CONFIG_DYNAMIC_FTRACE */
 	struct plt_entry	*ftrace_trampolines;
@@ -41,6 +42,17 @@ struct plt_entry {
 	__le32	adrp;	/* adrp	x16, ....			*/
 	__le32	add;	/* add	x16, x16, #0x....		*/
 	__le32	br;	/* br	x16				*/
+};
+
+struct bti_veneer {
+	/*
+	 * Functions with static linkage may lack BTI landing pads if their
+	 * address is never taken. E.g., a direct call from .init.text to a
+	 * static function in .text may need an additional veneer at the target
+	 * end if it is routed via a PLT entry.
+	 */
+	__le32	bti_c;
+	__le32	b;
 };
 
 static inline bool is_forbidden_offset_for_adrp(void *place)
