@@ -66,12 +66,48 @@ static bool plt_entries_equal(const struct plt_entry *a,
 	       (q + aarch64_insn_adrp_get_offset(le32_to_cpu(b->adrp)));
 }
 
+static u64 module_emit_bti_veneer(struct module *mod, const Elf64_Shdr *sechdrs,
+				  u64 target)
+{
+	struct mod_plt_sec *pltsec = &mod->arch.bti;
+	struct bti_veneer *btiv = (void *)sechdrs[pltsec->plt_shndx].sh_addr;
+
+	/* Look for an existing entry pointing to 'target' */
+	for (int i = 0; i < pltsec->plt_num_entries; i++) {
+		u64 dst = (u64)&btiv[i].b +
+			  aarch64_get_branch_offset(btiv[i].b);
+		if (dst == target)
+			return (u64)&btiv[i];
+	}
+
+	/* Allocate a new veneer */
+	if (WARN_ON(pltsec->plt_num_entries >= pltsec->plt_max_entries))
+		return 0;
+
+	btiv += pltsec->plt_num_entries++;
+
+	btiv->bti_c	= aarch64_insn_gen_hint(AARCH64_INSN_HINT_BTIC);
+	btiv->b		= aarch64_insn_gen_branch_imm((u64)&btiv->b, target,
+						      AARCH64_INSN_BRANCH_NOLINK);
+
+	return (u64)btiv;
+}
+
+static bool target_needs_bti_veneer(struct module *mod, const Elf64_Sym *sym)
+{
+	if (sym->st_shndx == STN_UNDEF ||
+	    ELF64_ST_BIND(sym->st_info) != STB_LOCAL)
+		return false;
+
+	return !within_module_init((unsigned long)sym->st_value, mod);
+}
+
 u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
 			  void *loc, const Elf64_Rela *rela,
 			  Elf64_Sym *sym)
 {
-	struct mod_plt_sec *pltsec = !within_module_init((unsigned long)loc, mod) ?
-						&mod->arch.core : &mod->arch.init;
+	bool is_init = within_module_init((unsigned long)loc, mod);
+	struct mod_plt_sec *pltsec = !is_init ? &mod->arch.core : &mod->arch.init;
 	struct plt_entry *plt = (struct plt_entry *)sechdrs[pltsec->plt_shndx].sh_addr;
 	int i = pltsec->plt_num_entries;
 	int j = i - 1;
@@ -79,6 +115,16 @@ u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
 
 	if (is_forbidden_offset_for_adrp(&plt[i].adrp))
 		i++;
+
+	if (system_supports_bti_kernel() && is_init) {
+		/*
+		 * Check if the target is a function with static linkage within
+		 * the same module but in a non-init section: if so, point the
+		 * PLT entry at a BTI veneer instead.
+		 */
+		if (target_needs_bti_veneer(mod, sym))
+			val = module_emit_bti_veneer(mod, sechdrs, val);
+	}
 
 	plt[i] = get_plt_entry(val, &plt[i]);
 
@@ -277,11 +323,66 @@ static int partition_branch_plt_relas(Elf64_Sym *syms, Elf64_Rela *rela,
 	return i;
 }
 
+static int count_bti_veneers(const Elf_Ehdr *ehdr, const Elf_Shdr *sechdrs,
+			     const char *secstrings, const Elf64_Sym *syms,
+			     Elf64_Word cur)
+{
+	int count = 0;
+
+	if (!system_supports_bti_kernel())
+		return 0;
+
+	/*
+	 * BTI veneers must be emitted within direct branching range of the
+	 * target function, so that PLTs emitted to perform calls that exceed
+	 * that range can use indirect calls as usual, even if the target
+	 * function lacks a landing pad. This is needed between init code
+	 * sections and normal code sections, which can be loaded far away from
+	 * each other. It should never be needed the other way around, given
+	 * that normal code cannot call init code.
+	 *
+	 * So go over init code sections, and find call/jump relocations
+	 * referring to symbols in the current section. If the symbol has
+	 * static linkage, allocate space for a BTI veneer.
+	 */
+
+	for (int i = 0; i < ehdr->e_shnum; i++) {
+		if (sechdrs[i].sh_type != SHT_RELA)
+			continue;
+
+		const Elf64_Shdr *dstsec = sechdrs + sechdrs[i].sh_info;
+
+		/* Ignore relocations that operate on non-exec sections */
+		if (!(dstsec->sh_flags & SHF_EXECINSTR))
+			continue;
+
+		/* Only look at .init code sections */
+		if (!module_init_layout_section(secstrings + dstsec->sh_name))
+			continue;
+
+		Elf64_Rela *rela = (void *)ehdr + sechdrs[i].sh_offset;
+		int num = sechdrs[i].sh_size / sizeof(Elf64_Rela);
+		for (int j = 0; j < num; j++) {
+			const Elf64_Sym *s = syms + ELF64_R_SYM(rela[j].r_info);
+
+			switch (ELF64_R_TYPE(rela[j].r_info)) {
+			case R_AARCH64_JUMP26:
+			case R_AARCH64_CALL26:
+				if (s->st_shndx == cur &&
+				    ELF64_ST_BIND(s->st_info) == STB_LOCAL)
+					count++;
+			}
+		}
+	}
+	return count;
+}
+
 int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 			      char *secstrings, struct module *mod)
 {
 	unsigned long core_plts = 0;
 	unsigned long init_plts = 0;
+	unsigned long bti_veneers = 0;
 	Elf64_Sym *syms = NULL;
 	Elf_Shdr *pltsec, *tramp = NULL, *init_tramp = NULL;
 	int i;
@@ -295,6 +396,8 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 			mod->arch.core.plt_shndx = i;
 		else if (!strcmp(secstrings + sechdrs[i].sh_name, ".init.plt"))
 			mod->arch.init.plt_shndx = i;
+		else if (!strcmp(secstrings + sechdrs[i].sh_name, ".text.bti_veneer"))
+			mod->arch.bti.plt_shndx = i;
 		else if (!strcmp(secstrings + sechdrs[i].sh_name,
 				 ".text.ftrace_trampoline"))
 			tramp = sechdrs + i;
@@ -305,7 +408,8 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 			syms = (Elf64_Sym *)sechdrs[i].sh_addr;
 	}
 
-	if (!mod->arch.core.plt_shndx || !mod->arch.init.plt_shndx) {
+	if (!mod->arch.core.plt_shndx || !mod->arch.init.plt_shndx ||
+	    (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL) && !mod->arch.bti.plt_shndx)) {
 		pr_err("%s: module PLT section(s) missing\n", mod->name);
 		return -ENOEXEC;
 	}
@@ -335,12 +439,16 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 		if (nents)
 			sort(rels, nents, sizeof(Elf64_Rela), cmp_rela, NULL);
 
-		if (!module_init_layout_section(secstrings + dstsec->sh_name))
+		if (!module_init_layout_section(secstrings + dstsec->sh_name)) {
 			core_plts += count_plts(syms, rels, numrels,
 						sechdrs[i].sh_info, dstsec);
-		else
+			bti_veneers += count_bti_veneers(ehdr, sechdrs,
+							 secstrings, syms,
+							 sechdrs[i].sh_info);
+		} else {
 			init_plts += count_plts(syms, rels, numrels,
 						sechdrs[i].sh_info, dstsec);
+		}
 	}
 
 	pltsec = sechdrs + mod->arch.core.plt_shndx;
@@ -358,6 +466,16 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 	pltsec->sh_size = (init_plts + 1) * sizeof(struct plt_entry);
 	mod->arch.init.plt_num_entries = 0;
 	mod->arch.init.plt_max_entries = init_plts;
+
+	if (system_supports_bti_kernel()) {
+		pltsec = sechdrs + mod->arch.bti.plt_shndx;
+		pltsec->sh_type = SHT_NOBITS;
+		pltsec->sh_flags = SHF_EXECINSTR | SHF_ALLOC;
+		pltsec->sh_addralign = L1_CACHE_BYTES;
+		pltsec->sh_size = (bti_veneers + 1) * sizeof(struct bti_veneer);
+		mod->arch.bti.plt_num_entries = 0;
+		mod->arch.bti.plt_max_entries = bti_veneers;
+	}
 
 	if (tramp) {
 		tramp->sh_type = SHT_NOBITS;
