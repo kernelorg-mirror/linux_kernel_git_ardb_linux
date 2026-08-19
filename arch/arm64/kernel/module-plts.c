@@ -287,6 +287,15 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 	int i;
 
 	/*
+	 * Combine .init.text with .text at allocation time. This avoids a rare
+	 * corner case where .init.text ends up far away from .text, resulting
+	 * in the need for additional PLTs, ftrace trampolines, BTI veneers,
+	 * etc.
+	 */
+	if (module_memory_alloc_combine(mod, MOD_INIT_TEXT, MOD_TEXT))
+		return -ENOEXEC;
+
+	/*
 	 * Find the empty .plt section so we can expand it to store the PLT
 	 * entries. Record the symtab address as well.
 	 */
