@@ -1702,7 +1702,7 @@ static void __layout_sections(struct module *mod, struct load_info *info, bool i
 	static const int init_m_to_mem_type[] = {
 		MOD_INIT_TEXT,
 		MOD_INIT_RODATA,
-		MOD_INVALID,
+		MOD_UNSPECIFIED,
 		MOD_INIT_DATA,
 		MOD_INIT_DATA,
 	};
@@ -1720,7 +1720,7 @@ static void __layout_sections(struct module *mod, struct load_info *info, bool i
 			    || is_init != module_init_layout_section(sname))
 				continue;
 
-			if (WARN_ON_ONCE(type == MOD_INVALID))
+			if (WARN_ON_ONCE(type == MOD_UNSPECIFIED))
 				continue;
 
 			/*

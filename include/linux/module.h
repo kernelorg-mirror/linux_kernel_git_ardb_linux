@@ -325,7 +325,7 @@ enum mod_mem_type {
 	MOD_INIT_RODATA,
 
 	MOD_MEM_NUM_TYPES,
-	MOD_INVALID = -1,
+	MOD_UNSPECIFIED = -1,
 };
 
 #define mod_mem_type_is_init(type)	\
