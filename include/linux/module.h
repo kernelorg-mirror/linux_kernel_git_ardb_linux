@@ -358,6 +358,8 @@ struct module_memory {
 	bool is_rox;
 	unsigned int size;
 
+	enum mod_mem_type alloc_provider;
+
 #ifdef CONFIG_MODULES_TREE_LOOKUP
 	struct mod_tree_node mtn;
 #endif

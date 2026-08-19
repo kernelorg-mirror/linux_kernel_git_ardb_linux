@@ -1377,6 +1377,17 @@ static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
 	return 0;
 }
 
+int module_memory_alloc_combine(struct module *mod,
+				enum mod_mem_type type,
+				enum mod_mem_type provider)
+{
+	if (mod->mem[provider].alloc_provider != MOD_UNSPECIFIED)
+		return -EINVAL;
+
+	mod->mem[type].alloc_provider = provider;
+	return 0;
+}
+
 static void module_memory_restore_rox(struct module *mod)
 {
 	for_class_mod_mem_type(type, text) {
@@ -1391,7 +1402,8 @@ static void module_memory_free(struct module *mod, enum mod_mem_type type)
 {
 	struct module_memory *mem = &mod->mem[type];
 
-	execmem_free(mem->base);
+	if (mem->alloc_provider == MOD_UNSPECIFIED)
+		execmem_free(mem->base);
 }
 
 static void free_mod_mem(struct module *mod)
@@ -2792,16 +2804,40 @@ static int move_module(struct module *mod, struct load_info *info)
 	bool codetag_section_found = false;
 
 	for_each_mod_mem_type(type) {
+		auto p_type = mod->mem[type].alloc_provider;
+
+		if (p_type == MOD_UNSPECIFIED)
+			continue;
+
+		mod->mem[type].size = PAGE_ALIGN(mod->mem[type].size);
+		mod->mem[p_type].size += mod->mem[type].size;
+	}
+
+	for_each_mod_mem_type(type) {
 		if (!mod->mem[type].size) {
 			mod->mem[type].base = NULL;
 			continue;
 		}
+
+		if (mod->mem[type].alloc_provider != MOD_UNSPECIFIED)
+			continue;
 
 		ret = module_memory_alloc(mod, type);
 		if (ret) {
 			t = type;
 			goto out_err;
 		}
+	}
+
+	for_each_mod_mem_type(type) {
+		auto p_type = mod->mem[type].alloc_provider;
+
+		if (p_type == MOD_UNSPECIFIED)
+			continue;
+
+		mod->mem[p_type].size -= mod->mem[type].size;
+		mod->mem[type].base = mod->mem[p_type].base +
+				      mod->mem[p_type].size;
 	}
 
 	/* Transfer each section which specifies SHF_ALLOC */
@@ -2945,6 +2981,9 @@ static struct module *layout_and_allocate(struct load_info *info, int flags)
 	struct module *mod;
 	int err;
 
+	for_each_mod_mem_type(type)
+		info->mod->mem[type].alloc_provider = MOD_UNSPECIFIED;
+
 	/* Allow arches to frob section contents and sizes.  */
 	err = module_frob_arch_sections(info->hdr, info->sechdrs,
 					info->secstrings, info->mod);
@@ -3037,6 +3076,8 @@ struct mod_initfree {
 	void *init_text;
 	void *init_data;
 	void *init_rodata;
+
+	size_t init_text_size;
 };
 
 static void do_free_init(struct work_struct *w)
@@ -3050,7 +3091,11 @@ static void do_free_init(struct work_struct *w)
 
 	llist_for_each_safe(pos, n, list) {
 		initfree = container_of(pos, struct mod_initfree, node);
-		execmem_free(initfree->init_text);
+		if (initfree->init_text_size)
+			WARN_ON(!vrealloc(initfree->init_text,
+					  initfree->init_text_size, PAGE_SIZE));
+		else
+			execmem_free(initfree->init_text);
 		execmem_free(initfree->init_data);
 		execmem_free(initfree->init_rodata);
 		kfree(initfree);
@@ -3091,12 +3136,20 @@ static noinline int do_init_module(struct module *mod)
 	}
 #endif
 
-	freeinit = kmalloc_obj(*freeinit);
+	freeinit = kzalloc_obj(*freeinit);
 	if (!freeinit) {
 		ret = -ENOMEM;
 		goto fail;
 	}
-	freeinit->init_text = mod->mem[MOD_INIT_TEXT].base;
+	auto prv = mod->mem[MOD_INIT_TEXT].alloc_provider;
+	if (prv == MOD_UNSPECIFIED) {
+		freeinit->init_text = mod->mem[MOD_INIT_TEXT].base;
+	} else {
+		freeinit->init_text = mod->mem[prv].base;
+		freeinit->init_text_size = mod->mem[MOD_INIT_TEXT].base -
+					   mod->mem[prv].base;
+	}
+
 	freeinit->init_data = mod->mem[MOD_INIT_DATA].base;
 	freeinit->init_rodata = mod->mem[MOD_INIT_RODATA].base;
 

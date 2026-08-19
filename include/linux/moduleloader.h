@@ -122,4 +122,8 @@ void module_arch_cleanup(struct module *mod);
 /* Any cleanup before freeing mod->module_init */
 void module_arch_freeing_init(struct module *mod);
 
+int module_memory_alloc_combine(struct module *mod,
+				enum mod_mem_type type,
+				enum mod_mem_type provider);
+
 #endif
