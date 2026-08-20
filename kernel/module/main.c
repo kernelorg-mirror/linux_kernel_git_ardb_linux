@@ -1402,7 +1402,12 @@ static void free_mod_mem(struct module *mod)
 
 		/* Free lock-classes; relies on the preceding sync_rcu(). */
 		lockdep_free_key_range(mod_mem->base, mod_mem->size);
-		if (mod_mem->size)
+
+		if (type == MOD_INIT_TEXT)
+			continue;
+
+		if (mod_mem->size ||
+		    (type == MOD_TEXT && mod->mem[MOD_INIT_TEXT].size))
 			module_memory_free(mod, type);
 	}
 
@@ -2791,11 +2796,30 @@ static int move_module(struct module *mod, struct load_info *info)
 
 	for_each_mod_mem_type(type) {
 		unsigned int size = PAGE_ALIGN(mod->mem[type].size);
+		unsigned int init_size = 0;
 
-		if (!size) {
-			mod->mem[type].base = NULL;
+		mod->mem[type].base = NULL;
+
+		/*
+		 * Special case for MOD_TEXT: add the size of MOD_INIT_TEXT and
+		 * allocate both in a single call.
+		 */
+		switch (type) {
+		case MOD_TEXT:
+			init_size = PAGE_ALIGN(mod->mem[MOD_INIT_TEXT].size);
+			size += init_size;
+			break;
+		case MOD_INIT_TEXT:
+			mod->mem[type].base = mod->mem[MOD_TEXT].base +
+					      mod->mem[MOD_TEXT].size;
+			mod->mem[type].size = size;
 			continue;
+		default:
+			break;
 		}
+
+		if (!size)
+			continue;
 
 		ret = module_memory_alloc(mod, type, size);
 		if (ret) {
@@ -2803,7 +2827,7 @@ static int move_module(struct module *mod, struct load_info *info)
 			goto out_err;
 		}
 
-		mod->mem[type].size = size;
+		mod->mem[type].size = size - init_size;
 	}
 
 	/* Transfer each section which specifies SHF_ALLOC */
@@ -2869,7 +2893,8 @@ static int move_module(struct module *mod, struct load_info *info)
 out_err:
 	module_memory_restore_rox(mod);
 	while (t--)
-		module_memory_free(mod, t);
+		if (t != MOD_INIT_TEXT)
+			module_memory_free(mod, t);
 	if (codetag_section_found)
 		codetag_free_module_sections(mod);
 
@@ -3036,9 +3061,11 @@ static void do_mod_ctors(struct module *mod)
 /* For freeing module_init on success, in case kallsyms traversing */
 struct mod_initfree {
 	struct llist_node node;
-	void *init_text;
+	void *text;
 	void *init_data;
 	void *init_rodata;
+
+	unsigned int text_size;
 };
 
 static void do_free_init(struct work_struct *w)
@@ -3052,7 +3079,7 @@ static void do_free_init(struct work_struct *w)
 
 	llist_for_each_safe(pos, n, list) {
 		initfree = container_of(pos, struct mod_initfree, node);
-		execmem_free(initfree->init_text);
+		execmem_truncate(initfree->text, initfree->text_size);
 		execmem_free(initfree->init_data);
 		execmem_free(initfree->init_rodata);
 		kfree(initfree);
@@ -3098,7 +3125,8 @@ static noinline int do_init_module(struct module *mod)
 		ret = -ENOMEM;
 		goto fail;
 	}
-	freeinit->init_text = mod->mem[MOD_INIT_TEXT].base;
+	freeinit->text = mod->mem[MOD_TEXT].base;
+	freeinit->text_size = mod->mem[MOD_TEXT].size;
 	freeinit->init_data = mod->mem[MOD_INIT_DATA].base;
 	freeinit->init_rodata = mod->mem[MOD_INIT_RODATA].base;
 
