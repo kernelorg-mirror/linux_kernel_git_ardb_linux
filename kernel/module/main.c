@@ -1338,13 +1338,11 @@ void __weak module_arch_freeing_init(struct module *mod)
 {
 }
 
-static int module_memory_alloc(struct module *mod, enum mod_mem_type type)
+static int module_memory_alloc(struct module *mod, enum mod_mem_type type,
+			       unsigned int size)
 {
-	unsigned int size = PAGE_ALIGN(mod->mem[type].size);
 	enum execmem_type execmem_type;
 	void *ptr;
-
-	mod->mem[type].size = size;
 
 	if (mod_mem_type_is_data(type))
 		execmem_type = EXECMEM_MODULE_DATA;
@@ -2792,16 +2790,20 @@ static int move_module(struct module *mod, struct load_info *info)
 	bool codetag_section_found = false;
 
 	for_each_mod_mem_type(type) {
-		if (!mod->mem[type].size) {
+		unsigned int size = PAGE_ALIGN(mod->mem[type].size);
+
+		if (!size) {
 			mod->mem[type].base = NULL;
 			continue;
 		}
 
-		ret = module_memory_alloc(mod, type);
+		ret = module_memory_alloc(mod, type, size);
 		if (ret) {
 			t = type;
 			goto out_err;
 		}
+
+		mod->mem[type].size = size;
 	}
 
 	/* Transfer each section which specifies SHF_ALLOC */
