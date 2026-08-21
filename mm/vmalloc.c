@@ -3358,12 +3358,13 @@ struct vm_struct *remove_vm_area(const void *addr)
 }
 
 static inline void set_area_direct_map(const struct vm_struct *area,
-				       int (*set_direct_map)(struct page *page))
+				       int (*set_direct_map)(struct page *page),
+				       unsigned int offset)
 {
 	int i;
 
 	/* HUGE_VMALLOC passes small pages to set_direct_map */
-	for (i = 0; i < area->nr_pages; i++)
+	for (i = offset; i < area->nr_pages; i++)
 		if (page_address(area->pages[i]))
 			set_direct_map(area->pages[i]);
 }
@@ -3371,18 +3372,21 @@ static inline void set_area_direct_map(const struct vm_struct *area,
 /*
  * Flush the vm mapping and reset the direct map.
  */
-static void vm_reset_perms(struct vm_struct *area)
+static void vm_reset_perms(struct vm_struct *area, unsigned int offset)
 {
 	unsigned long start = ULONG_MAX, end = 0;
 	unsigned int page_order = vm_area_page_order(area);
 	int flush_dmap = 0;
 	int i;
 
+	if (WARN_ON(offset % BIT(page_order)))
+		return;
+
 	/*
 	 * Find the start and end range of the direct mappings to make sure that
 	 * the vm_unmap_aliases() flush includes the direct map.
 	 */
-	for (i = 0; i < area->nr_pages; i += 1U << page_order) {
+	for (i = offset; i < area->nr_pages; i += 1U << page_order) {
 		unsigned long addr = (unsigned long)page_address(area->pages[i]);
 
 		if (addr) {
@@ -3400,9 +3404,9 @@ static void vm_reset_perms(struct vm_struct *area)
 	 * there are any accesses after the TLB flush, then flush the TLB and
 	 * reset the direct map permissions to the default.
 	 */
-	set_area_direct_map(area, set_direct_map_invalid_noflush);
+	set_area_direct_map(area, set_direct_map_invalid_noflush, offset);
 	_vm_unmap_aliases(start, end, flush_dmap);
-	set_area_direct_map(area, set_direct_map_default_noflush);
+	set_area_direct_map(area, set_direct_map_default_noflush, offset);
 }
 
 static void delayed_vfree_work(struct work_struct *w)
@@ -3505,7 +3509,7 @@ void vfree(const void *addr)
 	}
 
 	if (unlikely(vm->flags & VM_FLUSH_RESET_PERMS))
-		vm_reset_perms(vm);
+		vm_reset_perms(vm, 0);
 
 	vm_area_free_pages(vm, 0, vm->nr_pages);
 	kvfree(vm->pages);
