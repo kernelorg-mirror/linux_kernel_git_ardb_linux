@@ -405,7 +405,7 @@ static void execmem_cache_free_slow(struct work_struct *work)
 		schedule_work(&execmem_cache_clean_work);
 }
 
-static bool execmem_cache_free(void *ptr)
+static bool execmem_cache_truncate(void *ptr, size_t size)
 {
 	struct maple_tree *busy_areas = &execmem_cache.busy_areas;
 	unsigned long addr = (unsigned long)ptr;
@@ -419,9 +419,21 @@ static bool execmem_cache_free(void *ptr)
 	if (!area)
 		return false;
 
+	WARN_ON_ONCE(size > mas_range_len(&mas));
+	if (size >= mas_range_len(&mas))
+		return true;
+
+	if (size) {
+		area += size;
+		mas_set_range(&mas, (unsigned long)area, mas.last);
+		if (WARN_ON(mas_preallocate(&mas, area, GFP_KERNEL)))
+			return true; /* leak the tail region on OOM */
+	}
+
 	err = __execmem_cache_free(&mas, area, GFP_KERNEL | __GFP_NORETRY);
 	if (err) {
 		/*
+		 * If size > 0, mas has been preallocated above, and otherwise
 		 * mas points to exact slot we've got the area from, nothing
 		 * else can modify the tree because of the mutex, so there
 		 * won't be any allocations in mas_store_gfp() and it will just
@@ -455,11 +467,16 @@ static void *execmem_cache_alloc(struct execmem_range *range, size_t size)
 	return NULL;
 }
 
-static bool execmem_cache_free(void *ptr)
+static bool execmem_cache_truncate(void *ptr, size_t size)
 {
 	return false;
 }
 #endif /* CONFIG_ARCH_HAS_EXECMEM_ROX */
+
+static bool execmem_cache_free(void *ptr)
+{
+	return execmem_cache_truncate(ptr, 0);
+}
 
 void *execmem_alloc(enum execmem_type type, size_t size)
 {
@@ -504,6 +521,35 @@ void execmem_free(void *ptr)
 
 	if (!execmem_cache_free(ptr))
 		vfree(ptr);
+}
+
+void execmem_truncate(void *ptr, size_t size)
+{
+	/*
+	 * This memory may be RO, and freeing RO memory in an interrupt is not
+	 * supported by vmalloc.
+	 */
+	WARN_ON(in_interrupt());
+
+	if (!ptr)
+		return;
+	if (!execmem_cache_truncate(ptr, size)) {
+		struct vm_struct *vm = find_vm_area(ptr);
+
+		if (WARN_ON(!vm || vm->size < size))
+			return;
+
+		unsigned long addr = (unsigned long)ptr + size;
+		int num_pages = (vm->size - size) >> PAGE_SHIFT;
+		int err = set_memory_nx(addr, num_pages) ?:
+			  set_memory_rw(addr, num_pages);
+
+		if (WARN_ON(err))
+			return;
+
+		if (ptr != vrealloc(ptr, size, GFP_KERNEL))
+			VM_WARN_ON(size > 0);
+	}
 }
 
 bool execmem_is_rox(enum execmem_type type)

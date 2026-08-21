@@ -178,6 +178,14 @@ void execmem_free(void *ptr);
 
 DEFINE_FREE(execmem, void *, if (_T) execmem_free(_T));
 
+/**
+ * execmem_truncate - shrink an executable memory allocation
+ * @ptr:	pointer to the allocated memory
+ * @size:	desired size of the allocation after truncation, must be less
+ *		than the allocated size
+ */
+void execmem_truncate(void *ptr, size_t size);
+
 #ifdef CONFIG_MMU
 /**
  * execmem_vmap - create virtual mapping for EXECMEM_MODULE_DATA memory
