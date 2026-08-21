@@ -4390,9 +4390,6 @@ void *vrealloc_node_align_noprof(const void *p, size_t size, unsigned long align
 		 * Skip huge page allocations (page_order > 0) as partial
 		 * freeing would require splitting.
 		 *
-		 * Skip VM_FLUSH_RESET_PERMS, as direct-map permissions must
-		 * be reset before pages are returned to the allocator.
-		 *
 		 * Skip VM_USERMAP, as remap_vmalloc_range_partial() validates
 		 * mapping requests against the unchanged vm->size; freeing
 		 * tail pages would cause vmalloc_to_page() to return NULL for
@@ -4404,7 +4401,7 @@ void *vrealloc_node_align_noprof(const void *p, size_t size, unsigned long align
 		 * if we are under filesystem or I/O reclaim.
 		 */
 		if (new_nr_pages < vm->nr_pages && !vm_area_page_order(vm) &&
-		    !(vm->flags & (VM_FLUSH_RESET_PERMS | VM_USERMAP)) &&
+		    !(vm->flags & VM_USERMAP) &&
 		    gfp_has_io_fs(flags)) {
 			unsigned long addr = (unsigned long)kasan_reset_tag(p);
 			unsigned int old_nr_pages = vm->nr_pages;
@@ -4414,6 +4411,9 @@ void *vrealloc_node_align_noprof(const void *p, size_t size, unsigned long align
 			 * readers (vmalloc_info_show).
 			 */
 			struct vmap_node *vn = addr_to_node(addr);
+
+			if (unlikely(vm->flags & VM_FLUSH_RESET_PERMS))
+				vm_reset_perms(vm, new_nr_pages);
 
 			spin_lock(&vn->busy.lock);
 			vm->nr_pages = new_nr_pages;
