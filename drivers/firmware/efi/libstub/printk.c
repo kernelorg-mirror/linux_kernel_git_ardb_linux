@@ -69,17 +69,22 @@ u32 utf8_to_utf32(const u8 **s8)
 }
 
 /**
- * efi_puts() - Write a UTF-8 encoded string to the console
+ * efi_str_to_utf16 - Convert a UTF-8 string to UTF-16
  * @str:	UTF-8 encoded string
+ * @buf:	The buffer to store the converted UTF-16
+ * @lim:	The size of the buffer in UTF-16 characters
+ *
+ * Converts as many UTF-8 characters as will fit into the buffer,
+ * and terminates it with a NULL wchar. Returns the number of bytes
+ * consumed from the input string.
  */
-void efi_puts(const char *str)
+size_t efi_utf8_to_utf16(const char *str, efi_char_16_t *buf, size_t lim)
 {
-	efi_char16_t buf[128];
-	size_t pos = 0, lim = ARRAY_SIZE(buf);
 	const u8 *s8 = (const u8 *)str;
+	size_t pos = 0;
 	u32 c32;
 
-	while (*s8) {
+	while (*s8 && pos + 2 < lim) {
 		if (*s8 == '\n')
 			buf[pos++] = L'\r';
 		c32 = utf8_to_utf32(&s8);
@@ -94,11 +99,22 @@ void efi_puts(const char *str)
 			buf[pos++] = (0xd800 - (0x10000 >> 10)) + (c32 >> 10);
 			buf[pos++] = 0xdc00 + (c32 & 0x3ff);
 		}
-		if (*s8 == '\0' || pos >= lim - 2) {
-			buf[pos] = L'\0';
-			efi_char16_puts(buf);
-			pos = 0;
-		}
+	}
+	buf[pos] = L'\0';
+	return s8 - str;
+}
+
+/**
+ * efi_puts() - Write a UTF-8 encoded string to the console
+ * @str:	UTF-8 encoded string
+ */
+void efi_puts(const char *str)
+{
+	efi_char16_t buf[128];
+
+	while (*str) {
+		str += efi_utf8_to_utf16(str, buf, ARRAY_SIZE(buf));
+		efi_char16_puts(buf);
 	}
 }
 
