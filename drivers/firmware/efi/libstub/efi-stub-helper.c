@@ -750,3 +750,94 @@ void efi_remap_image(unsigned long image_base, unsigned alloc_size,
 			efi_warn("Failed to remap data region non-executable\n");
 	}
 }
+
+#define LINUX_EFISTUB_PANIC_GUID	\
+	EFI_GUID(0x98e88555, 0xaa10, 0x4039, 0xbf, 0x4d, 0x32, 0x72, 0x1c, 0x5a, 0x6a, 0xc1)
+
+static const efi_capsule_header_t capsule_header = {
+	LINUX_EFISTUB_PANIC_GUID,
+	sizeof(capsule_header),
+	EFI_CAPSULE_PERSIST_ACROSS_RESET
+		| EFI_CAPSULE_POPULATE_SYSTEM_TABLE
+		| EFI_CAPSULE_INITIATE_RESET,
+	sizeof(capsule_header),
+};
+
+static const efi_char16_t panic_reason[] = L"PanicReason";
+
+void __noreturn efi_panic(const char *fmt, ...)
+{
+	struct {
+		efi_capsule_header_t	hdr;
+		efi_char16_t		payload[250];
+	} capsule;
+	efi_capsule_header_t *capsules[] = { &capsule.hdr };
+	struct { u64 size; u64 addr; } sglist[2] = {};
+	va_list args;
+	int num;
+
+	va_start(args, fmt);
+	num = efi_vsnprintf(capsule.payload, sizeof(capsule.payload), fmt, args, false);
+	va_end(args);
+
+	if (num >= sizeof(capsule.payload)) {
+		num = sizeof(capsule.payload);
+		capsule.payload[num - 1] = L'\0';
+	}
+	capsule.hdr = capsule_header;
+	capsule.hdr.imagesize += num;
+
+	sglist[0].size = capsule.hdr.imagesize;
+	sglist[0].addr = (unsigned long)&capsule;
+
+	if (efi_table_attr(efi_system_table, boottime) != NULL)
+		efi_char16_puts(capsule.payload);
+
+	/* If capsules are supported, this will trigger a reboot */
+	efi_rt_call(update_capsule, capsules, ARRAY_SIZE(capsules),
+		    (efi_physical_addr_t)sglist);
+
+	/* ... otherwise, set a non-volatile boot-only variable */
+	set_efi_var(panic_reason, &capsule_header.guid,
+		    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+		    num, capsule.payload);
+
+	for (;;)
+		efi_rt_call(reset_system, EFI_RESET_COLD, EFI_ABORTED, 0, NULL);
+}
+
+void efi_check_panic(void)
+{
+	const efi_char16_t *message;
+	void *p;
+
+	p = get_efi_config_table(capsule_header.guid);
+
+	if (p) {
+		message = p + sizeof(efi_capsule_header_t);
+	} else {
+		unsigned long size = 0;
+		efi_status_t status;
+
+		get_efi_var(panic_reason, &capsule_header.guid, NULL, &size, NULL);
+		if (!size)
+			return;
+
+		efi_warn("Found panic report from previous boot (%lu bytes)\n");
+
+		status = efi_bs_call(allocate_pool, EFI_LOADER_DATA, size, &p);
+		if (status == EFI_SUCCESS)
+			get_efi_var(panic_reason, &capsule_header.guid, NULL, &size, p);
+
+		/* clear the reason even on allocation failure */
+		set_efi_var(panic_reason, &capsule_header.guid,
+			    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+			    0, NULL);
+
+		if (status != EFI_SUCCESS) {
+			efi_err("%a(): Failed to allocate memory\n", __func__);
+			return;
+		}
+		messsage = p;
+	}
+}
