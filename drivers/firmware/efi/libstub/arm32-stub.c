@@ -132,3 +132,6 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 
 	return EFI_SUCCESS;
 }
+
+/* expose a dummy struct - ARM does not use this anyway */
+struct efi_image_info efistub_image_info = {};
