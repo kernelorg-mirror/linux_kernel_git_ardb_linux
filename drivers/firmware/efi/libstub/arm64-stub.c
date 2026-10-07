@@ -19,9 +19,11 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 				 unsigned long *reserve_addr,
 				 unsigned long *reserve_size,
 				 efi_loaded_image_t *image,
-				 efi_handle_t image_handle)
+				 efi_handle_t image_handle,
+				 const struct efi_image_info **image_info)
 {
 	unsigned long kernel_size, kernel_codesize, kernel_memsize;
+	efi_status_t status;
 
 	if (image->image_base != _text) {
 		efi_err("FIRMWARE BUG: efi_loaded_image_t::image_base has bogus value\n");
@@ -38,9 +40,16 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 	*reserve_size = kernel_memsize;
 	*image_addr = (unsigned long)_text;
 
-	return efi_kaslr_relocate_kernel(image_addr, reserve_addr, reserve_size,
-					 kernel_size, kernel_codesize, kernel_memsize,
-					 efi_kaslr_get_phys_seed(image_handle));
+	status = efi_kaslr_relocate_kernel(image_addr, reserve_addr,
+					   reserve_size, kernel_size,
+					   kernel_codesize, kernel_memsize,
+					   efi_kaslr_get_phys_seed(image_handle));
+
+	if (status != EFI_SUCCESS)
+		return status;
+
+	*(unsigned long *)image_info += *image_addr - (unsigned long)_text;
+	return EFI_SUCCESS;
 }
 
 asmlinkage void primary_entry(void);
