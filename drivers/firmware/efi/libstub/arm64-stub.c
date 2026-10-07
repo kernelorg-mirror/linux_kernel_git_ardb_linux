@@ -61,3 +61,17 @@ void efi_icache_sync(unsigned long start, unsigned long end)
 {
 	caches_clean_inval_pou(start, end);
 }
+
+extern const struct efi_image_info efi_image_info;
+
+asm("	.section \".rodata\", \"a\", %progbits;			" \
+    "	.align	3;						" \
+    "	.globl	efi_image_info;					" \
+    "efi_image_info:						" \
+    "	.previous						");
+
+
+const struct efi_image_info *efistub_get_image_info(void)
+{
+	return &efi_image_info;
+}

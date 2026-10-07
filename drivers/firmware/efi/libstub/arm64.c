@@ -135,3 +135,10 @@ void __noreturn efi_enter_kernel(unsigned long entrypoint,
 	enter_kernel = (void *)entrypoint + primary_entry_offset();
 	enter_kernel(fdt_addr, 0, 0, 0);
 }
+
+const struct efi_image_info *zboot_get_image_info(unsigned long image_base)
+{
+	auto header = (const struct arm64_image_header *)image_base;
+
+	return (void *)image_base + header->efi_image_info_offset;
+}

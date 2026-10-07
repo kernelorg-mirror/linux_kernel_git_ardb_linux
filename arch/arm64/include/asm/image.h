@@ -36,6 +36,7 @@
  * @image_size:		Effective Image size
  * @flags:		kernel flags
  * @reserved:		reserved
+ * @efi_image_offset:	Offset to struct efi_image_info
  * @magic:		Magic number
  * @reserved5:		reserved, or
  *   @pe_header:	  alternatively used for PE COFF offset
@@ -49,7 +50,8 @@ struct arm64_image_header {
 	__le64 flags;
 	__le64 res2;
 	__le64 res3;
-	__le64 res4;
+	__le32 res4;
+	__le32 efi_image_info_offset;
 	__le32 magic;
 	__le32 res5;
 };

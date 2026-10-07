@@ -154,4 +154,7 @@ void efi_icache_sync(unsigned long start, unsigned long end);
 // temporary resolution for efistub_get_code_size()
 #define efistub_get_code_size(image_info) ({ extern u32 code_size; code_size; })
 
+struct efi_image_info {
+};
+
 #endif /* _ASM_EFI_H */

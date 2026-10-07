@@ -7,6 +7,12 @@
 #include <linux/pe.h>
 #include <linux/sizes.h>
 
+#ifdef CONFIG_EFI
+#define EFI_IMAGE_INFO_OFFSET  __efistub_efi_image_info - .L_head
+#else
+#define EFI_IMAGE_INFO_OFFSET	0
+#endif
+
 	.macro	efi_signature_nop
 #ifdef CONFIG_EFI
 .L_head:

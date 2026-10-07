@@ -65,7 +65,8 @@
 	le64sym	_kernel_flags_le		// Informative flags, little-endian
 	.quad	0				// reserved
 	.quad	0				// reserved
-	.quad	0				// reserved
+       .long   0                               // reserved
+       .long   EFI_IMAGE_INFO_OFFSET           // Offset to struct efi_image_info
 	.ascii	ARM64_IMAGE_MAGIC		// Magic number
 	.long	.Lpe_header_offset		// Offset to the PE header.
 

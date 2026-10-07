@@ -84,7 +84,8 @@ The decompressed kernel image contains a 64-byte header as follows::
   u64 flags;			/* kernel flags, little endian */
   u64 res2	= 0;		/* reserved */
   u64 res3	= 0;		/* reserved */
-  u64 res4	= 0;		/* reserved */
+  u32 res4	= 0;		/* reserved */
+  u32 efi_image_info_offset;	/* Offset to struct efi_image_info */
   u32 magic	= 0x644d5241;	/* Magic number, little endian, "ARM\x64" */
   u32 res5;			/* reserved (used for PE COFF offset) */
 
