@@ -1699,6 +1699,30 @@ config ARCH_SELECTS_KEXEC_FILE
 	depends on KEXEC_FILE
 	select HAVE_IMA_KEXEC if IMA
 
+config KEXEC_EFI_STUB
+	bool "Enter kexec'd kernels via their EFI stub"
+	depends on KEXEC_FILE && EFI && RUST
+	depends on ARM64_4K_PAGES
+	depends on CONTIG_ALLOC
+	depends on !SHADOW_CALL_STACK
+	depends on !KASAN_GENERIC && !KASAN_SW_TAGS
+	depends on !PREEMPT_RT
+	help
+	  Use a minimal implementation of the EFI boot services, provided by
+	  the efiloader Rust crate, to load EFI executables via kexec_file_load(),
+	  rather than jumping straight to the kernel's raw entry point. This
+	  permits EFI zboot compressed kernels and other EFI executables to be
+	  loaded via kexec, and ensures that the incoming kernel is booted in
+	  the same way as on a cold boot, i.e., via its EFI stub.
+
+	  The EFI executable runs at load time, with interrupts enabled but
+	  with preemption disabled, until it calls the ExitBootServices() boot
+	  service, and is resumed at that point when the kexec is performed.
+	  This requires a large physically contiguous memory allocation at
+	  load time.
+
+	  If unsure, say N.
+
 config ARCH_SUPPORTS_KEXEC_SIG
 	def_bool y
 

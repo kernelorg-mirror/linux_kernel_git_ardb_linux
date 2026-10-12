@@ -42,7 +42,9 @@ static void _kexec_image_info(const char *func, int line,
 
 void machine_kexec_cleanup(struct kimage *kimage)
 {
-	/* Empty routine needed to avoid build errors. */
+#ifdef CONFIG_KEXEC_EFI_STUB
+	kexec_efi_free_image(kimage);
+#endif
 }
 
 /**

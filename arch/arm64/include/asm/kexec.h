@@ -116,13 +116,22 @@ struct kimage_arch {
 	phys_addr_t zero_page;
 	unsigned long phys_offset;
 	unsigned long t0sz;
+	/* state of the EFI image loader, if it was used */
+	void *efi;
 };
 
 #ifdef CONFIG_KEXEC_FILE
 extern const struct kexec_file_ops kexec_image_ops;
+extern const struct kexec_file_ops kexec_efi_ops;
 
 int arch_kimage_file_post_load_cleanup(struct kimage *image);
 #define arch_kimage_file_post_load_cleanup arch_kimage_file_post_load_cleanup
+
+int arch_kexec_kernel_image_probe(struct kimage *image, void *buf,
+				  unsigned long buf_len);
+#define arch_kexec_kernel_image_probe arch_kexec_kernel_image_probe
+
+void kexec_efi_free_image(struct kimage *image);
 
 extern int load_other_segments(struct kimage *image,
 		unsigned long kernel_load_addr, unsigned long kernel_size,

@@ -23,9 +23,34 @@
 #include <linux/vmalloc.h>
 
 const struct kexec_file_ops * const kexec_file_loaders[] = {
+#ifdef CONFIG_KEXEC_EFI_STUB
+	&kexec_efi_ops,
+#endif
 	&kexec_image_ops,
 	NULL
 };
+
+int arch_kexec_kernel_image_probe(struct kimage *image, void *buf,
+				  unsigned long buf_len)
+{
+	const struct kexec_file_ops * const *fops;
+
+	for (fops = &kexec_file_loaders[0]; *fops; ++fops) {
+		/*
+		 * Crash kernels need to be confined to the crashkernel
+		 * region, which the EFI loader does not support.
+		 */
+		if (IS_ENABLED(CONFIG_KEXEC_EFI_STUB) &&
+		    *fops == &kexec_efi_ops && image->type == KEXEC_TYPE_CRASH)
+			continue;
+
+		if (!(*fops)->probe(buf, buf_len)) {
+			image->fops = *fops;
+			return 0;
+		}
+	}
+	return -ENOEXEC;
+}
 
 int arch_kimage_file_post_load_cleanup(struct kimage *image)
 {
