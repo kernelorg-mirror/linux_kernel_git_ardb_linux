@@ -8,10 +8,10 @@ use crate::MemoryMap;
 use crate::Placement;
 use crate::EFI_MEMORY_XP;
 
+use crate::heap::Heap;
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
-use linked_list_allocator::Heap;
 
 pub(crate) struct PoolAllocator {
     memtype: EfiMemoryType,

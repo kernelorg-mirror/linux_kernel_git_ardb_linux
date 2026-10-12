@@ -49,6 +49,8 @@
 //! ```
 
 #![no_std]
+#![feature(rustc_attrs)]
+#![allow(internal_features)]
 
 macro_rules! align_up {
     ($value:expr, $alignment:expr) => {
@@ -72,9 +74,14 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 
-use once_cell::unsync::OnceCell;
-
 const UEFI_REVISION: u32 = (2 << 16) | 100; // 2.10
+
+#[macro_use]
+pub mod log;
+mod crc32;
+mod heap;
+mod kernel_alloc;
+mod utf16;
 
 pub mod blockio;
 pub mod bootservices;
@@ -95,6 +102,8 @@ mod simpletext;
 pub mod status;
 mod systemtable;
 mod tableheader;
+
+pub use loadedimage::LoadedImageData;
 
 pub type Bool = u8;
 pub type Char16 = u16;
@@ -276,30 +285,40 @@ pub struct EfiContext {
     bs: RefCell<Box<BootServices>>,
     rt: RefCell<PoolBox<RuntimeServices>>,
     pub(crate) st: RefCell<PoolBox<SystemTable>>,
+
+    image_stack_top: Cell<Option<*mut u8>>,
 }
 
-static EFI: EfiContextHolder = EfiContextHolder(OnceCell::new());
-struct EfiContextHolder(OnceCell<EfiContext>);
+static EFI: EfiContextHolder = EfiContextHolder(UnsafeCell::new(None));
+struct EfiContextHolder(UnsafeCell<Option<EfiContext>>);
 
 // SAFETY: EFI boot services are single threaded, and the held context is only accessible via
 // shared references. Interior mutability of the member data is implemented using RefCell wrappers,
 // which track borrows at runtime, and will panic if the same thread ends up borrowing the same
-// data multiple times in an unsupported manner.
+// data multiple times in an unsupported manner. The context is only ever created and destroyed
+// via [`init`] and [`deinit`], whose callers must guarantee that no references to the context
+// exist at that point.
 unsafe impl Sync for EfiContextHolder {}
 
 impl Deref for EfiContextHolder {
     type Target = EfiContext;
 
     fn deref(&self) -> &Self::Target {
-        &self
-            .0
-            .get()
+        // SAFETY: see above
+        unsafe { &*self.0.get() }
+            .as_ref()
             .expect("efiloader::init() has not been called yet")
     }
 }
 
 pub(crate) fn efi_system_table() -> *const SystemTable {
     &**EFI.st.borrow()
+}
+
+/// Returns a reference to the EFI runtime instantiated by [`init`]. Panics if [`init`] has not
+/// been called.
+pub fn context() -> &'static EfiContext {
+    &EFI
 }
 
 /// Initializes the EFI runtime, and returns a reference to a [`EfiContext`] instance that
@@ -327,61 +346,88 @@ pub fn init(
     mapper: impl MemoryMapper + 'static,
     rng: Option<impl Random + 'static>,
 ) -> Result<&'static EfiContext, ()> {
-    EFI.0.get_or_try_init(move || {
-        let conhandle = new_handle();
-        let inp = SimpleTextInput::new(EfiContext::read_byte);
-        let out = SimpleTextOutput::new(EfiContext::write_string);
+    // SAFETY: the caller guarantees that init() and deinit() are serialized
+    let holder = unsafe { &mut *EFI.0.get() };
+    if holder.is_some() {
+        return Err(());
+    }
 
-        let bs = Box::new(BootServices::new());
+    let conhandle = new_handle();
+    let inp = SimpleTextInput::new(EfiContext::read_byte);
+    let out = SimpleTextOutput::new(EfiContext::write_string);
 
-        let rt = memmap
-            .box_new(EfiRuntimeServicesData, RuntimeServices::new())
-            .or(Err(()))?;
+    let bs = Box::new(BootServices::new());
 
-        let st = memmap
-            .box_new(
-                EfiRuntimeServicesData,
-                SystemTable::new(&*bs, &*rt, &inp.text_input, &out.text_output, conhandle),
-            )
-            .or(Err(()))?;
+    let rt = memmap
+        .box_new(EfiRuntimeServicesData, RuntimeServices::new())
+        .or(Err(()))?;
 
-        let ctx = EfiContext {
-            cfgtable: ConfigTableDb::new(),
-            protocol_db: RefCell::new(BTreeMap::new()),
-            con: con,
-            memmap: memmap,
-            mapper: Box::new(mapper),
-            rng: rng.map(|r| Box::new(r) as _),
+    let st = memmap
+        .box_new(
+            EfiRuntimeServicesData,
+            SystemTable::new(&*bs, &*rt, &inp.text_input, &out.text_output, conhandle),
+        )
+        .or(Err(()))?;
 
-            bs: RefCell::new(bs),
-            rt: RefCell::new(rt),
-            st: RefCell::new(st),
-        };
+    let ctx: &'static EfiContext = holder.insert(EfiContext {
+        cfgtable: ConfigTableDb::new(),
+        protocol_db: RefCell::new(BTreeMap::new()),
+        con: con,
+        memmap: memmap,
+        mapper: Box::new(mapper),
+        rng: rng.map(|r| Box::new(r) as _),
 
-        ctx.install_pinned_protocol(conhandle, inp);
-        ctx.install_pinned_protocol(conhandle, out);
-        ctx.install_protocol(None, EfiMemoryAttribute::new());
-        ctx.install_protocol(None, EfiRng::new());
+        bs: RefCell::new(bs),
+        rt: RefCell::new(rt),
+        st: RefCell::new(st),
 
-        let rtprop = ctx
-            .memmap
-            .box_new(
-                EfiACPIReclaimMemory,
-                RtPropertiesTable {
-                    version: 1,
-                    length: core::mem::size_of::<RtPropertiesTable>() as _,
-                    supported_mask: EFI_RT_SUPPORTED_GET_TIME
-                        | EFI_RT_SUPPORTED_SET_TIME
-                        | EFI_RT_SUPPORTED_GET_VARIABLE
-                        | EFI_RT_SUPPORTED_GET_NEXT_VARIABLE_NAME
-                        | EFI_RT_SUPPORTED_RESET_SYSTEM,
-                },
-            )
-            .or(Err(()))?;
+        image_stack_top: Cell::new(None),
+    });
 
-        ctx.install_configtable(&EFI_RT_PROPERTIES_TABLE_GUID, rtprop);
-        Ok(ctx)
-    })
+    ctx.install_pinned_protocol(conhandle, inp);
+    ctx.install_pinned_protocol(conhandle, out);
+    ctx.install_protocol(None, EfiMemoryAttribute::new());
+    ctx.install_protocol(None, EfiRng::new());
+
+    let rtprop = ctx
+        .memmap
+        .box_new(
+            EfiACPIReclaimMemory,
+            RtPropertiesTable {
+                version: 1,
+                length: core::mem::size_of::<RtPropertiesTable>() as _,
+                supported_mask: EFI_RT_SUPPORTED_GET_TIME
+                    | EFI_RT_SUPPORTED_SET_TIME
+                    | EFI_RT_SUPPORTED_GET_VARIABLE
+                    | EFI_RT_SUPPORTED_GET_NEXT_VARIABLE_NAME
+                    | EFI_RT_SUPPORTED_RESET_SYSTEM,
+            },
+        )
+        .or(Err(()))?;
+
+    ctx.install_configtable(&EFI_RT_PROPERTIES_TABLE_GUID, rtprop);
+    Ok(ctx)
+}
+
+/// Tears down the EFI runtime created by [`init`], releasing all memory it allocated from the
+/// Rust heap. Memory described by the EFI memory map is not touched: it is owned by the caller.
+///
+/// # Safety
+///
+/// No references to the [`EfiContext`] returned by [`init`] (or to any object it owns) may be
+/// live, and the loaded EFI image must not call into the EFI runtime again.
+pub unsafe fn deinit() {
+    // SAFETY: the caller guarantees exclusive access
+    let holder = unsafe { &mut *EFI.0.get() };
+    if let Some(ctx) = holder.as_ref() {
+        // Pool and page allocations are carved out of memory that the caller owns, and will be
+        // released by the caller in one go. So prevent the drop handlers of PoolBox and of the
+        // config table database from calling back into the EFI context that is being torn down.
+        ctx.cfgtable.forget();
+        core::mem::forget(ctx.rt.replace(PoolBox::empty()));
+        core::mem::forget(ctx.st.replace(PoolBox::empty()));
+    }
+    drop(holder.take());
 }
 
 impl EfiContext {
@@ -496,6 +542,69 @@ impl EfiContext {
         bs.hdr.update_crc();
     }
 
+    /// Override the ExitBootServices EFI boot service by a local implementation. The override
+    /// should use [`memmap_key`](Self::memmap_key) to validate the map key it is passed.
+    pub fn override_exit_boot_services_handler(&self, f: ExitBootServices) {
+        let mut bs = self.bs.borrow_mut();
+        bs.exit_boot_services = f;
+        bs.hdr.update_crc();
+    }
+
+    /// Returns the current memory map key, as returned by the GetMemoryMap() boot service.
+    pub fn memmap_key(&self) -> usize {
+        self.memmap.key()
+    }
+
+    /// Returns a pointer to the EFI system table.
+    pub fn system_table(&self) -> *const () {
+        efi_system_table() as *const ()
+    }
+
+    /// Replace the runtime services table pointer in the EFI system table, e.g., to hand over
+    /// another firmware's runtime services to the OS once boot services have been exited.
+    pub fn set_runtime_services_table(&self, rt: *const ()) {
+        let mut st = self.st.borrow_mut();
+        st.set_runtime_services(rt);
+        st.hdr.update_crc();
+    }
+
+    /// Set the firmware vendor string in the EFI system table. The string is copied into
+    /// EfiRuntimeServicesData pool memory, so that it remains accessible to the OS.
+    pub fn set_firmware_vendor(&self, vendor: &str) -> Result<(), ()> {
+        let len = vendor.encode_utf16().count() + 1;
+        let buf = self
+            .memmap
+            .allocate_pool::<u16>(EfiRuntimeServicesData, len)
+            .or(Err(()))?;
+        // SAFETY: `buf` is a fresh allocation of `len` UTF-16 code units
+        let s = unsafe { core::slice::from_raw_parts_mut(buf.as_ptr(), len) };
+        for (d, c) in s
+            .iter_mut()
+            .zip(vendor.encode_utf16().chain(core::iter::once(0)))
+        {
+            *d = c;
+        }
+        let mut st = self.st.borrow_mut();
+        st.set_firmware_vendor(buf.as_ptr());
+        st.hdr.update_crc();
+        Ok(())
+    }
+
+    /// Provide the stack that loaded images are started on, instead of allocating it from the
+    /// EfiBootServicesData pool. `top` is the initial stack pointer value.
+    ///
+    /// # Safety
+    ///
+    /// The memory below `top` must be valid, unused and large enough for the images that are
+    /// started, and must remain so until they have exited or the EFI runtime is torn down.
+    pub unsafe fn set_image_stack(&self, top: *mut u8) {
+        self.image_stack_top.set(Some(top));
+    }
+
+    pub(crate) fn image_stack_top(&self) -> Option<*mut u8> {
+        self.image_stack_top.get()
+    }
+
     fn write_string(s: &str) {
         EFI.con.map(|c| c.write_string(s));
     }
@@ -508,7 +617,7 @@ impl EfiContext {
     pub fn allocate_pool(&self, pool_type: EfiMemoryType, size: usize) -> Result<NonNull<u8>, ()> {
         self.memmap
             .allocate_pool::<u8>(pool_type, size)
-            .map_err(|e| log::debug!("Allocate pool failed {e}"))
+            .map_err(|e| crate::log::debug!("Allocate pool failed {e}"))
     }
 
     /// Free pool memory at `buffer` that was allocated via [`allocate_pool`](Self::allocate_pool).

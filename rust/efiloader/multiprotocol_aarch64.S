@@ -6,6 +6,7 @@
 	.macro	wrap, ident:req
 	.globl	\ident\()_wrapper
 \ident\()_wrapper:
+	hint	#34		// bti c
 	stp	x29, x30, [sp, #-80]!
 	mov	x29, sp
 	stp	x1, x2, [sp, #24]

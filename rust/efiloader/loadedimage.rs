@@ -139,6 +139,20 @@ impl EfiLoadedImage {
     pub fn start_image(&self) -> Status {
         const EFI_STACK_SIZE: usize = 128 * 1024;
 
+        // Use the stack provided by the embedder, if any
+        if let Some(top) = self.ctx.image_stack_top() {
+            // SAFETY: the embedder guarantees that the stack is valid and unused
+            return unsafe {
+                start_image(
+                    self.image_handle,
+                    efi_system_table(),
+                    self.entrypoint as _,
+                    &self.reserved,
+                    top,
+                )
+            };
+        }
+
         let stack = {
             let s = self
                 .ctx
@@ -203,6 +217,6 @@ unsafe extern "C" {
 }
 
 #[cfg(target_arch = "aarch64")]
-core::arch::global_asm!(include_str!("start_image_aarch64.s"));
+core::arch::global_asm!(include_str!("start_image_aarch64.S"));
 #[cfg(target_arch = "x86_64")]
-core::arch::global_asm!(include_str!("start_image_x86_64.s"));
+core::arch::global_asm!(include_str!("start_image_x86_64.S"));

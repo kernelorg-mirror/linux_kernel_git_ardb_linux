@@ -177,7 +177,7 @@ impl SimpleTextInput {
                         KeyStroke(0xa, 0)
                     }
                     c => {
-                        log::trace!("{c:x?}?");
+                        crate::log::trace!("{c:x?}?");
                         return None;
                     }
                 },
@@ -199,7 +199,7 @@ impl SimpleTextInput {
                 Some(b'0') => KeyStroke(0x14, 0),
                 None => KeyStroke(0x17, 0),
                 c => {
-                    log::trace!("{c:x?}?");
+                    crate::log::trace!("{c:x?}?");
                     return None;
                 }
             },
@@ -234,7 +234,7 @@ extern "efiapi" fn output_string(this: *mut EfiSimpleTextOutput, string: *const 
     let (this, string) = unsafe {
         (
             &mut *(this as *mut SimpleTextOutput),
-            widestring::U16CStr::from_ptr_str(string).to_string_lossy(),
+            crate::utf16::from_ptr_lossy(string),
         )
     };
 
@@ -260,7 +260,7 @@ extern "efiapi" fn test_string(this: *mut EfiSimpleTextOutput, string: *const Ch
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    log::trace!("TestString called\n");
+    crate::log::trace!("TestString called\n");
     Status::EFI_SUCCESS
 }
 
@@ -310,7 +310,7 @@ extern "efiapi" fn clear_screen(this: *mut EfiSimpleTextOutput) -> Status {
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    log::trace!("Clear screen");
+    crate::log::trace!("Clear screen");
     // SAFETY: `this` is not NULL, and points to the first field of the repr(C) SimpleTextOutput
     // instance that this crate exposes, and so it can be cast to a pointer to it.
     let this = unsafe { &mut *(this as *mut SimpleTextOutput) };
@@ -332,7 +332,7 @@ extern "efiapi" fn set_cursor_position(
     if column >= 80 || row >= 25 {
         return Status::EFI_UNSUPPORTED;
     }
-    log::trace!("Set cursor position to {row},{column}");
+    crate::log::trace!("Set cursor position to {row},{column}");
     // SAFETY: `this` is not NULL, and points to the first field of the repr(C) SimpleTextOutput
     // instance that this crate exposes, and so it can be cast to a pointer to it.
     let this = unsafe { &mut *(this as *mut SimpleTextOutput) };

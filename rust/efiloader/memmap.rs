@@ -308,6 +308,25 @@ impl MemoryMap {
         Ok(())
     }
 
+    /// Declare `range` as a region of type `_type` with attributes `attr` in the EFI memory map.
+    /// This is intended for describing regions that are not owned by the EFI runtime, e.g.,
+    /// reserved or MMIO regions, or memory that is in use by the caller. Use
+    /// [`declare_memory_region`](Self::declare_memory_region) for memory that the EFI runtime may
+    /// allocate from, and [`declare_runtime_region`](Self::declare_runtime_region) for regions
+    /// that need to be mapped by the OS during calls to EFI runtime services.
+    /// The region must not exist yet in the memory map.
+    pub fn declare_typed_region(
+        &self,
+        range: &Range<usize>,
+        _type: EfiMemoryType,
+        attr: u64,
+    ) -> Result<(), ()> {
+        let mut mm = self.memmap.borrow_mut();
+        let phys = range.start as PhysicalAddress;
+        let pages = (range.end - range.start) as u64 >> EFI_PAGE_SHIFT;
+        self.declare_region(&mut mm, phys, pages, _type, attr, 0)
+    }
+
     fn split_region(
         &self,
         mm: &mut MemMap,
@@ -583,6 +602,10 @@ impl<T> PoolBox<T> {
     pub(crate) fn take(mut self) -> NonNull<T> {
         self.0.take().unwrap()
     }
+
+    pub(crate) const fn empty() -> Self {
+        PoolBox(None)
+    }
 }
 
 impl<T: ?Sized> Drop for PoolBox<T> {
@@ -597,17 +620,18 @@ impl<T: ?Sized> Deref for PoolBox<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
-        // SAFETY: PoolBox instances are only created by box_new(), and own the initialized pool
-        // allocation they point to until they are dropped or taken.
+        // SAFETY: PoolBox instances are either empty, in which case unwrap() panics, or created by
+        // box_new(), and own the initialized pool allocation they point to until they are dropped
+        // or taken.
         unsafe { self.0.unwrap().as_ref() }
     }
 }
 
 impl<T: ?Sized> DerefMut for PoolBox<T> {
     fn deref_mut(&mut self) -> &mut T {
-        // SAFETY: PoolBox instances are only created by box_new(), and own the initialized pool
-        // allocation they point to until they are dropped or taken. Exclusive access is ensured by
-        // `&mut self`.
+        // SAFETY: PoolBox instances are either empty, in which case unwrap() panics, or created by
+        // box_new(), and own the initialized pool allocation they point to until they are dropped
+        // or taken. Exclusive access is ensured by `&mut self`.
         unsafe { self.0.unwrap().as_mut() }
     }
 }

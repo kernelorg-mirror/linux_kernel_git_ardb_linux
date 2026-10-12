@@ -9,12 +9,12 @@ use crate::MemoryMapper;
 use crate::EFI_PAGE_MASK;
 use crate::{EfiMemoryType, FileLoader, Placement};
 
+use crate::log::{debug, trace};
 use alloc::vec::Vec;
 use core::mem::{size_of, MaybeUninit};
 use core::ops::Range;
 use core::slice;
 use core::str::from_utf8;
-use log::{debug, trace};
 
 #[cfg(target_arch = "aarch64")]
 use crate::cmo;
@@ -414,7 +414,7 @@ impl<'a> PeLoader<'a> {
         }
 
         if let Some(dir) = self.table_directory.get(BASE_RELOC_TABLE_IDX) {
-            log::trace!("Applying PE relocations");
+            crate::log::trace!("Applying PE relocations");
             // SAFETY: `buf` was zero initialized above, before the image was loaded into it.
             unsafe { self.apply_relocations(buf, dir) }.ok()?;
         }
@@ -426,7 +426,7 @@ impl<'a> PeLoader<'a> {
             loaded_image: buf,
         };
         pe_image.remap(mapper).or_else(|| {
-            log::warn!("Failed to map image with strict permissions!");
+            crate::log::warn!("Failed to map image with strict permissions!");
 
             #[cfg(feature = "strict_nx")]
             return None;

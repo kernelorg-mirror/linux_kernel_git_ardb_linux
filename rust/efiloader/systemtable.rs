@@ -7,7 +7,7 @@ use crate::{
     bootservices::*, configtable, runtimeservices::*, simpletext::*, tableheader::*, Char16, Handle,
 };
 
-use const_utf16::encode_null_terminated;
+use crate::utf16::utf16_lit;
 use core::ptr;
 
 #[repr(C)]
@@ -43,7 +43,7 @@ impl SystemTable {
                 crc32: 0,
                 reserved: 0,
             },
-            firmware_vendor: encode_null_terminated!("Google").as_ptr(),
+            firmware_vendor: utf16_lit!("Linux kexec").as_ptr(),
             firmware_revision: UEFI_REVISION,
             console_in_handle: conhandle,
             con_in: conin,
@@ -58,5 +58,13 @@ impl SystemTable {
         };
         st.hdr.update_crc();
         st
+    }
+
+    pub(super) fn set_runtime_services(&mut self, rt: *const ()) {
+        self.runtime_services = rt as *const RuntimeServices;
+    }
+
+    pub(super) fn set_firmware_vendor(&mut self, vendor: *const Char16) {
+        self.firmware_vendor = vendor;
     }
 }

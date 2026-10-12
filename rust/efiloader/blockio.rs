@@ -116,7 +116,7 @@ extern "efiapi" fn read_blocks(
     buffer_size: usize,
     buffer: *mut (),
 ) -> Status {
-    log::trace!("Calling read_blocks");
+    crate::log::trace!("Calling read_blocks");
     // SAFETY: The UEFI spec requires `this` to point to the protocol instance that this function was
     // called through, which is an EfiBlockIoProtocol instance in the protocol database, given that
     // this function is not exposed in any other way.

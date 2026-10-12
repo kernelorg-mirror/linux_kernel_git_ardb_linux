@@ -4,7 +4,6 @@
 
 use core::slice;
 use core::sync::atomic::{compiler_fence, Ordering};
-use crc::{Crc, CRC_32_ISO_HDLC};
 
 #[repr(C)]
 pub struct TableHeader {
@@ -27,6 +26,6 @@ impl TableHeader {
         let s = unsafe {
             slice::from_raw_parts(self as *const _ as *const u8, self.header_size as usize)
         };
-        self.crc32 = Crc::<u32>::new(&CRC_32_ISO_HDLC).checksum(s);
+        self.crc32 = crate::crc32::crc32(s);
     }
 }

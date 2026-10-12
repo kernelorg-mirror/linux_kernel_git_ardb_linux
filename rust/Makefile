@@ -11,6 +11,12 @@ always-$(CONFIG_RUST) += exports_core_generated.h
 
 obj-$(CONFIG_RUST) += zerocopy.o
 
+# The efiloader crate, and the subset of the standard library it relies on.
+# Like the other crates, these need to be built when preparing, before their
+# users elsewhere in the tree.
+obj-$(CONFIG_KEXEC_EFI_STUB) += alloc.o efiloader.o
+always-$(CONFIG_KEXEC_EFI_STUB) += alloc.o efiloader.o
+
 ifdef CONFIG_RUST_INLINE_HELPERS
 always-$(CONFIG_RUST) += helpers/helpers.bc helpers/helpers_module.bc
 else
@@ -754,6 +760,20 @@ $(obj)/zerocopy.o: private skip_gendwarfksyms = 1
 $(obj)/zerocopy.o: private rustc_target_envs := $(zerocopy-envs)
 $(obj)/zerocopy.o: private rustc_target_flags = $(zerocopy-flags)
 $(obj)/zerocopy.o: $(src)/zerocopy/src/lib.rs $(obj)/compiler_builtins.o FORCE
+	+$(call if_changed_rule,rustc_library)
+
+$(obj)/alloc.o: private skip_clippy = 1
+$(obj)/alloc.o: private skip_gendwarfksyms = 1
+$(obj)/alloc.o: private skip_flags = $(core-skip_flags)
+$(obj)/alloc.o: private rustc_target_flags = --edition=$(core-edition) --cap-lints=allow
+$(obj)/alloc.o: $(RUST_LIB_SRC)/alloc/src/lib.rs $(obj)/compiler_builtins.o FORCE
+	+$(call if_changed_rule,rustc_library)
+
+$(obj)/efiloader.o: private skip_clippy = 1
+$(obj)/efiloader.o: private skip_gendwarfksyms = 1
+$(obj)/efiloader.o: private skip_flags = --edition=2021
+$(obj)/efiloader.o: private rustc_target_flags = --edition=2024 --cap-lints=allow --extern alloc
+$(obj)/efiloader.o: $(src)/efiloader/lib.rs $(obj)/alloc.o FORCE
 	+$(call if_changed_rule,rustc_library)
 
 $(obj)/pin_init.o: private skip_gendwarfksyms = 1

@@ -25,7 +25,6 @@ use core::mem::{size_of, MaybeUninit};
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{ptr, slice};
-use crc::{Crc, CRC_32_ISO_HDLC};
 
 const EFI_MEMORY_DESCRIPTOR_VERSION: u32 = 1;
 
@@ -117,7 +116,7 @@ type LoadImage =
 type StartImage = extern "efiapi" fn(Handle, *mut usize, *mut Char16) -> Status;
 type Exit = extern "efiapi" fn(Handle, Status, usize, *const Char16) -> Status;
 type UnloadImage = extern "efiapi" fn(Handle) -> Status;
-type ExitBootServices = extern "efiapi" fn(Handle, usize) -> Status;
+pub type ExitBootServices = extern "efiapi" fn(Handle, usize) -> Status;
 
 type GetNextMonotonicCount = extern "efiapi" fn(*mut u64) -> Status;
 pub type Stall = extern "efiapi" fn(usize) -> Status;
@@ -188,7 +187,7 @@ pub(crate) struct BootServices {
     start_image: StartImage,
     exit: Exit,
     unload_image: UnloadImage,
-    exit_boot_services: ExitBootServices,
+    pub(crate) exit_boot_services: ExitBootServices,
 
     get_next_monotonic_count: GetNextMonotonicCount,
     pub(crate) stall: Stall,
@@ -316,7 +315,7 @@ extern "efiapi" fn allocate_pages(
     } else {
         Status::EFI_OUT_OF_RESOURCES
     };
-    log::trace!("AllocatePages() {pages} {memory_type:?} -> {ret:?}");
+    crate::log::trace!("AllocatePages() {pages} {memory_type:?} -> {ret:?}");
     ret
 }
 
@@ -329,7 +328,7 @@ extern "efiapi" fn free_pages(memory: PhysicalAddress, pages: usize) -> Status {
     } else {
         Status::EFI_NOT_FOUND
     };
-    log::trace!("FreePages() {memory:x?} {pages} -> {ret:?}");
+    crate::log::trace!("FreePages() {memory:x?} {pages} -> {ret:?}");
     ret
 }
 
@@ -340,7 +339,7 @@ extern "efiapi" fn get_memory_map(
     descriptor_size: *mut usize,
     descriptor_version: *mut u32,
 ) -> Status {
-    log::trace!("GetMemoryMap()");
+    crate::log::trace!("GetMemoryMap()");
     let desc_size = size_of::<EfiMemoryDescriptor>();
     // SAFETY: The UEFI spec requires `descriptor_size` and `descriptor_version` to point to
     // writable locations of the appropriate types.
@@ -379,7 +378,7 @@ extern "efiapi" fn allocate_pool(
     size: usize,
     buffer: *mut *mut (),
 ) -> Status {
-    log::trace!("AllocatePool() {size}");
+    crate::log::trace!("AllocatePool() {size}");
     if buffer.is_null() {
         return Status::EFI_INVALID_PARAMETER;
     }
@@ -408,12 +407,12 @@ extern "efiapi" fn create_event(
     _notify_context: *const (),
     _event: *mut Event,
 ) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_OUT_OF_RESOURCES
 }
 
 extern "efiapi" fn set_timer(_event: Event, _type: TimerDelay, _trigger_time: u64) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_INVALID_PARAMETER
 }
 
@@ -422,22 +421,22 @@ extern "efiapi" fn wait_for_event(
     _event: *const Event,
     _index: *mut usize,
 ) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_UNSUPPORTED
 }
 
 extern "efiapi" fn signal_event(_event: Event) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_SUCCESS
 }
 
 extern "efiapi" fn close_event(_event: Event) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_SUCCESS
 }
 
 extern "efiapi" fn check_event(_event: Event) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_NOT_READY
 }
 
@@ -589,7 +588,7 @@ extern "efiapi" fn register_protocol_notify(
     _event: Event,
     _registration: *mut *const (),
 ) -> Status {
-    log::warn!("UNIMPLEMENTED");
+    crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_OUT_OF_RESOURCES
 }
 
@@ -654,7 +653,7 @@ extern "efiapi" fn locate_handle(
             Status::EFI_SUCCESS
         }
     };
-    log::trace!("LocateHandle({search_type:?}) -> {ret:?}");
+    crate::log::trace!("LocateHandle({search_type:?}) -> {ret:?}");
     ret
 }
 
@@ -726,7 +725,7 @@ extern "efiapi" fn locate_device_path(
     } else {
         Status::EFI_NOT_FOUND
     };
-    log::trace!("LocateDevicePath() {protocol:02x?} {ret:?}");
+    crate::log::trace!("LocateDevicePath() {protocol:02x?} {ret:?}");
     ret
 }
 
@@ -801,7 +800,7 @@ extern "efiapi" fn load_image(
     source_size: usize,
     image_handle: *mut Handle,
 ) -> Status {
-    log::trace!("LoadImage()");
+    crate::log::trace!("LoadImage()");
     if source_buffer.is_null() || source_size == 0 {
         return Status::EFI_UNSUPPORTED;
     }
@@ -827,7 +826,7 @@ extern "efiapi" fn start_image(
     _exit_data_size: *mut usize,
     _exit_data: *mut Char16,
 ) -> Status {
-    log::trace!("StartImage()");
+    crate::log::trace!("StartImage()");
     let db = EFI.protocol_db.borrow();
     let key = (handle, EFI_LOADED_IMAGE_PROTOCOL_GUID);
     if let Some(proto) = db.get(&key) {
@@ -850,7 +849,7 @@ extern "efiapi" fn exit(
     _exit_data_size: usize,
     _exit_data: *const Char16,
 ) -> Status {
-    log::trace!("Exit()");
+    crate::log::trace!("Exit()");
     let db = EFI.protocol_db.borrow();
     let key = (image_handle, EFI_LOADED_IMAGE_PROTOCOL_GUID);
     if let Some(proto) = db.get(&key) {
@@ -880,12 +879,12 @@ extern "efiapi" fn exit_boot_services(_image_handle: Handle, map_key: usize) -> 
     if map_key != EFI.memmap.key() {
         return Status::EFI_INVALID_PARAMETER;
     }
-    log::trace!("ExitBootServices()");
+    crate::log::trace!("ExitBootServices()");
     Status::EFI_SUCCESS
 }
 
 extern "efiapi" fn get_next_monotonic_count(_count: *mut u64) -> Status {
-    log::warn!("UNIMPLEMENTED - get_next_monotonic_count()");
+    crate::log::warn!("UNIMPLEMENTED - get_next_monotonic_count()");
     Status::EFI_SUCCESS
 }
 
@@ -899,7 +898,7 @@ extern "efiapi" fn set_watchdog_timer(
     _data_size: usize,
     _watchdog_data: *const Char16,
 ) -> Status {
-    log::warn!("UNIMPLEMENTED - set_watchdog_timer()");
+    crate::log::warn!("UNIMPLEMENTED - set_watchdog_timer()");
     Status::EFI_SUCCESS
 }
 
@@ -909,7 +908,7 @@ extern "efiapi" fn connect_controller(
     _remaining_device_path: *const DevicePath,
     _recursive: Bool,
 ) -> Status {
-    log::warn!("UNIMPLEMENTED - connect_controller()");
+    crate::log::warn!("UNIMPLEMENTED - connect_controller()");
     Status::EFI_NOT_FOUND
 }
 
@@ -918,7 +917,7 @@ extern "efiapi" fn disconnect_controller(
     _driver_image_handle: Handle,
     _child_handle: Handle,
 ) -> Status {
-    log::warn!("UNIMPLEMENTED - disconnect_controller()");
+    crate::log::warn!("UNIMPLEMENTED - disconnect_controller()");
     Status::EFI_SUCCESS
 }
 
@@ -950,7 +949,7 @@ extern "efiapi" fn open_protocol(
     } else {
         Status::EFI_UNSUPPORTED
     };
-    log::trace!("OpenProtocol() {handle} {protocol:02x?} -> {ret:?}");
+    crate::log::trace!("OpenProtocol() {handle} {protocol:02x?} -> {ret:?}");
     ret
 }
 
@@ -972,7 +971,7 @@ extern "efiapi" fn open_protocol_information(
     _entry_buffer: *mut *const OpenProtocolInformationEntry,
     _entry_count: *mut usize,
 ) -> Status {
-    log::warn!("UNIMPLEMENTED - open_protocol_information()");
+    crate::log::warn!("UNIMPLEMENTED - open_protocol_information()");
     Status::EFI_OUT_OF_RESOURCES
 }
 
@@ -1017,7 +1016,7 @@ extern "efiapi" fn protocols_per_handle(
     } else {
         Status::EFI_OUT_OF_RESOURCES
     };
-    log::trace!("ProtocolsPerHandle() handle:{handle} -> {ret:?}");
+    crate::log::trace!("ProtocolsPerHandle() handle:{handle} -> {ret:?}");
     ret
 }
 
@@ -1057,7 +1056,7 @@ extern "efiapi" fn locate_handle_buffer(
             Status::EFI_OUT_OF_RESOURCES
         }
     };
-    log::trace!("LocateHandleBuffer() {protocol:x?} -> {ret:?}");
+    crate::log::trace!("LocateHandleBuffer() {protocol:x?} -> {ret:?}");
     ret
 }
 
@@ -1086,16 +1085,16 @@ extern "efiapi" fn locate_protocol(
         *interface = ptr::null();
         Status::EFI_NOT_FOUND
     };
-    log::trace!("LocateProtocol() {protocol:02x?} {ret:?}");
+    crate::log::trace!("LocateProtocol() {protocol:02x?} {ret:?}");
     ret
 }
 
 // Implementing the below functions properly in pure Rust needs c_variadic to stabilize for efiapi
 // For the time being, use a helper in asm to convert the varargs to an array of pointers
 #[cfg(target_arch = "aarch64")]
-core::arch::global_asm!(include_str!("multiprotocol_aarch64.s"));
+core::arch::global_asm!(include_str!("multiprotocol_aarch64.S"));
 #[cfg(target_arch = "x86_64")]
-core::arch::global_asm!(include_str!("multiprotocol_x86_64.s"));
+core::arch::global_asm!(include_str!("multiprotocol_x86_64.S"));
 
 unsafe extern "efiapi" {
     fn install_multiple_protocol_interfaces_wrapper(handle: *mut Handle) -> Status;
@@ -1249,7 +1248,7 @@ extern "efiapi" fn calculate_crc32(data: *const (), datasize: usize, crc32: *mut
             slice::from_raw_parts(data as *const u8, datasize),
         )
     };
-    *crc = Crc::<u32>::new(&CRC_32_ISO_HDLC).checksum(slice);
+    *crc = crate::crc32::crc32(slice);
     Status::EFI_SUCCESS
 }
 
