@@ -86,14 +86,23 @@ impl<const N: usize> MemoryAttributesTable<N> {
 
 type MemMap = BTreeMap<PhysicalAddress, EfiMemoryDescriptor>;
 
+struct PoolAllocation {
+    pool_type: EfiMemoryType,
+    layout: Layout,
+    /// Whether the allocation was made on behalf of an EFI image, which may free it via FreePool()
+    image: bool,
+}
+
 struct PoolAllocDb {
     allocators: BTreeMap<EfiMemoryType, PoolAllocator>,
-    allocations: BTreeMap<*const u8, (EfiMemoryType, Layout)>,
+    allocations: BTreeMap<*const u8, PoolAllocation>,
 }
 
 pub struct MemoryMap {
     memmap: RefCell<MemMap>,
     pool_alloc_db: RefCell<PoolAllocDb>,
+    /// The page allocations made on behalf of EFI images, as a map of start to end addresses
+    image_pages: RefCell<BTreeMap<u64, u64>>,
     mapkey: AtomicUsize,
     mem_attr_mapkey: AtomicUsize,
 }
@@ -108,6 +117,7 @@ impl MemoryMap {
         MemoryMap {
             memmap: RefCell::new(BTreeMap::new()),
             pool_alloc_db: RefCell::new(alloc_db),
+            image_pages: RefCell::new(BTreeMap::new()),
             mapkey: AtomicUsize::new(1),
             mem_attr_mapkey: AtomicUsize::new(0),
         }
@@ -117,6 +127,24 @@ impl MemoryMap {
         &self,
         pool_type: EfiMemoryType,
         count: usize,
+    ) -> Result<NonNull<T>, &'static str> {
+        self.allocate_pool_for(pool_type, count, false)
+    }
+
+    /// Allocates pool memory on behalf of an EFI image, which may free it via FreePool().
+    pub(crate) fn allocate_image_pool<T>(
+        &self,
+        pool_type: EfiMemoryType,
+        count: usize,
+    ) -> Result<NonNull<T>, &'static str> {
+        self.allocate_pool_for(pool_type, count, true)
+    }
+
+    fn allocate_pool_for<T>(
+        &self,
+        pool_type: EfiMemoryType,
+        count: usize,
+        image: bool,
     ) -> Result<NonNull<T>, &'static str> {
         let size = count * core::mem::size_of::<T>();
         let align = core::mem::align_of::<T>().max(16);
@@ -135,34 +163,56 @@ impl MemoryMap {
             .unwrap()
             .allocate(layout, self)
             .or(Err("Failed to allocate from pool"))?;
-        db.allocations.insert(p.as_ptr(), (pool_type, layout));
+        let a = PoolAllocation {
+            pool_type,
+            layout,
+            image,
+        };
+        db.allocations.insert(p.as_ptr(), a);
         // SAFETY: NonNull<u8> and NonNull<T> have the same layout, and the allocation was created
         // with the size and alignment of `count` instances of T.
         unsafe { Ok(core::mem::transmute::<NonNull<u8>, NonNull<T>>(p)) }
     }
 
     pub(crate) fn free_pool(&self, buffer: *const u8) -> Result<(), ()> {
+        self.free_pool_for(buffer, false)
+    }
+
+    /// Frees pool memory on behalf of an EFI image. Only allocations made via
+    /// allocate_image_pool() can be freed this way.
+    pub(crate) fn free_image_pool(&self, buffer: *const u8) -> Result<(), ()> {
+        self.free_pool_for(buffer, true)
+    }
+
+    fn free_pool_for(&self, buffer: *const u8, image: bool) -> Result<(), ()> {
         let mut db = self.pool_alloc_db.borrow_mut();
 
-        if let Some((pool_type, layout)) = db.allocations.remove(&buffer) {
-            Ok(db
-                .allocators
-                .get_mut(&pool_type)
-                .unwrap()
-                .deallocate(buffer, layout))
-        } else {
-            Err(())
+        match db.allocations.get(&buffer) {
+            Some(a) if a.image || !image => {}
+            _ => return Err(()),
         }
+        let a = db.allocations.remove(&buffer).unwrap();
+        db.allocators
+            .get_mut(&a.pool_type)
+            .unwrap()
+            .deallocate(buffer, a.layout);
+        Ok(())
     }
 
     /// Declare a memory region `pool` as the region to be used for pool allocations of
     /// type `pool_type`. The region in question must already be accounted for in the
-    /// memory map by a region of the same type.
+    /// memory map by a region of the same type. Pool allocations of this type will be
+    /// served from this region only, and fail if it is exhausted. This fails if a pool
+    /// of type `pool_type` exists already.
     pub fn declare_pool(
         &self,
         pool_type: EfiMemoryType,
         pool: &'static mut [MaybeUninit<u8>],
     ) -> Result<(), ()> {
+        if pool.is_empty() {
+            return Err(());
+        }
+
         // Double check that the region is covered by the correct memory type
         let phys = pool.as_ptr() as u64;
         let num_pages = pool.len() >> EFI_PAGE_SHIFT;
@@ -174,6 +224,11 @@ impl MemoryMap {
 
         let mut db = self.pool_alloc_db.borrow_mut();
         let alloc = &mut db.allocators;
+        // Replacing an existing pool would result in its outstanding allocations being freed
+        // into the new one
+        if alloc.contains_key(&pool_type) {
+            return Err(());
+        }
         alloc.insert(pool_type, PoolAllocator::from_slice(pool_type, pool));
         Ok(())
     }
@@ -269,7 +324,14 @@ impl MemoryMap {
     /// Declare `range` as a region of available system memory in the EFI memory map.
     /// Page and pool allocations may be served from memory declared in this manner.
     /// The region must not exist yet in the memory map.
-    pub fn declare_memory_region(&self, range: &Range<usize>) -> Result<(), ()> {
+    ///
+    /// # Safety
+    ///
+    /// The memory covered by `range` must be valid for reads and writes, and must be owned
+    /// exclusively by this memory map for the remaining lifetime of the program, given that it
+    /// will be handed out to the EFI runtime, to EFI images and to the embedder, e.g., as
+    /// `&'static mut` slices returned by [`EfiContext::allocate_pages`](crate::EfiContext::allocate_pages).
+    pub unsafe fn declare_memory_region(&self, range: &Range<usize>) -> Result<(), ()> {
         let mut mm = self.memmap.borrow_mut();
         let phys = range.start as PhysicalAddress;
         let pages = (range.end - range.start) as u64 >> EFI_PAGE_SHIFT;
@@ -286,7 +348,9 @@ impl MemoryMap {
     /// Declare `range` as a EFI_MEMORY_RUNTIME region in the EFI memory map. This means that the
     /// region will be described to the OS as a region that needs to be mapped during calls to EFI
     /// runtime services.
-    /// The region must not exist yet in the memory map.
+    /// The region must not exist yet in the memory map, and must not be of type
+    /// EfiConventionalMemory: use [`declare_memory_region`](Self::declare_memory_region) to
+    /// declare memory that may be allocated from.
     pub fn declare_runtime_region(
         &self,
         range: &Range<usize>,
@@ -294,6 +358,11 @@ impl MemoryMap {
         attr: u64,
         rtattr: u64,
     ) -> Result<(), ()> {
+        // Page allocations are served from EfiConventionalMemory regions, and so declaring such
+        // a region here would circumvent the safety requirements of declare_memory_region()
+        if _type == EfiConventionalMemory {
+            return Err(());
+        }
         let mut mm = self.memmap.borrow_mut();
         let phys = range.start as PhysicalAddress;
         let pages = (range.end - range.start) as u64 >> EFI_PAGE_SHIFT;
@@ -435,6 +504,53 @@ impl MemoryMap {
         self.convert_region(base, size, None, EfiConventionalMemory, 0)
     }
 
+    /// Allocates pages on behalf of an EFI image, which may free them via FreePages(). Returns the
+    /// base address of the allocation.
+    pub(crate) fn allocate_image_pages(
+        &self,
+        pages: usize,
+        _type: EfiMemoryType,
+        placement: Placement,
+    ) -> Option<u64> {
+        let size = pages.checked_mul(EFI_PAGE_SIZE).filter(|&s| s > 0)?;
+        let base = self.allocate_pages(pages, _type, placement)?.as_ptr() as u64;
+        self.image_pages
+            .borrow_mut()
+            .insert(base, base + size as u64);
+        Some(base)
+    }
+
+    /// Frees pages on behalf of an EFI image. Only allocations made via allocate_image_pages(), or
+    /// parts thereof, can be freed this way.
+    pub(crate) fn free_image_pages(&self, base: u64, pages: usize) -> Result<(), ()> {
+        let end = (pages as u64)
+            .checked_mul(EFI_PAGE_SIZE as u64)
+            .and_then(|size| base.checked_add(size))
+            .filter(|&end| end > base)
+            .ok_or(())?;
+
+        // Find the allocation that covers the range, if any
+        let mut allocs = self.image_pages.borrow_mut();
+        let (start, alloc_end) = allocs
+            .range(..=base)
+            .next_back()
+            .map(|(&s, &e)| (s, e))
+            .filter(|&(_, e)| e >= end)
+            .ok_or(())?;
+
+        self.free_pages(base, pages)?;
+
+        // Retain the parts of the allocation that were not freed
+        allocs.remove(&start);
+        if start < base {
+            allocs.insert(start, base);
+        }
+        if end < alloc_end {
+            allocs.insert(end, alloc_end);
+        }
+        Ok(())
+    }
+
     pub(crate) fn allocate_pages(
         &self,
         pages: usize,
@@ -545,7 +661,13 @@ impl MemoryMap {
         }
     }
 
-    pub(crate) fn get_memory_map(&self, tbl: &mut [EfiMemoryDescriptor]) -> Option<(usize, usize)> {
+    /// Copies the memory map into `tbl`, and returns the map key and the number of descriptors.
+    /// Returns `None` if `tbl` is too small, in which case len() returns the number of descriptors
+    /// that it needs to be able to hold.
+    pub(crate) fn get_memory_map(
+        &self,
+        tbl: &mut [MaybeUninit<EfiMemoryDescriptor>],
+    ) -> Option<(usize, usize)> {
         let (mm, key) = {
             let mm = self.memmap.borrow();
             let key = self.mapkey.load(Ordering::Acquire);
@@ -565,13 +687,14 @@ impl MemoryMap {
             }
         };
 
-        let vec = mm.values().cloned().collect::<Vec<_>>();
-        if tbl.len() < vec.len() {
+        if tbl.len() < mm.len() {
             return None;
         }
 
-        tbl[..vec.len()].copy_from_slice(vec.as_slice());
-        Some((key, vec.len()))
+        for (d, s) in tbl.iter_mut().zip(mm.values()) {
+            d.write(*s);
+        }
+        Some((key, mm.len()))
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -583,14 +706,12 @@ impl MemoryMap {
     }
 
     pub(crate) fn box_new<T>(&self, memtype: EfiMemoryType, value: T) -> Result<PoolBox<T>, &str> {
-        let mut p = self.allocate_pool::<T>(memtype, 1)?;
+        let p = self.allocate_pool::<T>(memtype, 1)?;
 
         // SAFETY: `p` was allocated above with the size and alignment of T, and is not shared with
-        // anyone else yet. Note that the assignment drops the previous contents of `*p`, which are
-        // uninitialized, and so this is only sound for types T that have no drop glue.
-        unsafe {
-            *p.as_mut() = value;
-        }
+        // anyone else yet. Initializing it via a raw pointer write avoids creating a reference to
+        // the uninitialized allocation, and dropping its previous contents.
+        unsafe { p.as_ptr().write(value) };
         Ok(PoolBox(Some(p)))
     }
 }

@@ -4,11 +4,12 @@
 
 use crate::devicepath::EFI_DEVICE_PATH_PROTOCOL_GUID;
 use crate::devicepath::{DevicePath, VendorMedia};
-use crate::devicepath::{DevicePathSubtype::*, DevicePathType::*};
+use crate::devicepath::{DevicePathSubtype, DevicePathType};
 use crate::EfiContext;
 use crate::EfiProtocol;
 use crate::FileLoader;
 use crate::{guid, Guid};
+use crate::{new_handle, ProtocolOwner};
 use crate::{status::*, Bool};
 
 use alloc::boxed::Box;
@@ -66,19 +67,20 @@ extern "efiapi" fn load_file(
         return Status::EFI_UNSUPPORTED;
     }
 
-    if buffer_size.is_null() {
+    if this.is_null() || file_path.is_null() || buffer_size.is_null() {
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    // SAFETY: The UEFI spec requires `file_path` to point to a valid device path.
+    // SAFETY: `file_path` is not NULL, and the UEFI spec requires it to point to a valid device
+    // path.
     let file_path = unsafe { &*file_path };
-    if file_path._type != EFI_DEV_END_PATH {
+    if file_path._type != DevicePathType::EFI_DEV_END_PATH {
         return Status::EFI_NOT_FOUND;
     }
 
-    // SAFETY: The UEFI spec requires `this` to point to the protocol instance that this function was
-    // called through, which is the EfiLoadFile2 instance installed by install(), given that this
-    // function is not exposed in any other way.
+    // SAFETY: `this` is not NULL, and the UEFI spec requires it to point to the protocol instance
+    // that this function was called through, which is the EfiLoadFile2 instance installed by
+    // install(), given that this function is not exposed in any other way.
     let this = unsafe { &mut *this };
     let filesize = this.loader.get_size();
 
@@ -111,23 +113,23 @@ pub(crate) fn install(ctx: &EfiContext, loader: impl FileLoader + Send + 'static
         load_file,
         loader: Box::new(loader),
     };
-    let handle = ctx.install_protocol(None, lf);
-    ctx.install_protocol(
-        Some(handle),
-        InitrdDevicePath {
-            vendor: VendorMedia {
-                header: DevicePath {
-                    _type: EFI_DEV_MEDIA,
-                    subtype: EFI_DEV_MEDIA_VENDOR,
-                    size: size_of::<VendorMedia>() as u16,
-                },
-                vendor_guid: LINUX_EFI_INITRD_MEDIA_GUID,
+    let dp = InitrdDevicePath {
+        vendor: VendorMedia {
+            header: DevicePath {
+                _type: DevicePathType::EFI_DEV_MEDIA,
+                subtype: DevicePathSubtype::EFI_DEV_MEDIA_VENDOR,
+                size: size_of::<VendorMedia>() as u16,
             },
-            end: DevicePath {
-                _type: EFI_DEV_END_PATH,
-                subtype: EFI_DEV_END_ENTIRE,
-                size: size_of::<DevicePath>() as u16,
-            },
+            vendor_guid: LINUX_EFI_INITRD_MEDIA_GUID,
         },
-    );
+        end: DevicePath {
+            _type: DevicePathType::EFI_DEV_END_PATH,
+            subtype: DevicePathSubtype::EFI_DEV_END_ENTIRE,
+            size: size_of::<DevicePath>() as u16,
+        },
+    };
+    // Installing the protocols cannot fail, given that the handle is new
+    let handle = new_handle();
+    let _ = ctx.install_pinned_protocol(handle, Box::pin(lf), ProtocolOwner::Runtime);
+    let _ = ctx.install_pinned_protocol(handle, Box::pin(dp), ProtocolOwner::Runtime);
 }

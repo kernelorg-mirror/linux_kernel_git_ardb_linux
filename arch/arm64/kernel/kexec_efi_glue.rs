@@ -270,7 +270,10 @@ unsafe extern "C" fn efi_kexec_run(p: *mut c_void) -> isize {
         // SAFETY: EfiMemoryType is repr(u32), and the C side only passes valid types
         let t: EfiMemoryType = unsafe { core::mem::transmute(r.r#type) };
         let ret = if r.flags & REGION_ALLOCATABLE != 0 {
-            memmap.declare_memory_region(&range)
+            // SAFETY: allocatable regions are part of the memory that kexec_efi.c set aside for
+            // the EFI runtime, which is identity mapped, and not used for anything else until
+            // efi_kexec_teardown() has torn down the EFI runtime.
+            unsafe { memmap.declare_memory_region(&range) }
         } else if r.attr & efiloader::memorytype::EFI_MEMORY_RUNTIME != 0 {
             // Describe the firmware's runtime regions in the Memory Attributes Table that is
             // exposed to the OS, using permissions that follow from the region type.

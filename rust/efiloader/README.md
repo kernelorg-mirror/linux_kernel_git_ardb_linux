@@ -8,7 +8,9 @@ It is used by the arm64 kexec loader for EFI images (`CONFIG_KEXEC_EFI_STUB`,
 see `arch/arm64/kernel/kexec_efi.c`), which runs the incoming kernel's EFI stub
 at `kexec_file_load()` time, up to the point where it calls `ExitBootServices()`.
 
-Upstream: https://github.com/ardbiesheuvel/efiloader (commit 0b409661216e)
+Upstream: https://github.com/ardbiesheuvel/efiloader (commit 0b409661216e,
+plus the fixes series ending at commit e30d070a4525, which has not been merged
+upstream yet)
 
 Like upstream, the crate is built as Rust 2024 edition code.
 

@@ -8,11 +8,10 @@ use crate::EfiProtocol;
 use crate::FileLoader;
 use crate::{memorytype::*, status::*, tableheader::*};
 use crate::{Bool, Char16, Event, EventNotify, Guid, Handle, PhysicalAddress, Tpl};
-use crate::{ProtocolDb, TPL_APPLICATION, UEFI_REVISION};
+use crate::{ProtocolDb, ProtocolEntry, ProtocolOwner, TPL_APPLICATION, UEFI_REVISION};
 
-use crate::bootservices::AllocateType::*;
 use crate::devicepath::EFI_DEVICE_PATH_PROTOCOL_GUID;
-use crate::loadedimage::exit_image;
+use crate::loadedimage::{current_image, exit_image};
 use crate::new_handle;
 use crate::EfiLoadedImage;
 use crate::EFI;
@@ -22,44 +21,36 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::mem::{size_of, MaybeUninit};
-use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{ptr, slice};
 
 const EFI_MEMORY_DESCRIPTOR_VERSION: u32 = 1;
 
-#[allow(dead_code)]
-#[derive(PartialEq)]
-#[repr(C)]
-enum AllocateType {
-    AllocateAnyPages,
-    AllocateMaxAddress,
-    AllocateAddress,
-}
+// Values of EFI_ALLOCATE_TYPE. Arguments of enumerated types are passed as plain integers rather
+// than Rust enums, given that EFI images may pass any value.
+const ALLOCATE_ANY_PAGES: u32 = 0;
+const ALLOCATE_MAX_ADDRESS: u32 = 1;
+const ALLOCATE_ADDRESS: u32 = 2;
 
-#[allow(dead_code)]
-#[repr(C)]
-enum TimerDelay {
-    TimerCancel,
-    TimerPeriodic,
-    TimerRelative,
-}
+// Values of EFI_INTERFACE_TYPE
+const EFI_NATIVE_INTERFACE: u32 = 0;
 
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
-#[derive(PartialEq)]
-#[repr(C)]
-enum InterfaceType {
-    EFI_NATIVE_INTERFACE,
-}
-
-#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
-#[repr(C)]
 enum LocateSearchType {
     AllHandles,
     ByRegisterNotify,
     ByProtocol,
+}
+
+impl LocateSearchType {
+    fn from_raw(search_type: u32) -> Option<Self> {
+        match search_type {
+            0 => Some(LocateSearchType::AllHandles),
+            1 => Some(LocateSearchType::ByRegisterNotify),
+            2 => Some(LocateSearchType::ByProtocol),
+            _ => None,
+        }
+    }
 }
 
 const EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL: u32 = 0x00000001;
@@ -80,8 +71,7 @@ struct OpenProtocolInformationEntry {
 type RaiseTpl = extern "efiapi" fn(Tpl) -> Tpl;
 type RestoreTpl = extern "efiapi" fn(Tpl);
 
-type AllocatePages =
-    extern "efiapi" fn(AllocateType, EfiMemoryType, usize, *mut PhysicalAddress) -> Status;
+type AllocatePages = extern "efiapi" fn(u32, u32, usize, *mut PhysicalAddress) -> Status;
 type FreePages = extern "efiapi" fn(PhysicalAddress, usize) -> Status;
 type GetMemoryMap = extern "efiapi" fn(
     *mut usize,
@@ -90,23 +80,24 @@ type GetMemoryMap = extern "efiapi" fn(
     *mut usize,
     *mut u32,
 ) -> Status;
-type AllocatePool = extern "efiapi" fn(EfiMemoryType, usize, *mut *mut ()) -> Status;
+type AllocatePool = extern "efiapi" fn(u32, usize, *mut *mut ()) -> Status;
 type FreePool = extern "efiapi" fn(*mut ()) -> Status;
 
-type CreateEvent = extern "efiapi" fn(u32, Tpl, EventNotify, *const (), *mut Event) -> Status;
-type SetTimer = extern "efiapi" fn(Event, TimerDelay, u64) -> Status;
+type CreateEvent =
+    extern "efiapi" fn(u32, Tpl, Option<EventNotify>, *const (), *mut Event) -> Status;
+type SetTimer = extern "efiapi" fn(Event, u32, u64) -> Status;
 type WaitForEvent = extern "efiapi" fn(usize, *const Event, *mut usize) -> Status;
 type SignalOrCheckOrCloseEvent = extern "efiapi" fn(Event) -> Status;
 
 type InstallProtocolInterface =
-    extern "efiapi" fn(*mut Handle, *const Guid, InterfaceType, *const ()) -> Status;
+    extern "efiapi" fn(*mut Handle, *const Guid, u32, *const ()) -> Status;
 type ReinstallProtocolInterface =
     extern "efiapi" fn(Handle, *const Guid, *const (), *const ()) -> Status;
 type UninstallProtocolInterface = extern "efiapi" fn(Handle, *const Guid, *const ()) -> Status;
 type HandleProtocol = extern "efiapi" fn(Handle, *const Guid, *mut *const ()) -> Status;
 type RegisterProtocolNotify = extern "efiapi" fn(*const Guid, Event, *mut *const ()) -> Status;
 type LocateHandle =
-    extern "efiapi" fn(LocateSearchType, *const Guid, *const (), *mut usize, *mut Handle) -> Status;
+    extern "efiapi" fn(u32, *const Guid, *const (), *mut usize, *mut Handle) -> Status;
 type LocateDevicePath =
     extern "efiapi" fn(*const Guid, *mut *const DevicePath, *mut Handle) -> Status;
 type InstallConfigurationTable = extern "efiapi" fn(*const Guid, *const ()) -> Status;
@@ -136,13 +127,8 @@ type OpenProtocolInformation = extern "efiapi" fn(
 ) -> Status;
 
 type ProtocolPerHandle = extern "efiapi" fn(Handle, *mut *const *const Guid, *mut usize) -> Status;
-type LocateHandleBuffer = extern "efiapi" fn(
-    LocateSearchType,
-    *const Guid,
-    *const (),
-    *mut usize,
-    *mut *const Handle,
-) -> Status;
+type LocateHandleBuffer =
+    extern "efiapi" fn(u32, *const Guid, *const (), *mut usize, *mut *const Handle) -> Status;
 type LocateProtocol = extern "efiapi" fn(*const Guid, *const (), *mut *const ()) -> Status;
 
 type InstallMultipleProtocolInterfaces = unsafe extern "efiapi" fn(*mut Handle) -> Status;
@@ -152,6 +138,9 @@ type CalculateCrc32 = extern "efiapi" fn(*const (), usize, *mut u32) -> Status;
 
 type CopyMem = extern "efiapi" fn(*mut u8, *const u8, usize) -> *mut u8;
 type SetMem = extern "efiapi" fn(*mut u8, usize, u8) -> *mut u8;
+
+type CreateEventEx =
+    extern "efiapi" fn(u32, Tpl, Option<EventNotify>, *const (), *const Guid, *mut Event) -> Status;
 
 #[repr(C)]
 pub(crate) struct BootServices {
@@ -210,6 +199,8 @@ pub(crate) struct BootServices {
 
     copy_mem: CopyMem,
     set_mem: SetMem,
+
+    create_event_ex: CreateEventEx,
 }
 
 impl BootServices {
@@ -275,12 +266,24 @@ impl BootServices {
 
             copy_mem: copy_mem,
             set_mem: set_mem,
-            //create_event_ex: create_event_ex,
+
+            create_event_ex: create_event_ex,
         };
-        bs.hdr.update_crc();
+        bs.update_crc();
         bs
     }
 }
+
+// SAFETY: BootServices consists of a TableHeader followed by pointer sized fields only, and so it
+// has no padding, as checked below.
+unsafe impl EfiTable for BootServices {
+    fn header(&mut self) -> &mut TableHeader {
+        &mut self.hdr
+    }
+}
+
+const _: () =
+    assert!(size_of::<BootServices>() == size_of::<TableHeader>() + 44 * size_of::<usize>());
 
 static CURRENT_TPL: AtomicUsize = AtomicUsize::new(TPL_APPLICATION);
 
@@ -293,24 +296,37 @@ extern "efiapi" fn restore_tpl(old_tpl: Tpl) {
 }
 
 extern "efiapi" fn allocate_pages(
-    _type: AllocateType,
-    memory_type: EfiMemoryType,
+    alloc_type: u32,
+    memory_type: u32,
     pages: usize,
     memory: *mut PhysicalAddress,
 ) -> Status {
-    // SAFETY: The UEFI spec requires `memory` to point to a valid EFI_PHYSICAL_ADDRESS, which
-    // serves as an input for AllocateMaxAddress and AllocateAddress allocations, and receives the
-    // address of the allocated pages.
+    let Some(memory_type) = allocation_type(memory_type) else {
+        return Status::EFI_INVALID_PARAMETER;
+    };
+    if memory.is_null() {
+        return Status::EFI_INVALID_PARAMETER;
+    }
+
+    // SAFETY: `memory` is not NULL, and the UEFI spec requires it to point to a valid
+    // EFI_PHYSICAL_ADDRESS, which serves as an input for AllocateMaxAddress and AllocateAddress
+    // allocations, and receives the address of the allocated pages.
     let m = unsafe { &mut *memory };
 
-    let placement: Placement = match _type {
-        AllocateAnyPages => Placement::Anywhere,
-        AllocateMaxAddress => Placement::Max(*m),
-        AllocateAddress => Placement::Fixed(*m),
+    let placement: Placement = match alloc_type {
+        ALLOCATE_ANY_PAGES => Placement::Anywhere,
+        ALLOCATE_MAX_ADDRESS => Placement::Max(*m),
+        ALLOCATE_ADDRESS => Placement::Fixed(*m),
+        _ => {
+            return Status::EFI_INVALID_PARAMETER;
+        }
     };
 
-    let ret = if let Some(region) = EFI.allocate_pages(pages, memory_type, placement) {
-        *m = region.as_ptr() as PhysicalAddress;
+    let ret = if let Some(base) = EFI
+        .memmap
+        .allocate_image_pages(pages, memory_type, placement)
+    {
+        *m = base;
         Status::EFI_SUCCESS
     } else {
         Status::EFI_OUT_OF_RESOURCES
@@ -323,7 +339,8 @@ extern "efiapi" fn free_pages(memory: PhysicalAddress, pages: usize) -> Status {
     if (memory as usize & EFI_PAGE_MASK) != 0 {
         return Status::EFI_INVALID_PARAMETER;
     }
-    let ret = if let Ok(_) = EFI.free_pages(memory, pages) {
+    // Only pages allocated via AllocatePages() may be freed
+    let ret = if let Ok(_) = EFI.memmap.free_image_pages(memory, pages) {
         Status::EFI_SUCCESS
     } else {
         Status::EFI_NOT_FOUND
@@ -340,50 +357,78 @@ extern "efiapi" fn get_memory_map(
     descriptor_version: *mut u32,
 ) -> Status {
     crate::log::trace!("GetMemoryMap()");
+    if memory_map_size.is_null() {
+        return Status::EFI_INVALID_PARAMETER;
+    }
+
     let desc_size = size_of::<EfiMemoryDescriptor>();
-    // SAFETY: The UEFI spec requires `descriptor_size` and `descriptor_version` to point to
-    // writable locations of the appropriate types.
-    unsafe {
-        *descriptor_size = desc_size;
-        *descriptor_version = EFI_MEMORY_DESCRIPTOR_VERSION;
+    if !descriptor_size.is_null() {
+        // SAFETY: `descriptor_size` is not NULL, and the UEFI spec requires it to point to a
+        // writable UINTN.
+        unsafe { *descriptor_size = desc_size };
+    }
+    if !descriptor_version.is_null() {
+        // SAFETY: `descriptor_version` is not NULL, and the UEFI spec requires it to point to a
+        // writable UINT32.
+        unsafe { *descriptor_version = EFI_MEMORY_DESCRIPTOR_VERSION };
     }
 
-    // SAFETY: The UEFI spec requires `memory_map_size` to point to a valid UINTN that holds the
-    // size of the buffer at `memory_map`, and receives the size of the memory map.
+    // SAFETY: `memory_map_size` is not NULL, and the UEFI spec requires it to point to a valid UINTN
+    // that holds the size of the buffer at `memory_map`, and receives the size of the memory map.
     let map_size = unsafe { &mut *memory_map_size };
-    if *map_size == 0 {
-        *map_size = EFI.memmap.len() * desc_size;
-        return Status::EFI_BUFFER_TOO_SMALL;
-    }
 
-    // SAFETY: The UEFI spec requires `memory_map` to point to a writable buffer of `*map_size`
-    // bytes, suitably aligned for EFI memory descriptors, which the caller does not access while
-    // this call is in progress.
-    let buffer = unsafe { &mut slice::from_raw_parts_mut(memory_map, *map_size / desc_size) };
+    let buffer: &mut [MaybeUninit<EfiMemoryDescriptor>] = if memory_map.is_null() {
+        &mut []
+    } else {
+        // SAFETY: `memory_map` is not NULL, and the UEFI spec requires it to point to a writable
+        // buffer of `*map_size` bytes, suitably aligned for EFI memory descriptors, which the
+        // caller does not access while this call is in progress. Its contents may be
+        // uninitialized, which is why it is accessed via MaybeUninit.
+        unsafe { slice::from_raw_parts_mut(memory_map as *mut _, *map_size / desc_size) }
+    };
 
     if let Some((key, len)) = EFI.memmap.get_memory_map(buffer) {
         *map_size = len * desc_size;
-        // SAFETY: The UEFI spec requires `map_key` to point to a writable UINTN.
-        unsafe {
-            *map_key = key;
+        if !map_key.is_null() {
+            // SAFETY: `map_key` is not NULL, and the UEFI spec requires it to point to a writable
+            // UINTN.
+            unsafe { *map_key = key };
         }
         Status::EFI_SUCCESS
     } else {
-        Status::EFI_BUFFER_TOO_SMALL
+        // Report the size of the buffer that is needed to hold the memory map
+        let size = EFI.memmap.len() * desc_size;
+        let ret = if memory_map.is_null() && *map_size >= size {
+            Status::EFI_INVALID_PARAMETER
+        } else {
+            Status::EFI_BUFFER_TOO_SMALL
+        };
+        *map_size = size;
+        ret
     }
 }
 
-extern "efiapi" fn allocate_pool(
-    pool_type: EfiMemoryType,
-    size: usize,
-    buffer: *mut *mut (),
-) -> Status {
+/// Converts a memory type passed by an EFI image into an EfiMemoryType that may be allocated.
+/// Memory types that are reserved, or defined by the OEM or the OS, are not supported.
+fn allocation_type(memory_type: u32) -> Option<EfiMemoryType> {
+    match EfiMemoryType::try_from(memory_type).ok()? {
+        EfiMemoryType::EfiConventionalMemory
+        | EfiMemoryType::EfiPersistentMemory
+        | EfiMemoryType::EfiUnacceptedMemory => None,
+        t => Some(t),
+    }
+}
+
+extern "efiapi" fn allocate_pool(pool_type: u32, size: usize, buffer: *mut *mut ()) -> Status {
     crate::log::trace!("AllocatePool() {size}");
+    let Some(pool_type) = allocation_type(pool_type) else {
+        return Status::EFI_INVALID_PARAMETER;
+    };
     if buffer.is_null() {
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    if let Ok(buf) = EFI.allocate_pool(pool_type, size) {
+    if let Ok(buf) = EFI.memmap.allocate_image_pool::<u8>(pool_type, size) {
         // SAFETY: `buffer` is not NULL, and the UEFI spec requires it to point to a writable
         // pointer sized location.
         unsafe { *buffer = buf.as_ptr() as _ };
@@ -394,7 +439,9 @@ extern "efiapi" fn allocate_pool(
 }
 
 extern "efiapi" fn free_pool(buffer: *mut ()) -> Status {
-    if EFI.free_pool(buffer as _).is_ok() {
+    // Only memory allocated via AllocatePool(), or returned by other boot services that allocate
+    // pool memory on behalf of the caller, may be freed
+    if EFI.memmap.free_image_pool(buffer as _).is_ok() {
         return Status::EFI_SUCCESS;
     }
     Status::EFI_INVALID_PARAMETER
@@ -403,7 +450,7 @@ extern "efiapi" fn free_pool(buffer: *mut ()) -> Status {
 extern "efiapi" fn create_event(
     _type: u32,
     _notify_tpl: Tpl,
-    _notify_function: EventNotify,
+    _notify_function: Option<EventNotify>,
     _notify_context: *const (),
     _event: *mut Event,
 ) -> Status {
@@ -411,7 +458,19 @@ extern "efiapi" fn create_event(
     Status::EFI_OUT_OF_RESOURCES
 }
 
-extern "efiapi" fn set_timer(_event: Event, _type: TimerDelay, _trigger_time: u64) -> Status {
+extern "efiapi" fn create_event_ex(
+    _type: u32,
+    _notify_tpl: Tpl,
+    _notify_function: Option<EventNotify>,
+    _notify_context: *const (),
+    _event_group: *const Guid,
+    _event: *mut Event,
+) -> Status {
+    crate::log::warn!("UNIMPLEMENTED");
+    Status::EFI_OUT_OF_RESOURCES
+}
+
+extern "efiapi" fn set_timer(_event: Event, _type: u32, _trigger_time: u64) -> Status {
     crate::log::warn!("UNIMPLEMENTED");
     Status::EFI_INVALID_PARAMETER
 }
@@ -459,48 +518,71 @@ impl EfiProtocol for ExternalEfiProtocol {
     }
 }
 
+impl ExternalEfiProtocol {
+    /// Returns a protocol database entry for `interface`, installed by an EFI image as an
+    /// instance of `protocol`.
+    fn entry(protocol: Guid, interface: *const ()) -> ProtocolEntry {
+        ProtocolEntry::new(
+            ProtocolOwner::Image,
+            Box::pin(ExternalEfiProtocol {
+                protocol,
+                interface,
+            }),
+        )
+    }
+}
+
+/// Returns whether `handle` exists, i.e., whether any protocols are installed on it.
+fn handle_exists(db: &ProtocolDb, handle: Handle) -> bool {
+    db.keys().any(|k| k.0 == handle)
+}
+
+/// Returns whether `interface` may be installed by an EFI image as a device path protocol
+/// instance: it must not be NULL, and it must not be an empty device path.
+///
+/// # Safety
+///
+/// `interface` must either be NULL or point to a device path.
+unsafe fn is_valid_device_path(interface: *const ()) -> bool {
+    !interface.is_null() && {
+        // SAFETY: `interface` is not NULL, and so the caller guarantees that it points to a
+        // device path.
+        let dp = unsafe { &*(interface as *const DevicePath) };
+        dp._type != DevicePathType::EFI_DEV_END_PATH
+    }
+}
+
 extern "efiapi" fn install_protocol_interface(
     handle: *mut Handle,
     protocol: *const Guid,
-    interface_type: InterfaceType,
+    interface_type: u32,
     interface: *const (),
 ) -> Status {
-    if handle.is_null()
-        || protocol.is_null()
-        || interface_type != InterfaceType::EFI_NATIVE_INTERFACE
-    {
+    if handle.is_null() || protocol.is_null() || interface_type != EFI_NATIVE_INTERFACE {
         return Status::EFI_INVALID_PARAMETER;
     }
 
     // SAFETY: Both pointers were checked for NULL above, and the UEFI spec requires them to point to
     // a valid EFI_HANDLE and EFI_GUID, respectively.
     let (handle, protocol) = unsafe { (&mut *handle, &*protocol) };
-    if *protocol == EFI_DEVICE_PATH_PROTOCOL_GUID {
-        if interface.is_null() {
-            return Status::EFI_INVALID_PARAMETER;
-        }
-        // SAFETY: `interface` is not NULL, and is being installed as a device path protocol
-        // instance, and so it must point to a device path.
-        let dp = unsafe { &*(interface as *const DevicePath) };
-        if dp._type == DevicePathType::EFI_DEV_END_PATH {
-            return Status::EFI_INVALID_PARAMETER;
-        }
-    }
-
-    let mut db = EFI.protocol_db.borrow_mut();
-    if *handle != 0 && db.contains_key(&(*handle, *protocol)) {
+    // SAFETY: The UEFI spec requires device path protocol interfaces to point to a device path.
+    if *protocol == EFI_DEVICE_PATH_PROTOCOL_GUID && !unsafe { is_valid_device_path(interface) } {
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    let p = ExternalEfiProtocol {
-        protocol: *protocol,
-        interface: interface,
-    };
+    let mut db = EFI.protocol_db.borrow_mut();
+    // A handle that is passed in must exist, and must not carry this protocol already
+    if *handle != 0 && (!handle_exists(&db, *handle) || db.contains_key(&(*handle, *protocol))) {
+        return Status::EFI_INVALID_PARAMETER;
+    }
 
     if *handle == 0 {
         *handle = new_handle();
     }
-    db.insert((*handle, *protocol), Box::pin(p));
+    db.insert(
+        (*handle, *protocol),
+        ExternalEfiProtocol::entry(*protocol, interface),
+    );
     Status::EFI_SUCCESS
 }
 
@@ -516,19 +598,18 @@ extern "efiapi" fn uninstall_protocol_interface(
     // SAFETY: `protocol` is not NULL, and the UEFI spec requires it to point to a valid EFI_GUID.
     let protocol = unsafe { &*protocol };
 
-    let mut found = false;
-    EFI.protocol_db.borrow_mut().retain(
-        |k: &(Handle, Guid), v: &mut Pin<Box<dyn EfiProtocol + Send>>| {
-            let f = k.0 == handle && k.1 == *protocol && v.as_proto_ptr() == interface;
-            found |= f;
-            !f
-        },
-    );
-
-    if found {
-        Status::EFI_SUCCESS
-    } else {
-        Status::EFI_NOT_FOUND
+    let mut db = EFI.protocol_db.borrow_mut();
+    let key = (handle, *protocol);
+    match db.get(&key) {
+        Some(e) if e.as_proto_ptr() == interface => {
+            // Protocols installed by the runtime or the embedder cannot be uninstalled by images
+            if e.owner != ProtocolOwner::Image {
+                return Status::EFI_ACCESS_DENIED;
+            }
+            db.remove(&key);
+            Status::EFI_SUCCESS
+        }
+        _ => Status::EFI_NOT_FOUND,
     }
 }
 
@@ -544,27 +625,24 @@ extern "efiapi" fn reinstall_protocol_interface(
 
     // SAFETY: `protocol` is not NULL, and the UEFI spec requires it to point to a valid EFI_GUID.
     let protocol = unsafe { &*protocol };
+    // SAFETY: The UEFI spec requires device path protocol interfaces to point to a device path.
+    if *protocol == EFI_DEVICE_PATH_PROTOCOL_GUID && !unsafe { is_valid_device_path(new_interface) }
+    {
+        return Status::EFI_INVALID_PARAMETER;
+    }
 
     let mut db = EFI.protocol_db.borrow_mut();
-    let mut found = false;
-    db.retain(
-        |k: &(Handle, Guid), v: &mut Pin<Box<dyn EfiProtocol + Send>>| {
-            let f = k.0 == handle && k.1 == *protocol && v.as_proto_ptr() == old_interface;
-            found |= f;
-            !f
-        },
-    );
-
-    if found {
-        let p = ExternalEfiProtocol {
-            protocol: *protocol,
-            interface: new_interface,
-        };
-
-        db.insert((handle, *protocol), Box::pin(p));
-        Status::EFI_SUCCESS
-    } else {
-        Status::EFI_NOT_FOUND
+    let key = (handle, *protocol);
+    match db.get(&key) {
+        Some(e) if e.as_proto_ptr() == old_interface => {
+            // Protocols installed by the runtime or the embedder cannot be replaced by images
+            if e.owner != ProtocolOwner::Image {
+                return Status::EFI_ACCESS_DENIED;
+            }
+            db.insert(key, ExternalEfiProtocol::entry(*protocol, new_interface));
+            Status::EFI_SUCCESS
+        }
+        _ => Status::EFI_NOT_FOUND,
     }
 }
 
@@ -592,73 +670,92 @@ extern "efiapi" fn register_protocol_notify(
     Status::EFI_OUT_OF_RESOURCES
 }
 
-fn get_handle_vec(search_type: &LocateSearchType, protocol: *const Guid) -> Vec<Handle> {
-    let protocol = if !protocol.is_null() {
-        // SAFETY: `protocol` is not NULL, and the UEFI spec requires it to point to a valid
-        // EFI_GUID when searching by protocol. It is not dereferenced otherwise.
-        Some(unsafe { &*protocol })
-    } else {
-        None
+/// Returns the handles matching the search criteria passed to LocateHandle() or
+/// LocateHandleBuffer(), or the status code to return if the search criteria are invalid.
+fn get_handle_vec(
+    search_type: u32,
+    protocol: *const Guid,
+    search_key: *const (),
+) -> Result<Vec<Handle>, Status> {
+    let protocol = match LocateSearchType::from_raw(search_type) {
+        Some(LocateSearchType::AllHandles) => None,
+        Some(LocateSearchType::ByProtocol) => {
+            if protocol.is_null() {
+                return Err(Status::EFI_INVALID_PARAMETER);
+            }
+            // SAFETY: `protocol` is not NULL, and the UEFI spec requires it to point to a valid
+            // EFI_GUID when searching by protocol. It is not dereferenced otherwise.
+            Some(unsafe { *protocol })
+        }
+        Some(LocateSearchType::ByRegisterNotify) => {
+            if search_key.is_null() {
+                return Err(Status::EFI_INVALID_PARAMETER);
+            }
+            // RegisterProtocolNotify() is not implemented, so there are no registrations
+            // that could match.
+            return Err(Status::EFI_NOT_FOUND);
+        }
+        None => return Err(Status::EFI_INVALID_PARAMETER),
     };
     let mut v: Vec<_> = EFI
         .protocol_db
         .borrow()
         .keys()
-        .filter_map(|k: &(Handle, Guid)| {
-            if *search_type == LocateSearchType::AllHandles || k.1 == *protocol? {
-                Some(k.0)
-            } else {
-                None
-            }
+        .filter_map(|k: &(Handle, Guid)| match protocol {
+            Some(p) if k.1 != p => None,
+            _ => Some(k.0),
         })
         .collect();
 
-    if *search_type == LocateSearchType::AllHandles {
+    if protocol.is_none() {
         v.dedup();
     }
-    v
+    Ok(v)
 }
 
 extern "efiapi" fn locate_handle(
-    search_type: LocateSearchType,
+    search_type: u32,
     protocol: *const Guid,
-    _search_key: *const (),
+    search_key: *const (),
     buffer_size: *mut usize,
     buffer: *mut Handle,
 ) -> Status {
-    if buffer.is_null() || buffer_size.is_null() {
+    if buffer_size.is_null() {
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    let handles = get_handle_vec(&search_type, protocol);
+    let ret = match get_handle_vec(search_type, protocol, search_key) {
+        Err(status) => status,
+        Ok(handles) if handles.len() == 0 => Status::EFI_NOT_FOUND,
+        Ok(handles) => {
+            let size = handles.len() * size_of::<Handle>();
 
-    let ret = if handles.len() == 0 {
-        Status::EFI_NOT_FOUND
-    } else {
-        let size = handles.len() * size_of::<Handle>();
-
-        // SAFETY: `buffer_size` is not NULL, and the UEFI spec requires it to point to a valid
-        // UINTN.
-        let buffer_size = unsafe { &mut *buffer_size };
-        if size > *buffer_size {
-            *buffer_size = size;
-            Status::EFI_BUFFER_TOO_SMALL
-        } else {
-            // SAFETY: we honour the caller's buffer and size arguments,
-            // and don't exceed the size of the vector
-            unsafe {
-                ptr::copy(handles.as_ptr(), buffer, handles.len());
+            // SAFETY: `buffer_size` is not NULL, and the UEFI spec requires it to point to a valid
+            // UINTN.
+            let buffer_size = unsafe { &mut *buffer_size };
+            if size > *buffer_size {
+                // `buffer` may be NULL in this case, which is how the caller can query the size
+                *buffer_size = size;
+                Status::EFI_BUFFER_TOO_SMALL
+            } else if buffer.is_null() {
+                Status::EFI_INVALID_PARAMETER
+            } else {
+                // SAFETY: `buffer` is not NULL, and the UEFI spec requires it to point to a buffer
+                // of `*buffer_size` bytes, which was checked above to be sufficient.
+                unsafe {
+                    ptr::copy(handles.as_ptr(), buffer, handles.len());
+                }
+                *buffer_size = size;
+                Status::EFI_SUCCESS
             }
-            *buffer_size = size;
-            Status::EFI_SUCCESS
         }
     };
-    crate::log::trace!("LocateHandle({search_type:?}) -> {ret:?}");
+    crate::log::trace!("LocateHandle({search_type}) -> {ret:?}");
     ret
 }
 
 fn compare_device_path(
-    entry: (&(usize, Guid), &Pin<Box<dyn EfiProtocol + Send>>),
+    entry: (&(Handle, Guid), &ProtocolEntry),
     protocol: &Guid,
     device_path: &DevicePath,
     db: &ProtocolDb,
@@ -667,15 +764,16 @@ fn compare_device_path(
     // and the requested protocol
     let guid = &entry.0 .1;
     let key = (entry.0 .0, *protocol);
-    if *guid != EFI_DEVICE_PATH_PROTOCOL_GUID || !db.contains_key(&key) {
+    let p = entry.1.as_proto_ptr();
+    if *guid != EFI_DEVICE_PATH_PROTOCOL_GUID || p.is_null() || !db.contains_key(&key) {
         return None;
     }
 
     // Check whether the provided device path is a prefix
     // of the device path in the protocol database
-    // SAFETY: `entry` is a device path protocol instance, and so its interface pointer points to a
-    // device path, which remains valid for as long as the protocol is installed.
-    let dp = unsafe { &*((*entry.1).as_proto_ptr() as *const DevicePath) };
+    // SAFETY: `entry` is a device path protocol instance, and so its non-NULL interface pointer
+    // points to a device path, which remains valid for as long as the protocol is installed.
+    let dp = unsafe { &*(p as *const DevicePath) };
     let bytes_equal = device_path.is_prefix_of(dp)?;
 
     // SAFETY: is_prefix_of() returns the combined size of the nodes of `device_path` that precede
@@ -704,11 +802,9 @@ extern "efiapi" fn locate_device_path(
     let db = EFI.protocol_db.borrow();
     let ret = if let Some(entry) = db
         .iter()
-        .filter_map(
-            |entry: (&(Handle, Guid), &Pin<Box<dyn EfiProtocol + Send>>)| {
-                compare_device_path(entry, protocol, devpath, &db)
-            },
-        )
+        .filter_map(|entry: (&(Handle, Guid), &ProtocolEntry)| {
+            compare_device_path(entry, protocol, devpath, &db)
+        })
         .max_by(|a, b| a.0.cmp(&b.0))
     {
         if !device.is_null() {
@@ -801,6 +897,9 @@ extern "efiapi" fn load_image(
     image_handle: *mut Handle,
 ) -> Status {
     crate::log::trace!("LoadImage()");
+    if image_handle.is_null() {
+        return Status::EFI_INVALID_PARAMETER;
+    }
     if source_buffer.is_null() || source_size == 0 {
         return Status::EFI_UNSUPPORTED;
     }
@@ -811,7 +910,8 @@ extern "efiapi" fn load_image(
     };
 
     if let Some(li) = EFI.load_image(&ldr) {
-        // SAFETY: The UEFI spec requires `image_handle` to point to a writable EFI_HANDLE.
+        // SAFETY: `image_handle` is not NULL, and the UEFI spec requires it to point to a writable
+        // EFI_HANDLE.
         unsafe {
             *image_handle = li.image_handle;
         }
@@ -829,14 +929,14 @@ extern "efiapi" fn start_image(
     crate::log::trace!("StartImage()");
     let db = EFI.protocol_db.borrow();
     let key = (handle, EFI_LOADED_IMAGE_PROTOCOL_GUID);
-    if let Some(proto) = db.get(&key) {
-        // SAFETY: Loaded image protocol instances are EfiLoadedImage instances installed by
-        // LoadedImageData::new(), which are pinned, and never uninstalled by this crate. This
-        // relies on EFI images not installing or uninstalling loaded image protocols themselves.
+    // Loaded image protocols installed by EFI images are not EfiLoadedImage instances
+    if let Some(proto) = db.get(&key).filter(|p| p.owner == ProtocolOwner::Runtime) {
+        // SAFETY: Loaded image protocol instances installed by the runtime are EfiLoadedImage
+        // instances installed by LoadedImageData::new(), which are pinned, and never uninstalled.
         let li = unsafe { &*(proto.as_proto_ptr() as *const EfiLoadedImage) };
         drop(db);
         let ret = li.start_image();
-        // TODO ensure that we cannot start the same image twice
+        // TODO ensure that we cannot restart an image after it has exited
         ret
     } else {
         Status::EFI_INVALID_PARAMETER
@@ -850,22 +950,28 @@ extern "efiapi" fn exit(
     _exit_data: *const Char16,
 ) -> Status {
     crate::log::trace!("Exit()");
+
+    // Only the image that is currently running may exit
+    if image_handle != current_image() {
+        return Status::EFI_INVALID_PARAMETER;
+    }
+
     let db = EFI.protocol_db.borrow();
     let key = (image_handle, EFI_LOADED_IMAGE_PROTOCOL_GUID);
-    if let Some(proto) = db.get(&key) {
-        // SAFETY: See start_image() regarding the validity of `li`. While the image is running,
-        // `li.reserved` holds the stack pointer that start_image() recorded before entering it,
-        // and exit_image() switches back to that stack and returns `exit_status` from
-        // start_image(). This relies on Exit() only being called for images that are running.
-        unsafe {
-            let li = &*(proto.as_proto_ptr() as *const EfiLoadedImage);
-            // exit_image does not return, so we need to release
-            // the db spinlock explicitly
-            drop(db);
-            if li.reserved != 0 {
-                let sp = li.reserved;
-                exit_image(exit_status, sp);
-            }
+    if let Some(proto) = db.get(&key).filter(|p| p.owner == ProtocolOwner::Runtime) {
+        // SAFETY: See start_image() regarding the validity of `li`.
+        let li = unsafe { &*(proto.as_proto_ptr() as *const EfiLoadedImage) };
+        // exit_image does not return, so we need to release
+        // the db spinlock explicitly
+        drop(db);
+        // Clear the recorded stack pointer, as exit_image() bypasses the code in start_image()
+        // that does so when the image returns normally
+        let sp = li.reserved.replace(0);
+        if sp != 0 {
+            // SAFETY: `sp` is the stack pointer that start_image() recorded when it entered the
+            // image, which is the one that is currently running, as checked above. exit_image()
+            // switches back to that stack, and returns `exit_status` from start_image().
+            unsafe { exit_image(exit_status, sp) };
         }
     }
     Status::EFI_INVALID_PARAMETER
@@ -1003,7 +1109,7 @@ extern "efiapi" fn protocols_per_handle(
 
     let ret = if let Ok(buf) = EFI
         .memmap
-        .allocate_pool::<*const Guid>(EfiMemoryType::EfiLoaderData, guids.len())
+        .allocate_image_pool::<*const Guid>(EfiMemoryType::EfiLoaderData, guids.len())
     {
         // SAFETY: `buf` was allocated with the size and alignment of `guids.len()` GUID pointers,
         // and so it can hold a copy of the contents of `guids`.
@@ -1021,9 +1127,9 @@ extern "efiapi" fn protocols_per_handle(
 }
 
 extern "efiapi" fn locate_handle_buffer(
-    search_type: LocateSearchType,
+    search_type: u32,
     protocol: *const Guid,
-    _search_key: *const (),
+    search_key: *const (),
     no_handles: *mut usize,
     buffer: *mut *const Handle,
 ) -> Status {
@@ -1031,32 +1137,32 @@ extern "efiapi" fn locate_handle_buffer(
         return Status::EFI_INVALID_PARAMETER;
     }
 
-    let handles = get_handle_vec(&search_type, protocol);
+    let ret = match get_handle_vec(search_type, protocol, search_key) {
+        Err(status) => status,
+        Ok(handles) if handles.len() == 0 => Status::EFI_NOT_FOUND,
+        Ok(handles) => {
+            // SAFETY: Both pointers were checked for NULL above, and the UEFI spec requires them
+            // to point to writable locations of the appropriate types.
+            let (buffer, count) = unsafe { (&mut *buffer, &mut *no_handles) };
 
-    let ret = if handles.len() == 0 {
-        Status::EFI_NOT_FOUND
-    } else {
-        // SAFETY: Both pointers were checked for NULL above, and the UEFI spec requires them to
-        // point to writable locations of the appropriate types.
-        let (buffer, count) = unsafe { (&mut *buffer, &mut *no_handles) };
-
-        if let Ok(buf) = EFI
-            .memmap
-            .allocate_pool::<Handle>(EfiMemoryType::EfiLoaderData, handles.len())
-        {
-            // SAFETY: `buf` was allocated with the size and alignment of `handles.len()` handles,
-            // and so it can hold a copy of the contents of `handles`.
-            unsafe {
-                ptr::copy(handles.as_ptr(), buf.as_ptr(), handles.len());
+            if let Ok(buf) = EFI
+                .memmap
+                .allocate_image_pool::<Handle>(EfiMemoryType::EfiLoaderData, handles.len())
+            {
+                // SAFETY: `buf` was allocated with the size and alignment of `handles.len()`
+                // handles, and so it can hold a copy of the contents of `handles`.
+                unsafe {
+                    ptr::copy(handles.as_ptr(), buf.as_ptr(), handles.len());
+                }
+                *buffer = buf.as_ptr();
+                *count = handles.len();
+                Status::EFI_SUCCESS
+            } else {
+                Status::EFI_OUT_OF_RESOURCES
             }
-            *buffer = buf.as_ptr();
-            *count = handles.len();
-            Status::EFI_SUCCESS
-        } else {
-            Status::EFI_OUT_OF_RESOURCES
         }
     };
-    crate::log::trace!("LocateHandleBuffer() {protocol:x?} -> {ret:?}");
+    crate::log::trace!("LocateHandleBuffer({search_type}) {protocol:x?} -> {ret:?}");
     ret
 }
 
@@ -1077,7 +1183,7 @@ extern "efiapi" fn locate_protocol(
         .protocol_db
         .borrow()
         .iter()
-        .find(|e: &(&(usize, Guid), &Pin<Box<dyn EfiProtocol + Send>>)| e.0 .1 == protocol)
+        .find(|e: &(&(Handle, Guid), &ProtocolEntry)| e.0 .1 == protocol)
     {
         *interface = entry.1.as_proto_ptr();
         Status::EFI_SUCCESS
@@ -1154,16 +1260,14 @@ extern "efiapi" fn install_multiple_protocol_interfaces(
 
     // Check whether a device path protocol is being installed that already exists in the database
     if let Some(devpath) = protocols.get(&EFI_DEVICE_PATH_PROTOCOL_GUID) {
-        if devpath.is_null() {
+        // SAFETY: The UEFI spec requires device path protocol interfaces to point to a device
+        // path.
+        if !unsafe { is_valid_device_path(*devpath) } {
             return Status::EFI_INVALID_PARAMETER;
         }
 
-        // SAFETY: `devpath` is not NULL, and is being installed as a device path protocol
-        // instance, and so it must point to a device path.
+        // SAFETY: `devpath` was checked above to be a non-NULL pointer to a device path.
         let devpath = unsafe { &*(*devpath as *const DevicePath) };
-        if devpath._type == DevicePathType::EFI_DEV_END_PATH {
-            return Status::EFI_INVALID_PARAMETER;
-        }
 
         if let Some(_) = db.iter().find(|e| {
             let p = e.1.as_proto_ptr();
@@ -1178,8 +1282,12 @@ extern "efiapi" fn install_multiple_protocol_interfaces(
         }
     }
 
-    // If the handle is not NULL, check whether any of the protocols already exist on this handle
+    // If the handle is not NULL, check whether it exists, and whether any of the protocols already
+    // exist on this handle
     if *handle != 0 {
+        if !handle_exists(&db, *handle) {
+            return Status::EFI_INVALID_PARAMETER;
+        }
         for g in protocols.keys() {
             if db.contains_key(&(*handle, *g)) {
                 return Status::EFI_INVALID_PARAMETER;
@@ -1190,11 +1298,10 @@ extern "efiapi" fn install_multiple_protocol_interfaces(
     }
 
     for (guid, interface) in protocols.iter() {
-        let p = ExternalEfiProtocol {
-            protocol: *guid,
-            interface: *interface,
-        };
-        db.insert((*handle, *guid), Box::pin(p));
+        db.insert(
+            (*handle, *guid),
+            ExternalEfiProtocol::entry(*guid, *interface),
+        );
     }
     Status::EFI_SUCCESS
 }
@@ -1220,10 +1327,11 @@ extern "efiapi" fn uninstall_multiple_protocol_interfaces(
 
     let mut db = EFI.protocol_db.borrow_mut();
 
-    // Check whether all protocol/interface tuples are installed on the handle
+    // Check whether all protocol/interface tuples are installed on the handle, and whether they
+    // were installed by an EFI image (as opposed to the runtime or the embedder)
     for (guid, interface) in protocols.iter() {
         if let Some(p) = db.get(&(handle, *guid)) {
-            if p.as_proto_ptr() == *interface {
+            if p.as_proto_ptr() == *interface && p.owner == ProtocolOwner::Image {
                 continue;
             }
         }

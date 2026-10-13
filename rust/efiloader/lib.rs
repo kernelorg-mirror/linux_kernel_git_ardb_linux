@@ -31,7 +31,8 @@
 //! ) {
 //!     let ram = 0..0x100_0000;
 //!     let memmap = efiloader::memmap::MemoryMap::new();
-//!     memmap.declare_memory_region(&ram).unwrap();
+//!     // SAFETY: the first 16 MiB of physical memory are unused and identity mapped
+//!     unsafe { memmap.declare_memory_region(&ram) }.unwrap();
 //!
 //!     let efi = efiloader::init(
 //!         None::<&dyn efiloader::SimpleConsole>,
@@ -60,7 +61,8 @@ macro_rules! align_up {
 
 use crate::{
     bootservices::*, configtable::*, loadedimage::*, memattr::*, memmap::*, memorytype::*,
-    peloader::*, rng::*, runtimeservices::*, simpletext::*, systemtable::*, EfiMemoryType::*,
+    peloader::*, rng::*, runtimeservices::*, simpletext::*, systemtable::*, tableheader::EfiTable,
+    EfiMemoryType::*,
 };
 
 use core::cell::*;
@@ -271,7 +273,40 @@ pub trait EfiProtocol {
     fn guid(&self) -> &Guid;
 }
 
-pub(crate) type ProtocolDb = BTreeMap<(Handle, Guid), Pin<Box<dyn EfiProtocol + Send>>>;
+/// The party that installed an entry into the protocol database. Entries may only be uninstalled
+/// or replaced by the party that installed them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProtocolOwner {
+    /// Installed by the EFI runtime itself. The runtime may retain pointers to these protocol
+    /// instances (e.g., the console protocols referenced by the system table, or the loaded image
+    /// protocols), and so they are never uninstalled.
+    Runtime,
+    /// Installed by the embedder via [`EfiContext::install_protocol`].
+    Embedder,
+    /// Installed by an EFI image via the boot services.
+    Image,
+}
+
+pub(crate) struct ProtocolEntry {
+    pub(crate) owner: ProtocolOwner,
+    protocol: Pin<Box<dyn EfiProtocol + Send>>,
+}
+
+impl ProtocolEntry {
+    pub(crate) fn new(owner: ProtocolOwner, protocol: Pin<Box<dyn EfiProtocol + Send>>) -> Self {
+        ProtocolEntry { owner, protocol }
+    }
+}
+
+impl Deref for ProtocolEntry {
+    type Target = dyn EfiProtocol + Send;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.protocol
+    }
+}
+
+pub(crate) type ProtocolDb = BTreeMap<(Handle, Guid), ProtocolEntry>;
 
 pub struct EfiContext {
     cfgtable: ConfigTableDb,
@@ -362,10 +397,14 @@ pub fn init(
         .box_new(EfiRuntimeServicesData, RuntimeServices::new())
         .or(Err(()))?;
 
+    // The console protocol methods cast the protocol pointers back to the SimpleTextInput and
+    // SimpleTextOutput instances that contain them, so derive the pointers from those.
+    let conin = inp.as_proto_ptr() as *const EfiSimpleTextInput;
+    let conout = out.as_proto_ptr() as *const EfiSimpleTextOutput;
     let st = memmap
         .box_new(
             EfiRuntimeServicesData,
-            SystemTable::new(&*bs, &*rt, &inp.text_input, &out.text_output, conhandle),
+            SystemTable::new(&*bs, &*rt, conin, conout, conhandle),
         )
         .or(Err(()))?;
 
@@ -384,10 +423,12 @@ pub fn init(
         image_stack_top: Cell::new(None),
     });
 
-    ctx.install_pinned_protocol(conhandle, inp);
-    ctx.install_pinned_protocol(conhandle, out);
-    ctx.install_protocol(None, EfiMemoryAttribute::new());
-    ctx.install_protocol(None, EfiRng::new());
+    ctx.install_pinned_protocol(conhandle, inp, ProtocolOwner::Runtime)?;
+    ctx.install_pinned_protocol(conhandle, out, ProtocolOwner::Runtime)?;
+    let memattr = Box::pin(EfiMemoryAttribute::new());
+    ctx.install_pinned_protocol(new_handle(), memattr, ProtocolOwner::Runtime)?;
+    let rng = Box::pin(EfiRng::new());
+    ctx.install_pinned_protocol(new_handle(), rng, ProtocolOwner::Runtime)?;
 
     let rtprop = ctx
         .memmap
@@ -431,31 +472,55 @@ pub unsafe fn deinit() {
 }
 
 impl EfiContext {
+    /// Installs `protocol` onto `handle` on behalf of `owner`. Fails if `handle` already carries
+    /// a protocol with the same GUID: existing entries are never replaced, given that this would
+    /// free a protocol instance that may still be referenced.
     pub(crate) fn install_pinned_protocol<T: EfiProtocol + Send + 'static>(
         &self,
         handle: Handle,
         protocol: Pin<Box<T>>,
-    ) {
-        self.protocol_db
-            .borrow_mut()
-            .insert((handle, *protocol.guid()), protocol);
+        owner: ProtocolOwner,
+    ) -> Result<(), ()> {
+        let mut db = self.protocol_db.borrow_mut();
+        let key = (handle, *protocol.guid());
+        if db.contains_key(&key) {
+            return Err(());
+        }
+        db.insert(key, ProtocolEntry::new(owner, protocol));
+        Ok(())
     }
 
     /// Install `protocol` onto `handle`; if `handle` is `None`, a new one will be allocated.
-    /// Returns the handle onto which the protocol was installed.
+    /// Returns the handle onto which the protocol was installed, or an error if `handle` already
+    /// carries a protocol with the same GUID.
     pub fn install_protocol<T: EfiProtocol + Send + 'static>(
         &self,
         handle: Option<Handle>,
         protocol: T,
-    ) -> Handle {
+    ) -> Result<Handle, ()> {
         let handle = handle.unwrap_or_else(|| new_handle());
-        self.install_pinned_protocol(handle, Box::pin(protocol));
-        handle
+        self.install_pinned_protocol(handle, Box::pin(protocol), ProtocolOwner::Embedder)?;
+        Ok(handle)
     }
 
-    /// Uninstalls the protocol identified by `guid` from `handle`.
-    pub fn uninstall_protocol<T>(&self, handle: Handle, guid: &Guid, _protocol: &T) {
-        self.protocol_db.borrow_mut().remove(&(handle, *guid));
+    /// Uninstalls the protocol identified by `guid` from `handle`. Only protocols that were
+    /// installed via [`install_protocol`](Self::install_protocol) can be uninstalled, and an error
+    /// is returned if no such protocol is found.
+    pub fn uninstall_protocol<T>(
+        &self,
+        handle: Handle,
+        guid: &Guid,
+        _protocol: &T,
+    ) -> Result<(), ()> {
+        let mut db = self.protocol_db.borrow_mut();
+        let key = (handle, *guid);
+        match db.get(&key) {
+            Some(e) if e.owner == ProtocolOwner::Embedder => {
+                db.remove(&key);
+                Ok(())
+            }
+            _ => Err(()),
+        }
     }
 
     /// Installs a EFI configuration table identified by `guid`. If `table` is a raw NULL pointer,
@@ -497,13 +562,7 @@ impl EfiContext {
 
         let pe_image = pe_ldr.load(EfiLoaderCode, placement, &*self.mapper)?;
 
-        Some(LoadedImageData::new(
-            &self,
-            &pe_image,
-            EfiLoaderCode,
-            EfiLoaderData,
-            randomized,
-        ))
+        LoadedImageData::new(&self, &pe_image, EfiLoaderCode, EfiLoaderData, randomized)
     }
 
     /// Override the Get/SetTime EFI runtime services by local implementations.
@@ -511,7 +570,7 @@ impl EfiContext {
         let mut rt = self.rt.borrow_mut();
         rt.get_time = get;
         set.map(|s| rt.set_time = s);
-        rt.hdr.update_crc();
+        rt.update_crc();
     }
 
     /// Override the Get/SetVariable EFI runtime services by local implementations.
@@ -525,21 +584,21 @@ impl EfiContext {
         rt.get_variable = get;
         rt.get_next_variable_name = get_next;
         set.map(|s| rt.set_variable = s);
-        rt.hdr.update_crc();
+        rt.update_crc();
     }
 
     /// Override the ResetSystem EFI runtime services by a local implementation
     pub fn override_reset_handler(&self, f: ResetSystem) {
         let mut rt = self.rt.borrow_mut();
         rt.reset_system = f;
-        rt.hdr.update_crc();
+        rt.update_crc();
     }
 
     /// Override the Stall EFI boot service by a local implementations
     pub fn override_stall_handler(&self, f: Stall) {
         let mut bs = self.bs.borrow_mut();
         bs.stall = f;
-        bs.hdr.update_crc();
+        bs.update_crc();
     }
 
     /// Override the ExitBootServices EFI boot service by a local implementation. The override
@@ -547,7 +606,7 @@ impl EfiContext {
     pub fn override_exit_boot_services_handler(&self, f: ExitBootServices) {
         let mut bs = self.bs.borrow_mut();
         bs.exit_boot_services = f;
-        bs.hdr.update_crc();
+        bs.update_crc();
     }
 
     /// Returns the current memory map key, as returned by the GetMemoryMap() boot service.
@@ -565,7 +624,7 @@ impl EfiContext {
     pub fn set_runtime_services_table(&self, rt: *const ()) {
         let mut st = self.st.borrow_mut();
         st.set_runtime_services(rt);
-        st.hdr.update_crc();
+        st.update_crc();
     }
 
     /// Set the firmware vendor string in the EFI system table. The string is copied into
@@ -586,7 +645,7 @@ impl EfiContext {
         }
         let mut st = self.st.borrow_mut();
         st.set_firmware_vendor(buf.as_ptr());
-        st.hdr.update_crc();
+        st.update_crc();
         Ok(())
     }
 
@@ -622,7 +681,12 @@ impl EfiContext {
 
     /// Free pool memory at `buffer` that was allocated via [`allocate_pool`](Self::allocate_pool).
     /// Return an error if `buffer` is not recognized as a valid pool allocation.
-    pub fn free_pool(&self, buffer: *const u8) -> Result<(), ()> {
+    ///
+    /// # Safety
+    ///
+    /// `buffer` must have been returned by [`allocate_pool`](Self::allocate_pool), and must not
+    /// be accessed after this call.
+    pub unsafe fn free_pool(&self, buffer: *const u8) -> Result<(), ()> {
         self.memmap.free_pool(buffer)
     }
 
@@ -641,7 +705,13 @@ impl EfiContext {
 
     /// Deallocate `pages` 4KiB pages of memory as address `base`. Returns an `Ok` result on
     /// success, or `Err` if the pages could not be freed.
-    pub fn free_pages(&self, base: u64, pages: usize) -> Result<(), ()> {
+    ///
+    /// # Safety
+    ///
+    /// The pages must have been allocated via [`allocate_pages`](Self::allocate_pages), and must
+    /// not be accessed after this call, i.e., the part of the slice returned by
+    /// [`allocate_pages`](Self::allocate_pages) that covers them must no longer be used.
+    pub unsafe fn free_pages(&self, base: u64, pages: usize) -> Result<(), ()> {
         self.memmap.free_pages(base, pages)
     }
 }
