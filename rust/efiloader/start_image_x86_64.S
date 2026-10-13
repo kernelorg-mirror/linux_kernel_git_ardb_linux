@@ -24,7 +24,11 @@ start_image:
 
 	mov	rcx, rdi	// pass args using MS abi
 	mov	rdx, rsi
-	lea	rsp, [r8 - 0x20]
+	test	r8, r8		// stay on the current stack if no stack was provided
+	jz	1f
+	mov	rsp, r8
+1:	and	rsp, -16
+	sub	rsp, 0x20	// shadow space for the MS abi
 	call	rbp
 	mov	rsp, [rbx]	// switch back to our own stack
 

@@ -33,6 +33,10 @@ Like upstream, the crate is built as Rust 2024 edition code.
 - New embedder hooks: `override_exit_boot_services_handler()`, `memmap_key()`,
   `system_table()`, `set_runtime_services_table()`, `set_firmware_vendor()`,
   `set_image_stack()`, `context()` and `MemoryMap::declare_typed_region()`.
+- Images started by other images run on the stack provided via
+  `set_image_stack()` as well, below the frames of the image that started them.
+  The `start_image()` assembler helpers stay on the current stack for this
+  purpose when they are passed a NULL stack pointer.
 - BTI landing pads for the indirectly called assembler wrappers.
 - The assembler sources were renamed from `.s` to `.S`, as the kernel treats
   `*.s` files as build artifacts.

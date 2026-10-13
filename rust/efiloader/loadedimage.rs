@@ -173,32 +173,39 @@ impl EfiLoadedImage {
             return Status::EFI_INVALID_PARAMETER;
         }
 
-        // Use the stack provided by the embedder, if any, or allocate one from the pool
-        let (top, stack) = if let Some(top) = self.ctx.image_stack_top() {
-            (top, None)
-        } else {
-            let Ok(s) = self
-                .ctx
-                .memmap
-                .allocate_pool::<u8>(EfiMemoryType::EfiBootServicesData, EFI_STACK_SIZE)
-            else {
-                return Status::EFI_OUT_OF_RESOURCES;
-            };
-            let s = s.as_ptr();
-            // SAFETY: `s` points to a pool allocation of EFI_STACK_SIZE bytes, and so offsetting
-            // it by EFI_STACK_SIZE produces a pointer to the end of that allocation.
-            (unsafe { s.add(EFI_STACK_SIZE) }, Some(s))
+        // Use the stack provided by the embedder, if any, or allocate one from the pool. An image
+        // that is started by another image (e.g., a kernel started by an EFI zboot decompressor)
+        // must not restart at the top of the embedder's stack, as the image that started it is
+        // running on that stack, and its frames would be clobbered. Instead, it continues on the
+        // current stack, below those frames, just like it would under a UEFI firmware.
+        let (top, stack) = match self.ctx.image_stack_top() {
+            Some(_) if current_image() != 0 => (ptr::null_mut(), None),
+            Some(top) => (top, None),
+            None => {
+                let Ok(s) = self
+                    .ctx
+                    .memmap
+                    .allocate_pool::<u8>(EfiMemoryType::EfiBootServicesData, EFI_STACK_SIZE)
+                else {
+                    return Status::EFI_OUT_OF_RESOURCES;
+                };
+                let s = s.as_ptr();
+                // SAFETY: `s` points to a pool allocation of EFI_STACK_SIZE bytes, and so
+                // offsetting it by EFI_STACK_SIZE produces a pointer to the end of that allocation.
+                (unsafe { s.add(EFI_STACK_SIZE) }, Some(s))
+            }
         };
 
         let previous = CURRENT_IMAGE.swap(self.image_handle, Ordering::Relaxed);
-        // SAFETY: `top` is the 16 byte aligned top of a stack that is not in use: either the one
-        // that the embedder provided via set_image_stack(), whose safety contract guarantees this,
-        // or the end of a pool allocation of EFI_STACK_SIZE bytes, which is 16 byte aligned as
-        // well. `entrypoint` points to the entry point of a PE/COFF image that was loaded and
-        // relocated by PeLoader, which is called with the image handle and system table pointer as
-        // arguments, as the UEFI spec requires. start_image() records the stack pointer in
-        // `reserved`, so that Exit() can return from start_image() via exit_image(), and clears it
-        // again when the image returns.
+        // SAFETY: `top` is either NULL, in which case the image runs on the current stack, below
+        // the frames of the image that started it, or the 16 byte aligned top of a stack that is
+        // not in use: either the one that the embedder provided via set_image_stack(), whose
+        // safety contract guarantees this, or the end of a pool allocation of EFI_STACK_SIZE
+        // bytes, which is 16 byte aligned as well. `entrypoint` points to the entry point of a
+        // PE/COFF image that was loaded and relocated by PeLoader, which is called with the image
+        // handle and system table pointer as arguments, as the UEFI spec requires. start_image()
+        // records the stack pointer in `reserved`, so that Exit() can return from start_image()
+        // via exit_image(), and clears it again when the image returns.
         let ret = unsafe {
             start_image(
                 self.image_handle,
@@ -234,6 +241,8 @@ impl LoadedImageData {
 }
 
 unsafe extern "C" {
+    /// Calls the image's entry point on the stack whose top is `stack`, or on the current stack
+    /// if `stack` is NULL, and records the original stack pointer in `sp_buffer`.
     fn start_image(
         image_handle: Handle,
         system_table: *const SystemTable,

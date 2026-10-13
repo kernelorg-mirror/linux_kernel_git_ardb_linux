@@ -712,7 +712,9 @@ static void *kexec_efi_load(struct kimage *image, char *kernel,
 	 * the region's natural alignment takes care of. This also means that a
 	 * stack overflow runs off the start of the region, where it is likely
 	 * to hit unmapped memory, and will be caught by the exception entry
-	 * code's overflow check otherwise.
+	 * code's overflow check otherwise. Note that images started by the
+	 * image (e.g., the kernel started by an EFI zboot decompressor) run on
+	 * this stack too, below the frames of the image that started them.
 	 */
 	d->stack_top = d->base + THREAD_SIZE;
 

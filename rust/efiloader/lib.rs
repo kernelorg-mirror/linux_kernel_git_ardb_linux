@@ -663,13 +663,16 @@ impl EfiContext {
     }
 
     /// Provide the stack that loaded images are started on, instead of allocating it from the
-    /// EfiBootServicesData pool. `top` is the initial stack pointer value.
+    /// EfiBootServicesData pool. `top` is the initial stack pointer value. Images that are
+    /// started by other images share this stack with them: they run below the frames of the
+    /// image that started them.
     ///
     /// # Safety
     ///
     /// `top` must be 16 byte aligned, as the stack pointer must be at function entry. The memory
-    /// below `top` must be valid, unused and large enough for the images that are started, and
-    /// must remain so until they have exited or the EFI runtime is torn down.
+    /// below `top` must be valid, unused and large enough for the images that are started,
+    /// including the ones started by other images, and must remain so until they have exited or
+    /// the EFI runtime is torn down.
     pub unsafe fn set_image_stack(&self, top: *mut u8) {
         self.image_stack_top.set(Some(top));
     }
