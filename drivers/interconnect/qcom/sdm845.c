@@ -1114,6 +1114,13 @@ static struct qcom_icc_node ebi = {
 	.buswidth = 4,
 };
 
+/* No consumers, owns the ALC BCM so sync_state drops the boot vote */
+static struct qcom_icc_node alc = {
+	.name = "alc",
+	.channels = 1,
+	.buswidth = 1,
+};
+
 static struct qcom_icc_node qhs_mdsp_ms_mpu_cfg = {
 	.name = "qhs_mdsp_ms_mpu_cfg",
 	.channels = 1,
@@ -1248,6 +1255,14 @@ static struct qcom_icc_bcm bcm_acv = {
 	.keepalive = false,
 	.num_nodes = 1,
 	.nodes = { &ebi },
+};
+
+static struct qcom_icc_bcm bcm_alc = {
+	.name = "ALC",
+	.enable_mask = BIT(0),
+	.keepalive = false,
+	.num_nodes = 1,
+	.nodes = { &alc },
 };
 
 static struct qcom_icc_bcm bcm_mc0 = {
@@ -1646,6 +1661,7 @@ static const struct qcom_icc_desc sdm845_gladiator_noc = {
 static struct qcom_icc_bcm * const mem_noc_bcms[] = {
 	&bcm_mc0,
 	&bcm_acv,
+	&bcm_alc,
 	&bcm_sh0,
 	&bcm_sh1,
 	&bcm_sh2,
@@ -1669,6 +1685,7 @@ static struct qcom_icc_node * const mem_noc_nodes[] = {
 	[SLAVE_SERVICE_MEM_NOC] = &srvc_memnoc,
 	[MASTER_LLCC] = &llcc_mc,
 	[SLAVE_EBI1] = &ebi,
+	[MASTER_ALC] = &alc,
 };
 
 static const struct qcom_icc_desc sdm845_mem_noc = {
