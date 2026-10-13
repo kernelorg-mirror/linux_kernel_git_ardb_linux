@@ -360,9 +360,9 @@ pub fn context() -> &'static EfiContext {
 /// encapsulates its API.
 ///
 /// Due to the fact that EFI boot and runtime services do not take a `this` pointer, it is not
-/// possible to disambiguate between different instances of this type, and so every call to
-/// [`init`] will return a reference to the same instance, but only the arguments passed via the
-/// first call will be taken into account.
+/// possible to disambiguate between different instances of this type, and so only a single
+/// instance may exist at any given time: [`init`] fails if it was called before, unless the
+/// instance has been torn down via [`deinit`] since.
 ///
 /// A [`SimpleConsole`] implementation may be passed via`con`, which will be used as the EFI
 /// SimpleText in/output protocol exposed via the EFI System Table.
@@ -375,17 +375,26 @@ pub fn context() -> &'static EfiContext {
 /// manage permissions on memory ranges described in the memory map.
 ///
 /// A [`Random`] implementation may be provided via `rng`.
-pub fn init(
+///
+/// # Safety
+///
+/// Calls to [`init`] must not race with other calls to [`init`] or [`deinit`], or with any other
+/// use of the EFI runtime.
+pub unsafe fn init(
     con: Option<&'static dyn SimpleConsole>,
     memmap: MemoryMap,
     mapper: impl MemoryMapper + 'static,
     rng: Option<impl Random + 'static>,
 ) -> Result<&'static EfiContext, ()> {
-    // SAFETY: the caller guarantees that init() and deinit() are serialized
-    let holder = unsafe { &mut *EFI.0.get() };
-    if holder.is_some() {
+    // SAFETY: the caller guarantees that this does not race with init() or deinit(), which are
+    // the only functions that modify the holder.
+    if unsafe { &*EFI.0.get() }.is_some() {
         return Err(());
     }
+    // SAFETY: no context exists, and so no references to it exist either (deinit() requires them
+    // to be gone before it tears the context down), and the caller guarantees exclusive access to
+    // the holder.
+    let holder = unsafe { &mut *EFI.0.get() };
 
     let conhandle = new_handle();
     let inp = SimpleTextInput::new(EfiContext::read_byte);
@@ -635,13 +644,17 @@ impl EfiContext {
             .memmap
             .allocate_pool::<u16>(EfiRuntimeServicesData, len)
             .or(Err(()))?;
-        // SAFETY: `buf` is a fresh allocation of `len` UTF-16 code units
-        let s = unsafe { core::slice::from_raw_parts_mut(buf.as_ptr(), len) };
+        // SAFETY: `buf` is a fresh allocation of `len` UTF-16 code units, which is not shared with
+        // anyone else yet. Its contents are uninitialized, which is why it is accessed via
+        // MaybeUninit.
+        let s = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_ptr().cast::<MaybeUninit<u16>>(), len)
+        };
         for (d, c) in s
             .iter_mut()
             .zip(vendor.encode_utf16().chain(core::iter::once(0)))
         {
-            *d = c;
+            d.write(c);
         }
         let mut st = self.st.borrow_mut();
         st.set_firmware_vendor(buf.as_ptr());
@@ -654,8 +667,9 @@ impl EfiContext {
     ///
     /// # Safety
     ///
-    /// The memory below `top` must be valid, unused and large enough for the images that are
-    /// started, and must remain so until they have exited or the EFI runtime is torn down.
+    /// `top` must be 16 byte aligned, as the stack pointer must be at function entry. The memory
+    /// below `top` must be valid, unused and large enough for the images that are started, and
+    /// must remain so until they have exited or the EFI runtime is torn down.
     pub unsafe fn set_image_stack(&self, top: *mut u8) {
         self.image_stack_top.set(Some(top));
     }

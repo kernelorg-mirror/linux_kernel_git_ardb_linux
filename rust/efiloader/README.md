@@ -26,7 +26,8 @@ Like upstream, the crate is built as Rust 2024 edition code.
   - `linked_list_allocator` by a minimal first fit heap (`heap.rs`);
   - `once_cell` by a resettable `UnsafeCell` holder, as the EFI context needs
     to be instantiated and torn down for each image that is loaded (`init()`
-    and the new `deinit()`).
+    and the new `deinit()`). Both are unsafe functions, as their callers must
+    serialize them with each other and with all other uses of the EFI runtime.
 - `kernel_alloc.rs` provides the global allocator shim expected by the `alloc`
   crate, as the kernel is not linked by rustc.
 - New embedder hooks: `override_exit_boot_services_handler()`, `memmap_key()`,

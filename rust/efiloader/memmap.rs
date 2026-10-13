@@ -383,13 +383,19 @@ impl MemoryMap {
     /// [`declare_memory_region`](Self::declare_memory_region) for memory that the EFI runtime may
     /// allocate from, and [`declare_runtime_region`](Self::declare_runtime_region) for regions
     /// that need to be mapped by the OS during calls to EFI runtime services.
-    /// The region must not exist yet in the memory map.
+    /// The region must not exist yet in the memory map, and must not be of type
+    /// EfiConventionalMemory.
     pub fn declare_typed_region(
         &self,
         range: &Range<usize>,
         _type: EfiMemoryType,
         attr: u64,
     ) -> Result<(), ()> {
+        // Page allocations are served from EfiConventionalMemory regions, and so declaring such
+        // a region here would circumvent the safety requirements of declare_memory_region()
+        if _type == EfiConventionalMemory {
+            return Err(());
+        }
         let mut mm = self.memmap.borrow_mut();
         let phys = range.start as PhysicalAddress;
         let pages = (range.end - range.start) as u64 >> EFI_PAGE_SHIFT;

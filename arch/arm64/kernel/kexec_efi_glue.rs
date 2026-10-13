@@ -267,8 +267,11 @@ unsafe extern "C" fn efi_kexec_run(p: *mut c_void) -> isize {
             return -(bindings::EINVAL as isize);
         };
         let range = r.base as usize..end as usize;
-        // SAFETY: EfiMemoryType is repr(u32), and the C side only passes valid types
-        let t: EfiMemoryType = unsafe { core::mem::transmute(r.r#type) };
+        // Firmware memory types are passed through unmodified, and these may include OEM or OS
+        // defined types that EfiMemoryType cannot represent: describe those as reserved memory,
+        // which is how the OS will treat them anyway.
+        let t =
+            EfiMemoryType::try_from(r.r#type).unwrap_or(EfiMemoryType::EfiReservedEfiMemoryType);
         let ret = if r.flags & REGION_ALLOCATABLE != 0 {
             // SAFETY: allocatable regions are part of the memory that kexec_efi.c set aside for
             // the EFI runtime, which is identity mapped, and not used for anything else until
@@ -296,7 +299,10 @@ unsafe extern "C" fn efi_kexec_run(p: *mut c_void) -> isize {
     }
 
     let con: &'static dyn efiloader::SimpleConsole = &CONSOLE;
-    let Ok(efi) = efiloader::init(Some(con), memmap, Mapper, Some(Random)) else {
+    // SAFETY: the EFI runtime is only used by the thread that kexec_efi_run_image() creates to run
+    // efi_kexec_run() and efi_kexec_teardown(), and kexec_file_load() holds the kexec lock while it
+    // loads an image, so that only a single such thread exists at a time.
+    let Ok(efi) = (unsafe { efiloader::init(Some(con), memmap, Mapper, Some(Random)) }) else {
         kernel::pr_err!("Failed to initialize EFI runtime\n");
         return -(bindings::ENOMEM as isize);
     };
