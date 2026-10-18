@@ -213,9 +213,9 @@
  * it's outside of the normal path).
  */
 #define __HANDLE_INTR_SAFERET(name, pt_regs)		\
-	cmpq	$(name), RIP+pt_regs;			\
-	jb	1f;					\
-	cmpq	$(name)+5, RIP+pt_regs;			\
+	leaq	name+5(%rip), %rdi;			\
+	subq	RIP+pt_regs, %rdi;			\
+	cmpq	$5, %rdi;				\
 	ja	1f;					\
 	lfence;						\
 	leaq	pt_regs, %rdi;				\
