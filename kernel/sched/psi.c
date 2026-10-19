@@ -793,16 +793,14 @@ static void record_times(struct psi_group_cpu *groupc, u64 now)
 #define for_each_group(iter, group) \
 	for (typeof(group) iter = group; iter; iter = iter->parent)
 
-static void psi_group_change(struct psi_group *group, int cpu,
-			     unsigned int clear, unsigned int set,
-			     u64 now, bool wake_clock)
+static void __psi_group_change(struct psi_group *group, struct rq *rq,
+			       struct psi_group_cpu *groupc,
+			       unsigned int clear, unsigned int set, u64 now)
 {
-	struct psi_group_cpu *groupc;
 	unsigned int t, m;
 	u32 state_mask;
 
-	lockdep_assert_rq_held(cpu_rq(cpu));
-	groupc = per_cpu_ptr(group->pcpu, cpu);
+	lockdep_assert_rq_held(rq);
 
 	/*
 	 * Start with TSK_ONCPU, which doesn't have a corresponding
@@ -831,7 +829,7 @@ static void psi_group_change(struct psi_group *group, int cpu,
 			groupc->tasks[t]--;
 		} else if (!psi_bug) {
 			printk_deferred(KERN_ERR "psi: task underflow! cpu=%d t=%d tasks=[%u %u %u %u] clear=%x set=%x\n",
-					cpu, t, groupc->tasks[0],
+					rq->cpu, t, groupc->tasks[0],
 					groupc->tasks[1], groupc->tasks[2],
 					groupc->tasks[3], clear, set);
 			psi_bug = 1;
@@ -868,7 +866,7 @@ static void psi_group_change(struct psi_group *group, int cpu,
 	 * task in a cgroup is in_memstall, the corresponding groupc
 	 * on that cpu is in PSI_MEM_FULL state.
 	 */
-	if (unlikely((state_mask & PSI_ONCPU) && cpu_curr(cpu)->in_memstall))
+	if (unlikely((state_mask & PSI_ONCPU) && rq->curr->in_memstall))
 		state_mask |= (1 << PSI_MEM_FULL);
 
 	record_times(groupc, now);
@@ -877,6 +875,14 @@ static void psi_group_change(struct psi_group *group, int cpu,
 
 	if (state_mask & group->rtpoll_states)
 		psi_schedule_rtpoll_work(group, 1, false);
+}
+
+static void psi_group_change(struct psi_group *group, int cpu,
+			     unsigned int clear, unsigned int set,
+			     u64 now, bool wake_clock)
+{
+	__psi_group_change(group, cpu_rq(cpu), per_cpu_ptr(group->pcpu, cpu),
+			   clear, set, now);
 
 	if (wake_clock && !delayed_work_pending(&group->avgs_work))
 		schedule_delayed_work(&group->avgs_work, PSI_FREQ);
