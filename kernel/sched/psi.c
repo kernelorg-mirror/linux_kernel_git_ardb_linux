@@ -188,6 +188,16 @@ static inline void psi_write_end(int cpu)
 	write_seqcount_end(per_cpu_ptr(&psi_seq, cpu));
 }
 
+static inline void psi_write_begin_this_cpu(void)
+{
+	write_seqcount_begin(this_cpu_ptr(&psi_seq));
+}
+
+static inline void psi_write_end_this_cpu(void)
+{
+	write_seqcount_end(this_cpu_ptr(&psi_seq));
+}
+
 static inline u32 psi_read_begin(int cpu)
 {
 	return read_seqcount_begin(per_cpu_ptr(&psi_seq, cpu));
@@ -888,6 +898,17 @@ static void psi_group_change(struct psi_group *group, int cpu,
 		schedule_delayed_work(&group->avgs_work, PSI_FREQ);
 }
 
+static void psi_group_change_this_cpu(struct psi_group *group,
+				      struct psi_group_cpu *groupc,
+				      unsigned int clear, unsigned int set,
+				      u64 now, bool wake_clock)
+{
+	__psi_group_change(group, this_rq(), groupc, clear, set, now);
+
+	if (wake_clock && !delayed_work_pending(&group->avgs_work))
+		schedule_delayed_work(&group->avgs_work, PSI_FREQ);
+}
+
 static inline struct psi_group *task_psi_group(struct task_struct *task)
 {
 #ifdef CONFIG_CGROUPS
@@ -936,7 +957,7 @@ void psi_task_switch(struct task_struct *prev, struct task_struct *next,
 	int cpu = task_cpu(prev);
 	u64 now;
 
-	psi_write_begin(cpu);
+	psi_write_begin_this_cpu();
 	now = cpu_clock(cpu);
 
 	if (next->pid) {
@@ -947,13 +968,14 @@ void psi_task_switch(struct task_struct *prev, struct task_struct *next,
 		 * TSK_ONCPU bit set, and we can stop the iteration there.
 		 */
 		for_each_group(group, task_psi_group(next)) {
-			struct psi_group_cpu *groupc = per_cpu_ptr(group->pcpu, cpu);
+			auto groupc = this_cpu_ptr(group->pcpu);
 
 			if (groupc->state_mask & PSI_ONCPU) {
 				common = group;
 				break;
 			}
-			psi_group_change(group, cpu, 0, TSK_ONCPU, now, true);
+			psi_group_change_this_cpu(group, groupc, 0, TSK_ONCPU,
+						  now, true);
 		}
 	}
 
@@ -990,7 +1012,8 @@ void psi_task_switch(struct task_struct *prev, struct task_struct *next,
 		for_each_group(group, task_psi_group(prev)) {
 			if (group == common)
 				break;
-			psi_group_change(group, cpu, clear, set, now, wake_clock);
+			psi_group_change_this_cpu(group, this_cpu_ptr(group->pcpu),
+						  clear, set, now, wake_clock);
 		}
 
 		/*
@@ -1002,10 +1025,11 @@ void psi_task_switch(struct task_struct *prev, struct task_struct *next,
 		if ((prev->psi_flags ^ next->psi_flags) & ~TSK_ONCPU) {
 			clear &= ~TSK_ONCPU;
 			for_each_group(group, common)
-				psi_group_change(group, cpu, clear, set, now, wake_clock);
+				psi_group_change_this_cpu(group, this_cpu_ptr(group->pcpu),
+							  clear, set, now, wake_clock);
 		}
 	}
-	psi_write_end(cpu);
+	psi_write_end_this_cpu();
 }
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
