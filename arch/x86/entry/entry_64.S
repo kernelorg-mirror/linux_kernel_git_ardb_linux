@@ -1250,20 +1250,22 @@ SYM_CODE_START(asm_exc_nmi)
 	 * Determine whether we're a nested NMI.
 	 *
 	 * If we interrupted kernel code between repeat_nmi and
-	 * end_repeat_nmi, then we are a nested NMI.  We must not
-	 * modify the "iret" frame because it's being written by
+	 * end_repeat_nmi (inclusive), then we are a nested NMI.  We must
+	 * not modify the "iret" frame because it's being written by
 	 * the outer NMI.  That's okay; the outer NMI handler is
 	 * about to call exc_nmi() anyway, so we can just resume
 	 * the outer NMI.
+	 *
+	 * end_repeat_nmi - RIP is in [0, end_repeat_nmi - repeat_nmi]
+	 * if and only if RIP is inside this window: if RIP is below it,
+	 * the result is larger, and if RIP is above it, the subtraction
+	 * wraps around.
 	 */
 
-	movq	$repeat_nmi, %rdx
-	cmpq	8(%rsp), %rdx
-	ja	1f
-	movq	$end_repeat_nmi, %rdx
-	cmpq	8(%rsp), %rdx
-	ja	nested_nmi_out
-1:
+	leaq	end_repeat_nmi(%rip), %rdx
+	subq	8(%rsp), %rdx
+	cmpq	$(end_repeat_nmi - repeat_nmi), %rdx
+	jbe	nested_nmi_out
 
 	/*
 	 * Now check "NMI executing".  If it's set, then we're nested.
@@ -1314,7 +1316,8 @@ nested_nmi:
 	pushq	%rdx
 	pushfq
 	pushq	$__KERNEL_CS
-	pushq	$repeat_nmi
+	leaq	repeat_nmi(%rip), %rdx
+	pushq	%rdx
 
 	/* Put stack back */
 	addq	$(6*8), %rsp
@@ -1387,9 +1390,10 @@ repeat_nmi:
 	.rept 5
 	pushq	-6*8(%rsp)
 	.endr
-	subq	$(5*8), %rsp
 end_repeat_nmi:
 	ANNOTATE_NOENDBR // this code
+	subq	$(5*8), %rsp
+	/* ----- repeat NMI window ends here ----- */
 
 	/*
 	 * Everything below this point can be preempted by a nested NMI.
