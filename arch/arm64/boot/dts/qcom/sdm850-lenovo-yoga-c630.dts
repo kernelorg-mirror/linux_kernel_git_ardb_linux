@@ -97,13 +97,6 @@
 		vin-supply = <&vreg_l2a_1p2>;
 	};
 
-	sn65dsi86_refclk: sn65dsi86-refclk {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-
-		clock-frequency = <19200000>;
-	};
-
 	vph_pwr: regulator-vph-pwr {
 		compatible = "regulator-fixed";
 		regulator-name = "vph_pwr";
@@ -528,7 +521,7 @@
 		vpll-supply = <&vreg_l14a_1p88>;
 		vccio-supply = <&vreg_l14a_1p88>;
 
-		clocks = <&sn65dsi86_refclk>;
+		clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
 		clock-names = "refclk";
 
 		no-hpd;
