@@ -599,8 +599,16 @@ static void qrtr_hello_work(struct work_struct *work)
 	struct qrtr_node *node;
 	struct qrtr_sock *ctrl;
 	struct sk_buff *skb;
+	bool sent;
 
 	node = container_of(to_delayed_work(work), struct qrtr_node, say_hello);
+
+	/* Don't send a second HELLO if qrtr_node_hello_sync() requeued us */
+	mutex_lock(&node->ep_lock);
+	sent = node->hello_sent;
+	mutex_unlock(&node->ep_lock);
+	if (sent)
+		return;
 
 	/* NS must be bound before we can send; retry with backoff if not ready */
 	ctrl = qrtr_port_lookup(QRTR_PORT_CTRL);
@@ -621,6 +629,40 @@ static void qrtr_hello_work(struct work_struct *work)
 	to.sq_node = node->nid;
 	qrtr_node_enqueue(node, skb, QRTR_TYPE_HELLO, &from, &to);
 	qrtr_port_put(ctrl);
+}
+
+/**
+ * qrtr_node_hello_sync() - make sure our HELLO has been sent to a node
+ * @nid: id of the remote node
+ *
+ * qrtr_node_enqueue() rejects everything but HELLO to a node until
+ * qrtr_hello_work() has sent our HELLO to it. If the remote's HELLO is handled
+ * by the name service before that, the announcement of the local services
+ * that the name service sends in reply is rejected, and the remote never
+ * learns about them. The remote has just shown that it is listening, so
+ * (re)send our HELLO right away and wait for it to complete.
+ *
+ * Must be called from process context, without holding any QRTR locks.
+ */
+void qrtr_node_hello_sync(unsigned int nid)
+{
+	struct qrtr_node *node;
+	bool sent;
+
+	node = qrtr_node_lookup(nid);
+	if (!node)
+		return;
+
+	mutex_lock(&node->ep_lock);
+	sent = node->hello_sent;
+	mutex_unlock(&node->ep_lock);
+
+	if (!sent) {
+		mod_delayed_work(system_percpu_wq, &node->say_hello, 0);
+		flush_delayed_work(&node->say_hello);
+	}
+
+	qrtr_node_release(node);
 }
 
 /* Trigger the HELLO handshake after the remote has been reset, eg on resume */

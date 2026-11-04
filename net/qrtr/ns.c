@@ -329,6 +329,14 @@ static int server_del(struct qrtr_node *node, unsigned int port, bool bcast)
 
 static int ctrl_cmd_hello(struct sockaddr_qrtr *sq)
 {
+	/*
+	 * Our own HELLO to the remote is sent asynchronously by the core, which
+	 * rejects the announcements below until it has gone out. Make sure it
+	 * has, or a remote whose HELLO wins the race never learns about the
+	 * local services.
+	 */
+	qrtr_node_hello_sync(sq->sq_node);
+
 	return announce_servers(sq);
 }
 

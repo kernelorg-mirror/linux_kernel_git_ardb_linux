@@ -31,6 +31,8 @@ void qrtr_endpoint_hello(struct qrtr_endpoint *ep);
 
 int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len);
 
+void qrtr_node_hello_sync(unsigned int nid);
+
 int qrtr_ns_init(void);
 
 void qrtr_ns_remove(void);
