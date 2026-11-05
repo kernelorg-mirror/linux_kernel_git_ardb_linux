@@ -36,6 +36,7 @@ struct yoga_c630_ucsi {
 	struct auxiliary_device *bridge;
 	struct notifier_block nb;
 	u16 version;
+	u16 partner_svid;
 };
 
 static int yoga_c630_ucsi_read_version(struct ucsi *ucsi, u16 *version)
@@ -86,12 +87,38 @@ static int yoga_c630_ucsi_async_control(struct ucsi *ucsi, u64 command)
 	return yoga_c630_ec_ucsi_write(uec->ec, (u8*)&command);
 }
 
+/*
+ * The EC ignores the offset in partner GET_ALTERNATE_MODES requests and keeps
+ * returning the first AltMode instead of an empty one once there are no more.
+ * Remember the first one, so that its copies can be recognized.
+ */
+static bool yoga_c630_ucsi_altmode_repeats(struct yoga_c630_ucsi *uec,
+					   u64 command, u32 cci,
+					   const void *data, size_t size)
+{
+	const struct ucsi_altmode *alt = data;
+
+	if (UCSI_COMMAND(command) != UCSI_GET_ALTERNATE_MODES ||
+	    UCSI_GET_ALTMODE_GET_CONNECTOR_NUMBER(command) != 1 ||
+	    UCSI_ALTMODE_RECIPIENT(command) != UCSI_RECIPIENT_SOP ||
+	    size < sizeof(*alt) || UCSI_CCI_LENGTH(cci) < sizeof(*alt))
+		return false;
+
+	if (UCSI_ALTMODE_OFFSET(command) == 0) {
+		uec->partner_svid = alt->svid;
+		return false;
+	}
+
+	return alt->svid == uec->partner_svid;
+}
+
 static int yoga_c630_ucsi_sync_control(struct ucsi *ucsi,
 				       u64 command,
 				       u32 *cci,
 				       void *data, size_t size,
 				       void *msg_out, size_t msg_out_size)
 {
+	struct yoga_c630_ucsi *uec = ucsi_get_drvdata(ucsi);
 	int ret;
 
 	/*
@@ -131,6 +158,18 @@ static int yoga_c630_ucsi_sync_control(struct ucsi *ucsi,
 				       data, size, msg_out, msg_out_size);
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * End the list at the first repeat, rather than have the core query
+	 * all UCSI_MAX_ALTMODES offsets (half a second each) only to drop the
+	 * copies.
+	 */
+	if (yoga_c630_ucsi_altmode_repeats(uec, command, *cci, data, size)) {
+		dev_dbg(ucsi->dev, "ignoring repeated partner altmodes for con1\n");
+		memset(data, 0, size);
+		*cci = UCSI_CCI_COMMAND_COMPLETE;
+		return 0;
+	}
 
 	/* UCSI_GET_CURRENT_CAM is off-by-one on all ports */
 	if (UCSI_COMMAND(command) == UCSI_GET_CURRENT_CAM && data)
