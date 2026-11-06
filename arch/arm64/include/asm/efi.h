@@ -151,4 +151,7 @@ efi_status_t efi_handle_corrupted_x18(efi_status_t s, const char *f);
 
 void efi_icache_sync(unsigned long start, unsigned long end);
 
+// temporary resolution for efistub_get_code_size()
+#define efistub_get_code_size(image_info) ({ extern u32 code_size; code_size; })
+
 #endif /* _ASM_EFI_H */

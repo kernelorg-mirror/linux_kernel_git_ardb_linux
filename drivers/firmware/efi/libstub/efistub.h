@@ -1270,4 +1270,8 @@ void arch_accept_memory(phys_addr_t start, phys_addr_t end);
 efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size);
 efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen);
 
+#ifndef efistub_get_code_size
+#define efistub_get_code_size(image_info)	0
+#endif
+
 #endif
