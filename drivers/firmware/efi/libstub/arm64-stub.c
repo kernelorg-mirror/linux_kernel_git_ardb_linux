@@ -68,6 +68,8 @@ asm("	.section \".rodata\", \"a\", %progbits;			" \
     "	.align	3;						" \
     "	.globl	efi_image_info;					" \
     "efi_image_info:						" \
+    "	.long	_text - efi_image_info;				" \
+    "	.long	__inittext_end - efi_image_info;		" \
     "	.previous						");
 
 
