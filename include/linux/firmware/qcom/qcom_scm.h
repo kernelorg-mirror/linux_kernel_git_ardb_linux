@@ -80,6 +80,7 @@ int qcom_scm_mem_protect_video_var(u32 cp_start, u32 cp_size,
 int qcom_scm_assign_mem(phys_addr_t mem_addr, size_t mem_sz, u64 *src,
 			const struct qcom_scm_vmperm *newvm,
 			unsigned int dest_cnt);
+bool qcom_scm_assign_mem_can_reclaim(void);
 
 bool qcom_scm_ocmem_lock_available(void);
 int qcom_scm_ocmem_lock(enum qcom_scm_ocmem_client id, u32 offset, u32 size,

@@ -32,6 +32,10 @@
 #include <linux/sizes.h>
 #include <linux/types.h>
 
+#ifdef CONFIG_ARM64
+#include <asm/virt.h>
+#endif
+
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
 #include "qcom_pas.h"
@@ -63,6 +67,12 @@ struct qcom_scm {
 
 	struct qcom_tzmem_pool *mempool;
 	unsigned int wq_cnt;
+
+	/* EL2 only: buffers passed to TZ on behalf of the hypervisor */
+	void *hyp_bufs;
+	phys_addr_t hyp_bufs_phys;
+	/* serializes the use of hyp_bufs */
+	struct mutex hyp_bufs_lock;
 };
 
 struct qcom_scm_current_perm_info {
@@ -127,6 +137,26 @@ enum qcom_scm_qseecom_tz_cmd_info {
 
 #define QSEECOM_MAX_APP_NAME_SIZE		64
 #define SHMBRIDGE_RESULT_NOTSUPP		4
+
+/* VMID of the hypervisor (QHEE) in TZ's access control scheme */
+#define QCOM_SCM_VMID_HYP			0x4
+
+#define QCOM_SCM_SHM_BRIDGE_NUM_VM_SHIFT	9
+
+/*
+ * Like QHEE, use a separate 4 KiB buffer for each of the extended SMC
+ * arguments, the source VMID list, the memory region list and the destination
+ * VMID list of memory assignment requests issued on behalf of the hypervisor.
+ */
+#define QCOM_SCM_HYP_BUF_SIZE			SZ_4K
+
+enum qcom_scm_hyp_buf {
+	QCOM_SCM_HYP_BUF_EXT_ARGS,
+	QCOM_SCM_HYP_BUF_SRC,
+	QCOM_SCM_HYP_BUF_MEM,
+	QCOM_SCM_HYP_BUF_DEST,
+	QCOM_SCM_HYP_NR_BUFS
+};
 
 /* Each bit configures cold/warm boot address for one of the 4 CPUs */
 static const u8 qcom_scm_cpu_cold_bits[QCOM_SCM_BOOT_MAX_CPUS] = {
@@ -1255,6 +1285,160 @@ static int __qcom_scm_assign_mem(struct device *dev, phys_addr_t mem_region,
 	return ret ? : res.result[0];
 }
 
+static bool qcom_scm_in_el2(void)
+{
+#ifdef CONFIG_ARM64
+	return is_kernel_in_hyp_mode();
+#else
+	return false;
+#endif
+}
+
+/*
+ * QHEE treats VMID_CP_NON_PIXEL as an alias of VMID_CP_PIXEL, and never passes
+ * the former to TZ.
+ */
+static u32 qcom_scm_hyp_vmid(u32 vmid)
+{
+	return vmid == QCOM_SCM_VMID_CP_NON_PIXEL ? QCOM_SCM_VMID_CP_PIXEL : vmid;
+}
+
+/*
+ * Issue a memory assignment request to TZ on behalf of the hypervisor, i.e.,
+ * the way QHEE does when relaying such requests from Linux running at EL1.
+ * TZ only programs the XPUs, and when running at EL2, there are no stage-2
+ * mappings to update for the CPUs: the regions that are assigned away from
+ * HLOS are carveouts that are not covered by the linear map.
+ *
+ * Note that TZ only accepts requests for memory that is currently owned by
+ * HLOS alone, and refuses (with result 0x1e) to reassign memory that is
+ * (co)owned by another VM. See qcom_scm_assign_mem_can_reclaim().
+ */
+static int qcom_scm_assign_mem_hyp(phys_addr_t mem_addr, size_t mem_sz,
+				   u64 srcvm_bits,
+				   const struct qcom_scm_vmperm *newvm,
+				   unsigned int dest_cnt)
+{
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_MP,
+		.cmd = QCOM_SCM_MP_ASSIGN,
+		.arginfo = QCOM_SCM_ARGS(7, QCOM_SCM_RO, QCOM_SCM_VAL,
+					 QCOM_SCM_RO, QCOM_SCM_VAL, QCOM_SCM_RO,
+					 QCOM_SCM_VAL, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	struct qcom_scm_current_perm_info *destvm;
+	struct qcom_scm_mem_map_info *mem_to_map;
+	unsigned int src_cnt = 0, n = 0;
+	u64 start, end, dest_bits = 0;
+	struct qcom_scm_res res = {};
+	phys_addr_t bufs_phys;
+	void *bufs;
+	__le32 *src;
+	long status;
+	int i, j, b;
+
+	if (!dest_cnt || !mem_sz)
+		return -EINVAL;
+
+	if (srcvm_bits & BIT_ULL(QCOM_SCM_VMID_CP_NON_PIXEL)) {
+		srcvm_bits &= ~BIT_ULL(QCOM_SCM_VMID_CP_NON_PIXEL);
+		srcvm_bits |= BIT_ULL(QCOM_SCM_VMID_CP_PIXEL);
+	}
+
+	for (i = 0; i < dest_cnt; i++)
+		dest_bits |= BIT_ULL(qcom_scm_hyp_vmid(newvm[i].vmid));
+
+	/*
+	 * QHEE only involves TZ in transitions that affect VMs that are
+	 * subject to XPU protection. Changes to the permissions of HLOS itself
+	 * only affect its stage-2 mappings, which don't exist at EL2.
+	 */
+	if (!((srcvm_bits | dest_bits) & ~BIT_ULL(QCOM_SCM_VMID_HLOS)))
+		return 0;
+
+	/* QHEE passes page aligned regions to TZ */
+	start = ALIGN_DOWN((u64)mem_addr, SZ_4K);
+	end = ALIGN((u64)mem_addr + mem_sz, SZ_4K);
+	if (end <= start || end > BIT_ULL(48))
+		return -EINVAL;
+
+	if (hweight64(srcvm_bits) * sizeof(*src) > QCOM_SCM_HYP_BUF_SIZE ||
+	    dest_cnt * sizeof(*destvm) > QCOM_SCM_HYP_BUF_SIZE)
+		return -E2BIG;
+
+	guard(mutex)(&__scm->hyp_bufs_lock);
+
+	bufs = __scm->hyp_bufs;
+	bufs_phys = __scm->hyp_bufs_phys;
+	memset(bufs, 0, QCOM_SCM_HYP_NR_BUFS * QCOM_SCM_HYP_BUF_SIZE);
+
+	src = bufs + QCOM_SCM_HYP_BUF_SRC * QCOM_SCM_HYP_BUF_SIZE;
+	for (b = 0; b < BITS_PER_TYPE(u64); b++) {
+		if (srcvm_bits & BIT_ULL(b))
+			src[src_cnt++] = cpu_to_le32(b);
+	}
+
+	mem_to_map = bufs + QCOM_SCM_HYP_BUF_MEM * QCOM_SCM_HYP_BUF_SIZE;
+	mem_to_map->mem_addr = cpu_to_le64(start);
+	mem_to_map->mem_size = cpu_to_le64(end - start);
+
+	destvm = bufs + QCOM_SCM_HYP_BUF_DEST * QCOM_SCM_HYP_BUF_SIZE;
+	for (i = 0; i < dest_cnt; i++) {
+		u32 vmid = qcom_scm_hyp_vmid(newvm[i].vmid);
+
+		/* Merge the permissions of VMIDs that alias the same VM */
+		for (j = 0; j < n; j++) {
+			if (le32_to_cpu(destvm[j].vmid) == vmid)
+				break;
+		}
+		if (j == n)
+			destvm[n++].vmid = cpu_to_le32(vmid);
+		destvm[j].perm |= cpu_to_le32(newvm[i].perm);
+	}
+
+	desc.args[0] = bufs_phys + QCOM_SCM_HYP_BUF_MEM * QCOM_SCM_HYP_BUF_SIZE;
+	desc.args[1] = sizeof(*mem_to_map);
+	desc.args[2] = bufs_phys + QCOM_SCM_HYP_BUF_SRC * QCOM_SCM_HYP_BUF_SIZE;
+	desc.args[3] = src_cnt * sizeof(*src);
+	desc.args[4] = bufs_phys + QCOM_SCM_HYP_BUF_DEST * QCOM_SCM_HYP_BUF_SIZE;
+	desc.args[5] = n * sizeof(*destvm);
+	desc.args[6] = 0;
+
+	status = scm_smc_call_hyp(__scm->dev, &desc,
+				  bufs + QCOM_SCM_HYP_BUF_EXT_ARGS * QCOM_SCM_HYP_BUF_SIZE,
+				  bufs_phys + QCOM_SCM_HYP_BUF_EXT_ARGS * QCOM_SCM_HYP_BUF_SIZE,
+				  &res);
+	if (status || res.result[0]) {
+		dev_err(__scm->dev,
+			"MP_ASSIGN of [%#llx-%#llx] %#llx -> %#llx failed: status %ld, result %#llx\n",
+			start, end - 1, srcvm_bits, dest_bits, status,
+			res.result[0]);
+		return status ? qcom_scm_remap_error(status) : -EIO;
+	}
+
+	return 0;
+}
+
+/**
+ * qcom_scm_assign_mem_can_reclaim() - Whether memory can be taken back from
+ *				       other VMs
+ *
+ * When Linux runs at EL2 in place of QHEE, memory assignment requests are
+ * issued on behalf of the hypervisor, and TZ only accepts these for memory
+ * that is currently owned by HLOS alone. This means that once memory has been
+ * assigned to, or shared with another VM, it can no longer be reassigned
+ * until the next boot, and users that need to retain access to it should keep
+ * HLOS as one of its owners.
+ *
+ * Return: false if memory cannot be taken back from other VMs, true otherwise.
+ */
+bool qcom_scm_assign_mem_can_reclaim(void)
+{
+	return !qcom_scm_is_available() || !__scm->hyp_bufs;
+}
+EXPORT_SYMBOL_GPL(qcom_scm_assign_mem_can_reclaim);
+
 /**
  * qcom_scm_assign_mem() - Make a secure call to reassign memory ownership
  * @mem_addr: mem region whose ownership need to be reassigned
@@ -1285,6 +1469,21 @@ int qcom_scm_assign_mem(phys_addr_t mem_addr, size_t mem_sz,
 	__le32 *src;
 	int ret, i, b;
 	u64 srcvm_bits = *srcvm;
+
+	if (__scm->hyp_bufs) {
+		u64 next = 0;
+
+		ret = qcom_scm_assign_mem_hyp(mem_addr, mem_sz, srcvm_bits, newvm,
+					      dest_cnt);
+		if (ret)
+			return ret;
+
+		for (i = 0; i < dest_cnt; i++)
+			next |= BIT_ULL(newvm[i].vmid);
+
+		*srcvm = next;
+		return 0;
+	}
 
 	src_sz = hweight64(srcvm_bits) * sizeof(*src);
 	mem_to_map_sz = sizeof(*mem_to_map);
@@ -1889,6 +2088,96 @@ int qcom_scm_shm_bridge_delete(u64 handle)
 	return qcom_scm_call(__scm->dev, &desc, NULL);
 }
 EXPORT_SYMBOL_GPL(qcom_scm_shm_bridge_delete);
+
+/*
+ * On Windows-on-Arm devices, the firmware expects Linux to run at EL1 under
+ * the QHEE hypervisor, which intercepts memory assignment requests, and
+ * relays them to TZ on its own behalf. When Linux runs at EL2 in place of
+ * QHEE (e.g., when booted via slbounce), TZ only accepts such requests if all
+ * the buffers they pass reside in a shared memory bridge (SHM bridge) for the
+ * hypervisor VM that was registered during the current boot. (QHEE registers
+ * such a bridge for its own use, but TZ rejects buffers in it after QHEE has
+ * been replaced.)
+ *
+ * So register a bridge for the hypervisor VM covering the part of QHEE's (now
+ * unused) memory that the qcom,hyp-shm-bridge DT property describes, and use
+ * it for the buffers of memory assignment requests.
+ */
+static int qcom_scm_hyp_bufs_init(struct qcom_scm *scm)
+{
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_MP,
+		.cmd = QCOM_SCM_MP_SHM_BRIDGE_CREATE,
+		.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_VAL,
+					 QCOM_SCM_VAL, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	size_t bufs_size = QCOM_SCM_HYP_NR_BUFS * QCOM_SCM_HYP_BUF_SIZE;
+	struct device *dev = scm->dev;
+	struct of_phandle_args args;
+	struct qcom_scm_res res = {};
+	struct resource region;
+	phys_addr_t base;
+	u64 offset, size;
+	long status;
+	void *bufs;
+	int ret;
+
+	if (!qcom_scm_in_el2())
+		return 0;
+
+	ret = of_parse_phandle_with_fixed_args(dev->of_node,
+					       "qcom,hyp-shm-bridge", 2, 0,
+					       &args);
+	if (ret)
+		return ret == -ENOENT ? 0 : ret;
+
+	ret = of_address_to_resource(args.np, 0, &region);
+	of_node_put(args.np);
+	if (ret)
+		return ret;
+
+	offset = args.args[0];
+	size = args.args[1];
+	base = region.start + offset;
+
+	if (size < bufs_size || offset + size > resource_size(&region) ||
+	    !IS_ALIGNED(base | size, SZ_4K))
+		return -EINVAL;
+
+	bufs = devm_memremap(dev, base, bufs_size, MEMREMAP_WC);
+	if (IS_ERR(bufs))
+		return PTR_ERR(bufs);
+
+	/*
+	 * Register the bridge on behalf of the hypervisor, with read/write
+	 * permissions for both the hypervisor VM and TZ, like QHEE does for
+	 * its own bridge. It is never deleted.
+	 */
+	desc.args[0] = base | QCOM_SCM_PERM_RW;
+	desc.args[1] = base | QCOM_SCM_PERM_RW;
+	desc.args[2] = size | (1 << QCOM_SCM_SHM_BRIDGE_NUM_VM_SHIFT);
+	desc.args[3] = QCOM_SCM_VMID_HYP;
+
+	status = scm_smc_call_hyp(dev, &desc, NULL, 0, &res);
+	if (status || res.result[0]) {
+		dev_err(dev,
+			"failed to register hypervisor SHM bridge at %pa: status %ld, result %#llx\n",
+			&base, status, res.result[0]);
+		devm_memunmap(dev, bufs);
+		return -EIO;
+	}
+
+	dev_info(dev,
+		 "issuing memory assignment requests on behalf of the hypervisor, using SHM bridge [%pa-%#llx]\n",
+		 &base, base + size - 1);
+
+	mutex_init(&scm->hyp_bufs_lock);
+	scm->hyp_bufs_phys = base;
+	scm->hyp_bufs = bufs;
+
+	return 0;
+}
 
 int qcom_scm_lmh_profile_change(u32 profile_id)
 {
@@ -2819,6 +3108,16 @@ static int qcom_scm_probe(struct platform_device *pdev)
 			return dev_err_probe(scm->dev, ret,
 					     "Failed to request qcom-scm irq\n");
 	}
+
+	/*
+	 * Set up the buffers for calls issued on behalf of the hypervisor
+	 * before publishing the SCM API below. This only issues fast calls,
+	 * which don't depend on the waitqueue or the calling convention.
+	 */
+	ret = qcom_scm_hyp_bufs_init(scm);
+	if (ret)
+		dev_warn(scm->dev,
+			 "failed to set up the hypervisor SHM bridge: %d\n", ret);
 
 	/*
 	 * Paired with smp_load_acquire() in qcom_scm_is_available().

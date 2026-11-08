@@ -223,3 +223,80 @@ int __scm_smc_call(struct device *dev, const struct qcom_scm_desc *desc,
 	return (long)smc_res.a0 ? qcom_scm_remap_error(smc_res.a0) : 0;
 
 }
+
+/**
+ * scm_smc_call_hyp() - Issue an SCM call the way the hypervisor would
+ * @dev:	device
+ * @desc:	descriptor structure containing the arguments of the call
+ * @ext_args:	zeroed buffer for the arguments that don't fit in registers,
+ *		which may be NULL if all arguments fit in registers
+ * @ext_args_phys: physical address of @ext_args
+ * @res:	structure containing the results of the call, may be NULL
+ *
+ * On devices that are designed to run Linux at EL1 under a hypervisor such
+ * as QHEE, TrustZone only accepts some calls (e.g., memory assignment) from
+ * the hypervisor itself. When Linux runs at EL2 instead, it needs to issue
+ * such calls the way the hypervisor would: as fast SMC64 calls, with the
+ * session ID (w6) and the client ID (w7) set to 0, where the latter
+ * identifies the hypervisor as the caller, and with any extended arguments
+ * passed via a buffer provided by the caller rather than one allocated from
+ * the TZ memory pool. Like QHEE, serialize these calls with any other SCM
+ * calls issued by Linux, and retry them while TrustZone is busy.
+ *
+ * Must not be called in atomic context.
+ *
+ * Return: the raw status returned by TrustZone, i.e., 0 on success.
+ */
+long scm_smc_call_hyp(struct device *dev, const struct qcom_scm_desc *desc,
+		      __le64 *ext_args, phys_addr_t ext_args_phys,
+		      struct qcom_scm_res *res)
+{
+	int arglen = desc->arginfo & 0xf;
+	struct arm_smccc_res smc_res;
+	struct arm_smccc_args smc = {};
+	int i, retry_count = 0;
+
+	might_sleep();
+
+	smc.args[0] = ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64,
+					 desc->owner,
+					 SCM_SMC_FNID(desc->svc, desc->cmd));
+	smc.args[1] = desc->arginfo;
+	for (i = 0; i < SCM_SMC_N_REG_ARGS; i++)
+		smc.args[i + SCM_SMC_FIRST_REG_IDX] = desc->args[i];
+
+	if (arglen > SCM_SMC_N_REG_ARGS) {
+		if (WARN_ON(!ext_args))
+			return QCOM_SCM_EINVAL_ARG;
+
+		for (i = 0; i < SCM_SMC_N_EXT_ARGS; i++)
+			ext_args[i] = cpu_to_le64(desc->args[i +
+							     SCM_SMC_FIRST_EXT_IDX]);
+
+		smc.args[SCM_SMC_LAST_REG_IDX] = ext_args_phys;
+	}
+
+	/* Make sure the buffers have been written before TrustZone reads them */
+	wmb();
+
+	for (;;) {
+		scoped_guard(mutex, &qcom_scm_lock)
+			__scm_smc_do_quirk(&smc, &smc_res);
+
+		if (smc_res.a0 != QCOM_SCM_V2_EBUSY ||
+		    retry_count++ > QCOM_SCM_EBUSY_MAX_RETRY)
+			break;
+
+		msleep(QCOM_SCM_EBUSY_WAIT_MS);
+	}
+
+	trace_scm_smc_done(0, smc.args[0], &smc_res);
+
+	if (res) {
+		res->result[0] = smc_res.a1;
+		res->result[1] = smc_res.a2;
+		res->result[2] = smc_res.a3;
+	}
+
+	return smc_res.a0;
+}
