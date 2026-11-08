@@ -71,8 +71,21 @@ struct qcom_scm {
 	/* EL2 only: buffers passed to TZ on behalf of the hypervisor */
 	void *hyp_bufs;
 	phys_addr_t hyp_bufs_phys;
-	/* serializes the use of hyp_bufs */
+	/* serializes the use of hyp_bufs and hyp_regions */
 	struct mutex hyp_bufs_lock;
+	/* regions assigned away from HLOS on behalf of the hypervisor */
+	struct list_head hyp_regions;
+};
+
+/*
+ * A region of memory assigned on behalf of the hypervisor, and its owners as
+ * last accepted by TZ.
+ */
+struct qcom_scm_hyp_region {
+	struct list_head node;
+	u64 start;
+	u64 end;
+	u64 owners;
 };
 
 struct qcom_scm_current_perm_info {
@@ -1294,6 +1307,51 @@ static bool qcom_scm_in_el2(void)
 #endif
 }
 
+/* Find a region that was assigned on behalf of the hypervisor, exactly */
+static struct qcom_scm_hyp_region *qcom_scm_hyp_region_find(u64 start, u64 end)
+{
+	struct qcom_scm_hyp_region *region;
+
+	lockdep_assert_held(&__scm->hyp_bufs_lock);
+
+	list_for_each_entry(region, &__scm->hyp_regions, node) {
+		if (region->start == start && region->end == end)
+			return region;
+	}
+
+	return NULL;
+}
+
+/* Record the owners of a region after TZ has accepted a request for it */
+static void qcom_scm_hyp_region_update(struct qcom_scm_hyp_region *region,
+				       u64 start, u64 end, u64 owners)
+{
+	lockdep_assert_held(&__scm->hyp_bufs_lock);
+
+	if (!(owners & ~BIT_ULL(QCOM_SCM_VMID_HLOS))) {
+		if (region) {
+			list_del(&region->node);
+			kfree(region);
+		}
+		return;
+	}
+
+	if (!region) {
+		region = kzalloc_obj(*region);
+		if (!region) {
+			dev_warn(__scm->dev,
+				 "failed to track memory assigned at %#llx\n",
+				 start);
+			return;
+		}
+		region->start = start;
+		region->end = end;
+		list_add(&region->node, &__scm->hyp_regions);
+	}
+
+	region->owners = owners;
+}
+
 /*
  * QHEE treats VMID_CP_NON_PIXEL as an alias of VMID_CP_PIXEL, and never passes
  * the former to TZ.
@@ -1329,6 +1387,7 @@ static int qcom_scm_assign_mem_hyp(phys_addr_t mem_addr, size_t mem_sz,
 	};
 	struct qcom_scm_current_perm_info *destvm;
 	struct qcom_scm_mem_map_info *mem_to_map;
+	struct qcom_scm_hyp_region *region;
 	unsigned int src_cnt = 0, n = 0;
 	u64 start, end, dest_bits = 0;
 	struct qcom_scm_res res = {};
@@ -1349,14 +1408,6 @@ static int qcom_scm_assign_mem_hyp(phys_addr_t mem_addr, size_t mem_sz,
 	for (i = 0; i < dest_cnt; i++)
 		dest_bits |= BIT_ULL(qcom_scm_hyp_vmid(newvm[i].vmid));
 
-	/*
-	 * QHEE only involves TZ in transitions that affect VMs that are
-	 * subject to XPU protection. Changes to the permissions of HLOS itself
-	 * only affect its stage-2 mappings, which don't exist at EL2.
-	 */
-	if (!((srcvm_bits | dest_bits) & ~BIT_ULL(QCOM_SCM_VMID_HLOS)))
-		return 0;
-
 	/* QHEE passes page aligned regions to TZ */
 	start = ALIGN_DOWN((u64)mem_addr, SZ_4K);
 	end = ALIGN((u64)mem_addr + mem_sz, SZ_4K);
@@ -1368,6 +1419,32 @@ static int qcom_scm_assign_mem_hyp(phys_addr_t mem_addr, size_t mem_sz,
 		return -E2BIG;
 
 	guard(mutex)(&__scm->hyp_bufs_lock);
+
+	region = qcom_scm_hyp_region_find(start, end);
+	if (region) {
+		/*
+		 * Requests for the owners that the region already has are
+		 * no-ops, e.g., when a driver that assigned it is reloaded,
+		 * or a remote processor that it was shared with is restarted.
+		 */
+		if (region->owners == dest_bits)
+			return 0;
+
+		/*
+		 * TZ refuses requests for memory that is (co)owned by another
+		 * VM, so there is no point in asking.
+		 */
+		if (region->owners & ~BIT_ULL(QCOM_SCM_VMID_HLOS))
+			return -EOPNOTSUPP;
+	}
+
+	/*
+	 * QHEE only involves TZ in transitions that affect VMs that are
+	 * subject to XPU protection. Changes to the permissions of HLOS itself
+	 * only affect its stage-2 mappings, which don't exist at EL2.
+	 */
+	if (!((srcvm_bits | dest_bits) & ~BIT_ULL(QCOM_SCM_VMID_HLOS)))
+		return 0;
 
 	bufs = __scm->hyp_bufs;
 	bufs_phys = __scm->hyp_bufs_phys;
@@ -1417,6 +1494,8 @@ static int qcom_scm_assign_mem_hyp(phys_addr_t mem_addr, size_t mem_sz,
 		return status ? qcom_scm_remap_error(status) : -EIO;
 	}
 
+	qcom_scm_hyp_region_update(region, start, end, dest_bits);
+
 	return 0;
 }
 
@@ -1429,7 +1508,9 @@ static int qcom_scm_assign_mem_hyp(phys_addr_t mem_addr, size_t mem_sz,
  * that is currently owned by HLOS alone. This means that once memory has been
  * assigned to, or shared with another VM, it can no longer be reassigned
  * until the next boot, and users that need to retain access to it should keep
- * HLOS as one of its owners.
+ * HLOS as one of its owners. Requests for the owners that such memory already
+ * has succeed without involving TZ, so users may repeat them, e.g., when they
+ * are reloaded or restarted.
  *
  * Return: false if memory cannot be taken back from other VMs, true otherwise.
  */
@@ -2173,6 +2254,7 @@ static int qcom_scm_hyp_bufs_init(struct qcom_scm *scm)
 		 &base, base + size - 1);
 
 	mutex_init(&scm->hyp_bufs_lock);
+	INIT_LIST_HEAD(&scm->hyp_regions);
 	scm->hyp_bufs_phys = base;
 	scm->hyp_bufs = bufs;
 
