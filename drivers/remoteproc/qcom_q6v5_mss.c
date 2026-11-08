@@ -476,6 +476,17 @@ static int q6v5_xfer_mem_ownership(struct q6v5 *qproc, u64 *current_perm,
 	    remote == !!(*current_perm & BIT(QCOM_SCM_VMID_MSS_MSA)))
 		return 0;
 
+	/*
+	 * When running at EL2 in place of the hypervisor, memory that has been
+	 * assigned to the modem cannot be taken back, so don't try.
+	 */
+	if ((*current_perm & ~BIT(QCOM_SCM_VMID_HLOS)) &&
+	    !qcom_scm_assign_mem_can_reclaim()) {
+		dev_info_once(qproc->dev,
+			      "memory cannot be reclaimed from the modem, leaving it shared\n");
+		return -EOPNOTSUPP;
+	}
+
 	if (local) {
 		next[perms].vmid = QCOM_SCM_VMID_HLOS;
 		next[perms].perm = QCOM_SCM_PERM_RWX;
@@ -1107,7 +1118,8 @@ static int q6v5_mpss_init_image(struct q6v5 *qproc, const struct firmware *fw,
 
 	/* Hypervisor mapping to access metadata by modem */
 	mdata_perm = BIT(QCOM_SCM_VMID_HLOS);
-	ret = q6v5_xfer_mem_ownership(qproc, &mdata_perm, false, true,
+	ret = q6v5_xfer_mem_ownership(qproc, &mdata_perm,
+				      !qcom_scm_assign_mem_can_reclaim(), true,
 				      phys, size);
 	if (ret) {
 		dev_err(qproc->dev,
@@ -1128,9 +1140,13 @@ static int q6v5_mpss_init_image(struct q6v5 *qproc, const struct firmware *fw,
 	/* Metadata authentication done, remove modem access */
 	xferop_ret = q6v5_xfer_mem_ownership(qproc, &mdata_perm, true, false,
 					     phys, size);
-	if (xferop_ret)
+	if (xferop_ret == -EOPNOTSUPP) {
+		/* The modem keeps the buffer, so don't free it */
+		goto free_metadata;
+	} else if (xferop_ret) {
 		dev_warn(qproc->dev,
 			 "mdt buffer not reclaimed system may become unstable\n");
+	}
 
 free_dma_attrs:
 	if (!qproc->mdata_phys)
@@ -1233,17 +1249,23 @@ static int q6v5_mba_load(struct q6v5 *qproc)
 
 	/*
 	 * Some versions of the MBA firmware will upon boot wipe the MPSS region as well, so provide
-	 * the Q6 access to this region.
+	 * the Q6 access to this region. If it cannot be taken back afterwards to load the firmware
+	 * into it, share it with the Q6 instead.
 	 */
-	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mpss_perm, false, true,
+	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mpss_perm,
+				      !qcom_scm_assign_mem_can_reclaim(), true,
 				      qproc->mpss_phys, qproc->mpss_size);
 	if (ret) {
 		dev_err(qproc->dev, "assigning Q6 access to mpss memory failed: %d\n", ret);
 		goto disable_active_clks;
 	}
 
-	/* Assign MBA image access in DDR to q6 */
-	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mba_perm, false, true,
+	/*
+	 * Assign MBA image access in DDR to q6, or share it with the q6 if it
+	 * cannot be taken back afterwards, so it can be reloaded on restart.
+	 */
+	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mba_perm,
+				      !qcom_scm_assign_mem_can_reclaim(), true,
 				      qproc->mba_phys, qproc->mba_size);
 	if (ret) {
 		dev_err(qproc->dev,
@@ -1292,10 +1314,10 @@ reclaim_mba:
 	xfermemop_ret = q6v5_xfer_mem_ownership(qproc, &qproc->mba_perm, true,
 						false, qproc->mba_phys,
 						qproc->mba_size);
-	if (xfermemop_ret) {
+	if (xfermemop_ret && xfermemop_ret != -EOPNOTSUPP) {
 		dev_err(qproc->dev,
 			"Failed to reclaim mba buffer, system may become unstable\n");
-	} else if (mba_load_err) {
+	} else if (!xfermemop_ret && mba_load_err) {
 		q6v5_dump_mba_logs(qproc);
 	}
 
@@ -1388,7 +1410,7 @@ static void q6v5_mba_reclaim(struct q6v5 *qproc)
 	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mba_perm, true, false,
 				      qproc->mba_phys,
 				      qproc->mba_size);
-	WARN_ON(ret);
+	WARN_ON(ret && ret != -EOPNOTSUPP);
 
 	ret = qcom_q6v5_unprepare(&qproc->q6v5);
 	if (ret) {
@@ -1598,8 +1620,12 @@ static int q6v5_mpss_load(struct q6v5 *qproc)
 		}
 	}
 
-	/* Transfer ownership of modem ddr region to q6 */
-	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mpss_perm, false, true,
+	/*
+	 * Transfer ownership of modem ddr region to q6, unless it is shared and
+	 * cannot be taken back, in which case it has to remain shared.
+	 */
+	ret = q6v5_xfer_mem_ownership(qproc, &qproc->mpss_perm,
+				      !qcom_scm_assign_mem_can_reclaim(), true,
 				      qproc->mpss_phys, qproc->mpss_size);
 	if (ret) {
 		dev_err(qproc->dev,
@@ -1696,7 +1722,7 @@ static int q6v5_start(struct rproc *rproc)
 	xfermemop_ret = q6v5_xfer_mem_ownership(qproc, &qproc->mba_perm, true,
 						false, qproc->mba_phys,
 						qproc->mba_size);
-	if (xfermemop_ret)
+	if (xfermemop_ret && xfermemop_ret != -EOPNOTSUPP)
 		dev_err(qproc->dev,
 			"Failed to reclaim mba buffer system may become unstable\n");
 
