@@ -133,6 +133,20 @@ properties:
           - description: offset of the download mode control register
     description: TCSR hardware block
 
+  qcom,hyp-shm-bridge:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    items:
+      - items:
+          - description: phandle to the reserved memory region of the hypervisor
+          - description: offset of the shared memory bridge into the region
+          - description: size of the shared memory bridge
+    description:
+      Part of the reserved memory of the hypervisor (e.g., QHEE) that the OS
+      may register with TZ as a shared memory bridge for the hypervisor VM
+      when it runs at EL2 in place of this hypervisor. This allows the OS to
+      pass buffers to TZ in calls that TZ only accepts from the hypervisor,
+      such as memory assignment requests.
+
   sram:
     description:
       Phandle to a region in always-on SRAM used to store the download
