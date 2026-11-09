@@ -141,7 +141,8 @@ enum {
  * @ept:	rpmsg endpoint this channel is associated with
  * @glink:	qcom_glink context handle
  * @refcount:	refcount for the channel object
- * @recv_lock:	guard for @ept.cb
+ * @recv_lock:	guard for @ept.cb and @rx_pending
+ * @rx_pending:	received messages that are yet to be delivered to @ept
  * @name:	unique channel name/identifier
  * @lcid:	channel id, in local space
  * @rcid:	channel id, in remote space
@@ -169,6 +170,7 @@ struct glink_channel {
 	struct kref refcount;
 
 	spinlock_t recv_lock;
+	struct list_head rx_pending;
 
 	char *name;
 	unsigned int lcid;
@@ -247,6 +249,7 @@ static struct glink_channel *qcom_glink_alloc_channel(struct qcom_glink *glink,
 	init_completion(&channel->open_ack);
 	init_waitqueue_head(&channel->intent_req_wq);
 
+	INIT_LIST_HEAD(&channel->rx_pending);
 	INIT_LIST_HEAD(&channel->done_intents);
 	INIT_WORK(&channel->intent_work, qcom_glink_rx_done_work);
 
@@ -268,6 +271,14 @@ static void qcom_glink_channel_release(struct kref *ref)
 
 	/* cancel pending rx_done work */
 	cancel_work_sync(&channel->intent_work);
+
+	/* Undelivered messages of intentless transports are not in liids */
+	if (channel->glink->intentless) {
+		list_for_each_entry_safe(intent, tmp, &channel->rx_pending, node) {
+			kfree(intent->data);
+			kfree(intent);
+		}
+	}
 
 	spin_lock_irqsave(&channel->intent_lock, flags);
 	/* Free all non-reuse intents pending rx_done work */
@@ -895,6 +906,37 @@ static int qcom_glink_rx_defer(struct qcom_glink *glink, size_t extra)
 	return 0;
 }
 
+/*
+ * Deliver received messages to the endpoint, in order. Like with SMD, an
+ * endpoint callback returning -EAGAIN indicates that the endpoint is not ready
+ * to receive the message yet, e.g., because the probe of its driver has not
+ * completed, in which case the message is kept for redelivery later. Messages
+ * are dropped if there is no endpoint callback.
+ */
+static void qcom_glink_rx_deliver(struct qcom_glink *glink,
+				  struct glink_channel *channel)
+{
+	struct glink_core_rx_intent *intent, *tmp;
+	int ret;
+
+	lockdep_assert_held(&channel->recv_lock);
+
+	list_for_each_entry_safe(intent, tmp, &channel->rx_pending, node) {
+		if (channel->ept.cb) {
+			ret = channel->ept.cb(channel->ept.rpdev, intent->data,
+					      intent->offset, channel->ept.priv,
+					      RPMSG_ADDR_ANY);
+			if (ret == -EAGAIN)
+				break;
+		}
+
+		list_del(&intent->node);
+		intent->in_use = false;
+		intent->offset = 0;
+		qcom_glink_rx_done(glink, channel, intent);
+	}
+}
+
 static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 {
 	struct glink_core_rx_intent *intent;
@@ -978,6 +1020,12 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 		}
 	}
 
+	if (intent->in_use) {
+		dev_err(glink->dev, "intent %d of channel %s is still in use\n",
+			liid, channel->name);
+		goto advance_rx;
+	}
+
 	if (intent->size - intent->offset < chunk_size) {
 		dev_err(glink->dev, "Insufficient space in intent\n");
 
@@ -992,19 +1040,12 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 	/* Handle message when no fragments remain to be received */
 	if (!left_size) {
 		spin_lock(&channel->recv_lock);
-		if (channel->ept.cb) {
-			channel->ept.cb(channel->ept.rpdev,
-					intent->data,
-					intent->offset,
-					channel->ept.priv,
-					RPMSG_ADDR_ANY);
-		}
+		intent->in_use = true;
+		list_add_tail(&intent->node, &channel->rx_pending);
+		qcom_glink_rx_deliver(glink, channel);
 		spin_unlock(&channel->recv_lock);
 
-		intent->offset = 0;
 		channel->buf = NULL;
-
-		qcom_glink_rx_done(glink, channel, intent);
 	}
 
 advance_rx:
@@ -1368,7 +1409,13 @@ static int qcom_glink_announce_create(struct rpmsg_device *rpdev)
 	int num_intents;
 	int num_groups = 1;
 	__be32 *val = defaults;
+	unsigned long flags;
 	int size;
+
+	/* Deliver the messages that arrived before the driver was ready */
+	spin_lock_irqsave(&channel->recv_lock, flags);
+	qcom_glink_rx_deliver(glink, channel);
+	spin_unlock_irqrestore(&channel->recv_lock, flags);
 
 	if (glink->intentless || !completion_done(&channel->open_ack))
 		return 0;
@@ -1416,6 +1463,8 @@ static void qcom_glink_destroy_ept(struct rpmsg_endpoint *ept)
 
 	spin_lock_irqsave(&channel->recv_lock, flags);
 	channel->ept.cb = NULL;
+	/* Drop the messages that are yet to be delivered */
+	qcom_glink_rx_deliver(glink, channel);
 	spin_unlock_irqrestore(&channel->recv_lock, flags);
 
 	qcom_glink_send_close_req(glink, channel);
