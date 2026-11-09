@@ -71,10 +71,13 @@ struct qcom_scm {
 	/* EL2 only: buffers passed to TZ on behalf of the hypervisor */
 	void *hyp_bufs;
 	phys_addr_t hyp_bufs_phys;
-	/* serializes the use of hyp_bufs and hyp_regions */
+	/* serializes the use of hyp_bufs, hyp_regions and hlos_buf */
 	struct mutex hyp_bufs_lock;
 	/* regions assigned away from HLOS on behalf of the hypervisor */
 	struct list_head hyp_regions;
+	/* EL2 only: buffer in an SHM bridge for HLOS, for LMh requests */
+	void *hlos_buf;
+	dma_addr_t hlos_buf_phys;
 };
 
 /*
@@ -170,6 +173,13 @@ enum qcom_scm_hyp_buf {
 	QCOM_SCM_HYP_BUF_DEST,
 	QCOM_SCM_HYP_NR_BUFS
 };
+
+/*
+ * Buffer in an SHM bridge for HLOS, with the payload of LMh requests at offset
+ * 0, and their extended SMC arguments at offset 4 KiB.
+ */
+#define QCOM_SCM_HLOS_BUF_SIZE			SZ_8K
+#define QCOM_SCM_HLOS_BUF_EXT_ARGS		SZ_4K
 
 /* Each bit configures cold/warm boot address for one of the 4 CPUs */
 static const u8 qcom_scm_cpu_cold_bits[QCOM_SCM_BOOT_MAX_CPUS] = {
@@ -2261,6 +2271,77 @@ static int qcom_scm_hyp_bufs_init(struct qcom_scm *scm)
 	return 0;
 }
 
+/*
+ * QHEE passes LMh requests issued by HLOS through to TZ unmodified, except
+ * for setting the client ID to that of HLOS. When Linux runs at EL2 in place
+ * of QHEE, TZ refuses LMh requests issued on behalf of the hypervisor (status
+ * -2, result -16), and those issued like QHEE passes them through, unless all
+ * the buffers they pass reside in an SHM bridge for HLOS that was registered
+ * during the current boot (status -6).
+ *
+ * So register such a bridge for a buffer for the payload and the extended
+ * arguments of LMh requests on first use, and pass LMh requests through like
+ * QHEE does (see scm_smc_call_hlos()), with their buffers in that bridge.
+ */
+static bool qcom_scm_lmh_use_hlos(void)
+{
+	return __scm->hyp_bufs;
+}
+
+static int qcom_scm_hlos_buf_init(void)
+{
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_MP,
+		.cmd = QCOM_SCM_MP_SHM_BRIDGE_CREATE,
+		.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_VAL,
+					 QCOM_SCM_VAL, QCOM_SCM_VAL),
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	struct device *dev = __scm->dev;
+	struct qcom_scm_res res = {};
+	dma_addr_t phys;
+	long status;
+	void *buf;
+
+	lockdep_assert_held(&__scm->hyp_bufs_lock);
+
+	if (__scm->hlos_buf)
+		return 0;
+
+	buf = dmam_alloc_coherent(dev, QCOM_SCM_HLOS_BUF_SIZE, &phys,
+				  GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	/*
+	 * Register the bridge as HLOS, with read/write permissions for both
+	 * HLOS and TZ. It is never deleted.
+	 */
+	desc.args[0] = phys | QCOM_SCM_PERM_RW;
+	desc.args[1] = phys | QCOM_SCM_PERM_RW;
+	desc.args[2] = QCOM_SCM_HLOS_BUF_SIZE |
+		       (1 << QCOM_SCM_SHM_BRIDGE_NUM_VM_SHIFT);
+	desc.args[3] = QCOM_SCM_VMID_HLOS;
+
+	status = scm_smc_call_hlos(dev, &desc, NULL, 0, &res);
+	if (status || res.result[0]) {
+		dev_err(dev,
+			"failed to register HLOS SHM bridge at %pad: status %ld, result %#llx\n",
+			&phys, status, res.result[0]);
+		dmam_free_coherent(dev, QCOM_SCM_HLOS_BUF_SIZE, buf, phys);
+		return -EIO;
+	}
+
+	dev_info(dev,
+		 "passing LMh requests through as HLOS, using SHM bridge [%pad-%#llx]\n",
+		 &phys, (u64)phys + QCOM_SCM_HLOS_BUF_SIZE - 1);
+
+	__scm->hlos_buf_phys = phys;
+	__scm->hlos_buf = buf;
+
+	return 0;
+}
+
 int qcom_scm_lmh_profile_change(u32 profile_id)
 {
 	struct qcom_scm_desc desc = {
@@ -2270,15 +2351,48 @@ int qcom_scm_lmh_profile_change(u32 profile_id)
 		.args[0] = profile_id,
 		.owner = ARM_SMCCC_OWNER_SIP,
 	};
+	long status;
+
+	if (qcom_scm_lmh_use_hlos()) {
+		status = scm_smc_call_hlos(__scm->dev, &desc, NULL, 0, NULL);
+		return status ? qcom_scm_remap_error(status) : 0;
+	}
 
 	return qcom_scm_call(__scm->dev, &desc, NULL);
 }
 EXPORT_SYMBOL_GPL(qcom_scm_lmh_profile_change);
 
+static int qcom_scm_lmh_dcvsh_hlos(struct qcom_scm_desc *desc,
+				   const u32 *payload, size_t payload_size)
+{
+	long status;
+	void *buf;
+	int ret;
+
+	guard(mutex)(&__scm->hyp_bufs_lock);
+
+	ret = qcom_scm_hlos_buf_init();
+	if (ret)
+		return ret;
+
+	buf = __scm->hlos_buf;
+	memset(buf, 0, QCOM_SCM_HLOS_BUF_SIZE);
+	memcpy(buf, payload, payload_size);
+	desc->args[0] = __scm->hlos_buf_phys;
+
+	status = scm_smc_call_hlos(__scm->dev, desc,
+				   buf + QCOM_SCM_HLOS_BUF_EXT_ARGS,
+				   __scm->hlos_buf_phys + QCOM_SCM_HLOS_BUF_EXT_ARGS,
+				   NULL);
+
+	return status ? qcom_scm_remap_error(status) : 0;
+}
+
 int qcom_scm_lmh_dcvsh(u32 payload_fn, u32 payload_reg, u32 payload_val,
 		       u64 limit_node, u32 node_id, u64 version)
 {
-	int ret, payload_size = 5 * sizeof(u32);
+	const u32 payload[] = { payload_fn, 0, payload_reg, 1, payload_val };
+	int ret, payload_size = sizeof(payload);
 
 	struct qcom_scm_desc desc = {
 		.svc = QCOM_SCM_SVC_LMH,
@@ -2292,17 +2406,16 @@ int qcom_scm_lmh_dcvsh(u32 payload_fn, u32 payload_reg, u32 payload_val,
 		.owner = ARM_SMCCC_OWNER_SIP,
 	};
 
+	if (qcom_scm_lmh_use_hlos())
+		return qcom_scm_lmh_dcvsh_hlos(&desc, payload, payload_size);
+
 	u32 *payload_buf __free(qcom_tzmem) = qcom_tzmem_alloc(__scm->mempool,
 							       payload_size,
 							       GFP_KERNEL);
 	if (!payload_buf)
 		return -ENOMEM;
 
-	payload_buf[0] = payload_fn;
-	payload_buf[1] = 0;
-	payload_buf[2] = payload_reg;
-	payload_buf[3] = 1;
-	payload_buf[4] = payload_val;
+	memcpy(payload_buf, payload, payload_size);
 
 	desc.args[0] = qcom_tzmem_to_phys(payload_buf);
 

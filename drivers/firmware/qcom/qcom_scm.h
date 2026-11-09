@@ -78,6 +78,9 @@ int __scm_smc_call(struct device *dev, const struct qcom_scm_desc *desc,
 long scm_smc_call_hyp(struct device *dev, const struct qcom_scm_desc *desc,
 		      __le64 *ext_args, phys_addr_t ext_args_phys,
 		      struct qcom_scm_res *res);
+long scm_smc_call_hlos(struct device *dev, const struct qcom_scm_desc *desc,
+		       __le64 *ext_args, phys_addr_t ext_args_phys,
+		       struct qcom_scm_res *res);
 
 #define SCM_LEGACY_FNID(s, c)	(((s) << 10) | ((c) & 0x3ff))
 int scm_legacy_call_atomic(struct device *dev, const struct qcom_scm_desc *desc,

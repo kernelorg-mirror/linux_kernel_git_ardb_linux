@@ -224,32 +224,11 @@ int __scm_smc_call(struct device *dev, const struct qcom_scm_desc *desc,
 
 }
 
-/**
- * scm_smc_call_hyp() - Issue an SCM call the way the hypervisor would
- * @dev:	device
- * @desc:	descriptor structure containing the arguments of the call
- * @ext_args:	zeroed buffer for the arguments that don't fit in registers,
- *		which may be NULL if all arguments fit in registers
- * @ext_args_phys: physical address of @ext_args
- * @res:	structure containing the results of the call, may be NULL
- *
- * On devices that are designed to run Linux at EL1 under a hypervisor such
- * as QHEE, TrustZone only accepts some calls (e.g., memory assignment) from
- * the hypervisor itself. When Linux runs at EL2 instead, it needs to issue
- * such calls the way the hypervisor would: as fast SMC64 calls, with the
- * session ID (w6) and the client ID (w7) set to 0, where the latter
- * identifies the hypervisor as the caller, and with any extended arguments
- * passed via a buffer provided by the caller rather than one allocated from
- * the TZ memory pool. Like QHEE, serialize these calls with any other SCM
- * calls issued by Linux, and retry them while TrustZone is busy.
- *
- * Must not be called in atomic context.
- *
- * Return: the raw status returned by TrustZone, i.e., 0 on success.
- */
-long scm_smc_call_hyp(struct device *dev, const struct qcom_scm_desc *desc,
-		      __le64 *ext_args, phys_addr_t ext_args_phys,
-		      struct qcom_scm_res *res)
+static long scm_smc_call_bridged(struct device *dev,
+				 const struct qcom_scm_desc *desc,
+				 __le64 *ext_args, phys_addr_t ext_args_phys,
+				 struct qcom_scm_res *res, u32 call_type,
+				 u32 client_id)
 {
 	int arglen = desc->arginfo & 0xf;
 	struct arm_smccc_res smc_res;
@@ -258,12 +237,13 @@ long scm_smc_call_hyp(struct device *dev, const struct qcom_scm_desc *desc,
 
 	might_sleep();
 
-	smc.args[0] = ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64,
+	smc.args[0] = ARM_SMCCC_CALL_VAL(call_type, ARM_SMCCC_SMC_64,
 					 desc->owner,
 					 SCM_SMC_FNID(desc->svc, desc->cmd));
 	smc.args[1] = desc->arginfo;
 	for (i = 0; i < SCM_SMC_N_REG_ARGS; i++)
 		smc.args[i + SCM_SMC_FIRST_REG_IDX] = desc->args[i];
+	smc.args[7] = client_id;
 
 	if (arglen > SCM_SMC_N_REG_ARGS) {
 		if (WARN_ON(!ext_args))
@@ -299,4 +279,64 @@ long scm_smc_call_hyp(struct device *dev, const struct qcom_scm_desc *desc,
 	}
 
 	return smc_res.a0;
+}
+
+/**
+ * scm_smc_call_hyp() - Issue an SCM call the way the hypervisor would
+ * @dev:	device
+ * @desc:	descriptor structure containing the arguments of the call
+ * @ext_args:	zeroed buffer for the arguments that don't fit in registers,
+ *		which may be NULL if all arguments fit in registers
+ * @ext_args_phys: physical address of @ext_args
+ * @res:	structure containing the results of the call, may be NULL
+ *
+ * On devices that are designed to run Linux at EL1 under a hypervisor such
+ * as QHEE, TrustZone only accepts some calls (e.g., memory assignment) from
+ * the hypervisor itself. When Linux runs at EL2 instead, it needs to issue
+ * such calls the way the hypervisor would: as fast SMC64 calls, with the
+ * session ID (w6) and the client ID (w7) set to 0, where the latter
+ * identifies the hypervisor as the caller, and with any extended arguments
+ * passed via a buffer provided by the caller rather than one allocated from
+ * the TZ memory pool. Like QHEE, serialize these calls with any other SCM
+ * calls issued by Linux, and retry them while TrustZone is busy.
+ *
+ * Must not be called in atomic context.
+ *
+ * Return: the raw status returned by TrustZone, i.e., 0 on success.
+ */
+long scm_smc_call_hyp(struct device *dev, const struct qcom_scm_desc *desc,
+		      __le64 *ext_args, phys_addr_t ext_args_phys,
+		      struct qcom_scm_res *res)
+{
+	return scm_smc_call_bridged(dev, desc, ext_args, ext_args_phys, res,
+				    ARM_SMCCC_FAST_CALL, 0);
+}
+
+/**
+ * scm_smc_call_hlos() - Issue an SCM call the way the hypervisor passes it on
+ * @dev:	device
+ * @desc:	descriptor structure containing the arguments of the call
+ * @ext_args:	zeroed buffer for the arguments that don't fit in registers,
+ *		which may be NULL if all arguments fit in registers
+ * @ext_args_phys: physical address of @ext_args
+ * @res:	structure containing the results of the call, may be NULL
+ *
+ * QHEE passes the SCM calls issued by HLOS that it doesn't intercept (e.g.,
+ * LMh requests) through to TrustZone unmodified, except for setting the
+ * client ID (w7) to that of HLOS. When Linux runs at EL2 instead, TrustZone
+ * only accepts some of these calls if they are issued the same way, i.e., as
+ * yielding calls with the client ID of HLOS, and with all the buffers they
+ * pass, including the one for the extended arguments, residing in an SHM
+ * bridge for HLOS.
+ *
+ * Must not be called in atomic context.
+ *
+ * Return: the raw status returned by TrustZone, i.e., 0 on success.
+ */
+long scm_smc_call_hlos(struct device *dev, const struct qcom_scm_desc *desc,
+		       __le64 *ext_args, phys_addr_t ext_args_phys,
+		       struct qcom_scm_res *res)
+{
+	return scm_smc_call_bridged(dev, desc, ext_args, ext_args_phys, res,
+				    ARM_SMCCC_STD_CALL, QCOM_SCM_VMID_HLOS);
 }
