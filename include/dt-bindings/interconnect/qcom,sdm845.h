@@ -108,6 +108,7 @@
 #define SLAVE_SERVICE_MEM_NOC		12
 #define MASTER_LLCC			13
 #define SLAVE_EBI1			14
+#define MASTER_ALC			15
 
 #define MASTER_CNOC_MNOC_CFG		0
 #define MASTER_CAMNOC_HF0		1
