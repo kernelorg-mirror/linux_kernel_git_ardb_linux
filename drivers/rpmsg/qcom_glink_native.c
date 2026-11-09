@@ -1306,8 +1306,6 @@ static struct glink_channel *qcom_glink_create_local(struct qcom_glink *glink,
 	if (!ret)
 		goto err_timeout;
 
-	qcom_glink_send_open_ack(glink, channel);
-
 	return channel;
 
 err_timeout:
@@ -1368,6 +1366,7 @@ static struct rpmsg_endpoint *qcom_glink_create_ept(struct rpmsg_device *rpdev,
 	struct qcom_glink *glink = parent->glink;
 	struct rpmsg_endpoint *ept;
 	const char *name = chinfo.name;
+	bool remote = true;
 	int cid;
 	int ret;
 	unsigned long flags;
@@ -1383,17 +1382,34 @@ static struct rpmsg_endpoint *qcom_glink_create_ept(struct rpmsg_device *rpdev,
 		channel = qcom_glink_create_local(glink, name);
 		if (IS_ERR(channel))
 			return NULL;
-	} else {
-		ret = qcom_glink_create_remote(glink, channel);
-		if (ret)
-			return NULL;
+		remote = false;
 	}
 
+	/*
+	 * Set up the endpoint before completing the opening handshake, as the
+	 * remote may start sending messages as soon as it has completed.
+	 */
 	ept = &channel->ept;
+	spin_lock_irqsave(&channel->recv_lock, flags);
 	ept->rpdev = rpdev;
 	ept->cb = cb;
 	ept->priv = priv;
 	ept->ops = &glink_endpoint_ops;
+	spin_unlock_irqrestore(&channel->recv_lock, flags);
+
+	if (!remote) {
+		qcom_glink_send_open_ack(glink, channel);
+		return ept;
+	}
+
+	ret = qcom_glink_create_remote(glink, channel);
+	if (ret) {
+		spin_lock_irqsave(&channel->recv_lock, flags);
+		ept->cb = NULL;
+		qcom_glink_rx_deliver(glink, channel);
+		spin_unlock_irqrestore(&channel->recv_lock, flags);
+		return NULL;
+	}
 
 	return ept;
 }
