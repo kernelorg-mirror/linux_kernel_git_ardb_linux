@@ -37,6 +37,24 @@
 		serial1 = &uart6;
 	};
 
+	cpus {
+		domain-idle-states {
+			/*
+			 * platform.F2 on top of L3Cluster.D4 from the ACPI tables,
+			 * which also lets the rest of the SoC sleep. Suspend to idle
+			 * picks the deepest state regardless of its residency, so
+			 * use one that keeps the runtime governor away from it.
+			 */
+			cluster_sleep_1: cluster-sleep-1 {
+				compatible = "domain-idle-state";
+				arm,psci-suspend-param = <0x4100c344>;
+				entry-latency-us = <3263>;
+				exit-latency-us = <6562>;
+				min-residency-us = <0xffffffff>;
+			};
+		};
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 
@@ -340,8 +358,13 @@
 	status = "okay";
 };
 
+&cluster_pd {
+	domain-idle-states = <&cluster_sleep_0>, <&cluster_sleep_1>;
+};
+
+/* L3Cluster.D4 from the ACPI tables: powers down the cluster and its L3 */
 &cluster_sleep_0 {
-	arm,psci-suspend-param = <0x41008244>;
+	arm,psci-suspend-param = <0x41000044>;
 };
 
 &gcc {
