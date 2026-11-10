@@ -118,7 +118,5 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 unsigned long kernel_entry_address(unsigned long kernel_addr,
 		efi_loaded_image_t *image)
 {
-	unsigned long base = (unsigned long)image->image_base;
-
-	return (unsigned long)&kernel_entry - base + kernel_addr;
+	return kernel_addr + efistub_kernel_entry_offset(efistub_get_image_info());
 }
