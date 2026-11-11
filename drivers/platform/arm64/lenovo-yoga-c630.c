@@ -10,11 +10,13 @@
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/i2c.h>
+#include <linux/interrupt.h>
 #include <linux/irqreturn.h>
 #include <linux/lockdep.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/notifier.h>
+#include <linux/pm.h>
 #include <linux/slab.h>
 #include <linux/platform_data/lenovo-yoga-c630.h>
 
@@ -216,6 +218,7 @@ static int yoga_c630_ec_probe(struct i2c_client *client)
 	mutex_init(&ec->lock);
 	ec->client = client;
 	BLOCKING_INIT_NOTIFIER_HEAD(&ec->notifier_list);
+	i2c_set_clientdata(client, ec);
 
 	ret = devm_request_threaded_irq(dev, client->irq,
 					NULL, yoga_c630_ec_thread_intr,
@@ -229,6 +232,34 @@ static int yoga_c630_ec_probe(struct i2c_client *client)
 
 	return yoga_c630_aux_init(dev, YOGA_C630_DEV_UCSI, ec);
 }
+
+/*
+ * Keep the EC interrupt disabled until the system has resumed. Its
+ * handler reads the pending event over I2C, which fails between the late
+ * suspend and early resume phases of the I2C controller, and as the
+ * interrupt is level triggered, it would fire over and over again until the
+ * handler gets to read the event.
+ */
+static int yoga_c630_ec_suspend(struct device *dev)
+{
+	struct yoga_c630_ec *ec = dev_get_drvdata(dev);
+
+	disable_irq(ec->client->irq);
+
+	return 0;
+}
+
+static int yoga_c630_ec_resume(struct device *dev)
+{
+	struct yoga_c630_ec *ec = dev_get_drvdata(dev);
+
+	enable_irq(ec->client->irq);
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(yoga_c630_ec_pm_ops, yoga_c630_ec_suspend,
+				yoga_c630_ec_resume);
 
 
 static const struct of_device_id yoga_c630_ec_of_match[] = {
@@ -246,7 +277,8 @@ MODULE_DEVICE_TABLE(i2c, yoga_c630_ec_i2c_id_table);
 static struct i2c_driver yoga_c630_ec_i2c_driver = {
 	.driver = {
 		.name = "yoga-c630-ec",
-		.of_match_table = yoga_c630_ec_of_match
+		.of_match_table = yoga_c630_ec_of_match,
+		.pm = pm_sleep_ptr(&yoga_c630_ec_pm_ops),
 	},
 	.probe = yoga_c630_ec_probe,
 	.id_table = yoga_c630_ec_i2c_id_table,
