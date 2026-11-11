@@ -433,11 +433,18 @@ static int i2c_hid_set_power(struct i2c_hid *ihid, int power_state)
 	 * the address not being acknowledged. Try after a short sleep to see
 	 * if the device came alive on the bus. Certain Weida Tech devices also
 	 * need this.
+	 *
+	 * Others, such as the Elan touchpad of the Lenovo Yoga C630, need a few
+	 * milliseconds instead, so try once more after a longer sleep.
 	 */
 	ret = i2c_hid_set_power_command(ihid, power_state);
 	if (ret && power_state == I2C_HID_PWR_ON) {
 		usleep_range(400, 500);
 		ret = i2c_hid_set_power_command(ihid, I2C_HID_PWR_ON);
+		if (ret) {
+			usleep_range(10000, 11000);
+			ret = i2c_hid_set_power_command(ihid, I2C_HID_PWR_ON);
+		}
 	}
 
 	if (ret)
