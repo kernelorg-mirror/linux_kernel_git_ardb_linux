@@ -6,12 +6,14 @@
  *    Dmitry Baryshkov
  */
 #include <linux/auxiliary_bus.h>
+#include <linux/bits.h>
 #include <linux/cleanup.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/irqreturn.h>
+#include <linux/leds.h>
 #include <linux/lockdep.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -27,14 +29,20 @@
 #define LENOVO_EC_UCSI_READ		0x21
 
 #define LENOVO_EC_READ_REG		0xb0
+#define LENOVO_EC_WRITE_REG		0xb1
 #define LENOVO_EC_REQUEST_NEXT_EVENT	0x84
 
 #define LENOVO_EC_UCSI_VERSION		0x20
+
+#define LENOVO_EC_KBD_BACKLIGHT_REG	0x03
+#define LENOVO_EC_KBD_BACKLIGHT_ON	BIT(0)
 
 struct yoga_c630_ec {
 	struct i2c_client *client;
 	struct mutex lock;
 	struct blocking_notifier_head notifier_list;
+	struct led_classdev kbd_backlight;
+	enum led_brightness kbd_backlight_brightness;
 };
 
 static int yoga_c630_ec_request(struct yoga_c630_ec *ec, u8 *req, size_t req_len,
@@ -53,20 +61,26 @@ static int yoga_c630_ec_request(struct yoga_c630_ec *ec, u8 *req, size_t req_len
 					     resp_len, resp);
 }
 
-int yoga_c630_ec_read8(struct yoga_c630_ec *ec, u8 addr)
+static int __yoga_c630_ec_read8(struct yoga_c630_ec *ec, u8 addr)
 {
-	u8 req[2] = { LENOVO_EC_READ_REG, };
+	u8 req[2] = { LENOVO_EC_READ_REG, addr };
 	int ret;
 	u8 val;
 
-	guard(mutex)(&ec->lock);
+	lockdep_assert_held(&ec->lock);
 
-	req[1] = addr;
 	ret = yoga_c630_ec_request(ec, req, sizeof(req), &val, 1);
 	if (ret < 0)
 		return ret;
 
 	return val;
+}
+
+int yoga_c630_ec_read8(struct yoga_c630_ec *ec, u8 addr)
+{
+	guard(mutex)(&ec->lock);
+
+	return __yoga_c630_ec_read8(ec, addr);
 }
 EXPORT_SYMBOL_GPL(yoga_c630_ec_read8);
 
@@ -96,6 +110,31 @@ int yoga_c630_ec_read16(struct yoga_c630_ec *ec, u8 addr)
 	return msb << 8 | lsb;
 }
 EXPORT_SYMBOL_GPL(yoga_c630_ec_read16);
+
+/*
+ * Update the bits in @mask of EC register @addr to those in @val. Return the
+ * previous value of the register, or a negative error code.
+ */
+static int yoga_c630_ec_update_bits(struct yoga_c630_ec *ec, u8 addr, u8 mask,
+				    u8 val)
+{
+	u8 req[3] = { LENOVO_EC_WRITE_REG, addr, };
+	int old, ret;
+
+	guard(mutex)(&ec->lock);
+
+	old = __yoga_c630_ec_read8(ec, addr);
+	if (old < 0 || (old & mask) == (val & mask))
+		return old;
+
+	req[2] = (old & ~mask) | (val & mask);
+	ret = i2c_smbus_write_i2c_block_data(ec->client, LENOVO_EC_REQUEST_REG,
+					     sizeof(req), req);
+	if (ret < 0)
+		return ret;
+
+	return old;
+}
 
 u16 yoga_c630_ec_ucsi_get_version(struct yoga_c630_ec *ec)
 {
@@ -148,6 +187,73 @@ int yoga_c630_ec_ucsi_read(struct yoga_c630_ec *ec,
 }
 EXPORT_SYMBOL_GPL(yoga_c630_ec_ucsi_read);
 
+static enum led_brightness
+yoga_c630_ec_kbd_backlight_get(struct led_classdev *led_cdev)
+{
+	struct yoga_c630_ec *ec = container_of(led_cdev, struct yoga_c630_ec,
+					       kbd_backlight);
+	int val;
+
+	val = yoga_c630_ec_read8(ec, LENOVO_EC_KBD_BACKLIGHT_REG);
+	if (val < 0)
+		return val;
+
+	return val & LENOVO_EC_KBD_BACKLIGHT_ON ? LED_ON : LED_OFF;
+}
+
+static int yoga_c630_ec_kbd_backlight_set(struct led_classdev *led_cdev,
+					  enum led_brightness brightness)
+{
+	struct yoga_c630_ec *ec = container_of(led_cdev, struct yoga_c630_ec,
+					       kbd_backlight);
+	int old;
+
+	old = yoga_c630_ec_update_bits(ec, LENOVO_EC_KBD_BACKLIGHT_REG,
+				       LENOVO_EC_KBD_BACKLIGHT_ON,
+				       brightness ? LENOVO_EC_KBD_BACKLIGHT_ON : 0);
+	if (old < 0)
+		return old;
+
+	WRITE_ONCE(ec->kbd_backlight_brightness, brightness ? LED_ON : LED_OFF);
+
+	return 0;
+}
+
+/* Report changes made by the EC itself, i.e., when Fn+Space is pressed */
+static void yoga_c630_ec_kbd_backlight_update(struct yoga_c630_ec *ec)
+{
+	int brightness;
+
+	brightness = yoga_c630_ec_kbd_backlight_get(&ec->kbd_backlight);
+	if (brightness < 0 ||
+	    brightness == READ_ONCE(ec->kbd_backlight_brightness))
+		return;
+
+	WRITE_ONCE(ec->kbd_backlight_brightness, brightness);
+	led_classdev_notify_brightness_hw_changed(&ec->kbd_backlight,
+						  brightness);
+}
+
+static int yoga_c630_ec_kbd_backlight_init(struct yoga_c630_ec *ec)
+{
+	struct led_classdev *led_cdev = &ec->kbd_backlight;
+	int brightness;
+
+	brightness = yoga_c630_ec_kbd_backlight_get(led_cdev);
+	if (brightness < 0)
+		return brightness;
+
+	ec->kbd_backlight_brightness = brightness;
+
+	led_cdev->name = "platform::kbd_backlight";
+	led_cdev->flags = LED_BRIGHT_HW_CHANGED;
+	led_cdev->max_brightness = LED_ON;
+	led_cdev->brightness_get = yoga_c630_ec_kbd_backlight_get;
+	led_cdev->brightness_set_blocking = yoga_c630_ec_kbd_backlight_set;
+
+	return devm_led_classdev_register(&ec->client->dev, led_cdev);
+}
+
 static irqreturn_t yoga_c630_ec_thread_intr(int irq, void *data)
 {
 	u8 req[] = { LENOVO_EC_REQUEST_NEXT_EVENT };
@@ -162,6 +268,8 @@ static irqreturn_t yoga_c630_ec_thread_intr(int irq, void *data)
 		return IRQ_HANDLED;
 
 	blocking_notifier_call_chain(&ec->notifier_list, event, ec);
+
+	yoga_c630_ec_kbd_backlight_update(ec);
 
 	return IRQ_HANDLED;
 }
@@ -219,6 +327,11 @@ static int yoga_c630_ec_probe(struct i2c_client *client)
 	ec->client = client;
 	BLOCKING_INIT_NOTIFIER_HEAD(&ec->notifier_list);
 	i2c_set_clientdata(client, ec);
+
+	ret = yoga_c630_ec_kbd_backlight_init(ec);
+	if (ret)
+		return dev_err_probe(dev, ret,
+				     "failed to register keyboard backlight\n");
 
 	ret = devm_request_threaded_irq(dev, client->irq,
 					NULL, yoga_c630_ec_thread_intr,

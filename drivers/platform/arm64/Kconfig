@@ -75,10 +75,12 @@ config EC_LENOVO_YOGA_C630
 	depends on ARCH_QCOM || COMPILE_TEST
 	depends on I2C
 	select AUXILIARY_BUS
+	select LEDS_CLASS
+	select NEW_LEDS
 	help
 	  Driver for the Embedded Controller in the Qualcomm Snapdragon-based
 	  Lenovo Yoga C630, which provides battery and power adapter
-	  information.
+	  information, and access to the keyboard backlight.
 
 	  This driver provides battery and AC status support for the mentioned
 	  laptop where this information is not properly exposed via the
