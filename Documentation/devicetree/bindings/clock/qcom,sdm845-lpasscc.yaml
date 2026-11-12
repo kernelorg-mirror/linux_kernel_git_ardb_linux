@@ -29,6 +29,14 @@ properties:
       - const: cc
       - const: qdsp6ss
 
+  clocks:
+    items:
+      - description: GCC_LPASS_SWAY_CLK, which register accesses need
+
+  clock-names:
+    items:
+      - const: iface
+
 required:
   - compatible
   - '#clock-cells'
