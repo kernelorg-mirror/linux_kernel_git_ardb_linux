@@ -67,11 +67,9 @@ static bool plt_entries_equal(const struct plt_entry *a,
 }
 
 u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
-			  void *loc, const Elf64_Rela *rela,
-			  Elf64_Sym *sym)
+			  const Elf64_Rela *rela, Elf64_Sym *sym)
 {
-	struct mod_plt_sec *pltsec = !within_module_init((unsigned long)loc, mod) ?
-						&mod->arch.core : &mod->arch.init;
+	struct mod_arch_specific *pltsec = &mod->arch;
 	struct plt_entry *plt = (struct plt_entry *)sechdrs[pltsec->plt_shndx].sh_addr;
 	int i = pltsec->plt_num_entries;
 	int j = i - 1;
@@ -101,8 +99,7 @@ u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
 u64 module_emit_veneer_for_adrp(struct module *mod, Elf64_Shdr *sechdrs,
 				void *loc, u64 val)
 {
-	struct mod_plt_sec *pltsec = !within_module_init((unsigned long)loc, mod) ?
-						&mod->arch.core : &mod->arch.init;
+	struct mod_arch_specific *pltsec = &mod->arch;
 	struct plt_entry *plt = (struct plt_entry *)sechdrs[pltsec->plt_shndx].sh_addr;
 	int i = pltsec->plt_num_entries++;
 	u32 br;
@@ -154,8 +151,21 @@ static bool duplicate_rel(const Elf64_Rela *rela, int num)
 	return num > 0 && cmp_rela(rela + num, rela + num - 1) == 0;
 }
 
+/*
+ * We only have to consider branch targets that resolve to symbols that are
+ * not defined in the module itself. This is not simply a heuristic, it is a
+ * fundamental limitation, since the PLT itself is part of the module's core
+ * text region, and needs to be within 128 MB as well, so the module's code can
+ * never grow beyond that limit. Note that SHN_LIVEPATCH symbols are resolved
+ * against vmlinux or other modules, so these need to be taken into account.
+ */
+static bool branch_target_is_external(const Elf64_Sym *s)
+{
+	return s->st_shndx == SHN_UNDEF || s->st_shndx >= SHN_LORESERVE;
+}
+
 static unsigned int count_plts(Elf64_Sym *syms, Elf64_Rela *rela, int num,
-			       Elf64_Word dstidx, Elf_Shdr *dstsec)
+			       Elf_Shdr *dstsec)
 {
 	unsigned int ret = 0;
 	Elf64_Sym *s;
@@ -167,19 +177,8 @@ static unsigned int count_plts(Elf64_Sym *syms, Elf64_Rela *rela, int num,
 		switch (ELF64_R_TYPE(rela[i].r_info)) {
 		case R_AARCH64_JUMP26:
 		case R_AARCH64_CALL26:
-			/*
-			 * We only have to consider branch targets that resolve
-			 * to symbols that are defined in a different section.
-			 * This is not simply a heuristic, it is a fundamental
-			 * limitation, since there is no guaranteed way to emit
-			 * PLT entries sufficiently close to the branch if the
-			 * section size exceeds the range of a branch
-			 * instruction. So ignore relocations against defined
-			 * symbols if they live in the same section as the
-			 * relocation target.
-			 */
 			s = syms + ELF64_R_SYM(rela[i].r_info);
-			if (s->st_shndx == dstidx)
+			if (!branch_target_is_external(s))
 				break;
 
 			/*
@@ -246,13 +245,11 @@ static unsigned int count_plts(Elf64_Sym *syms, Elf64_Rela *rela, int num,
 	return ret;
 }
 
-static bool branch_rela_needs_plt(Elf64_Sym *syms, Elf64_Rela *rela,
-				  Elf64_Word dstidx)
+static bool branch_rela_needs_plt(Elf64_Sym *syms, Elf64_Rela *rela)
 {
-
 	Elf64_Sym *s = syms + ELF64_R_SYM(rela->r_info);
 
-	if (s->st_shndx == dstidx)
+	if (!branch_target_is_external(s))
 		return false;
 
 	return ELF64_R_TYPE(rela->r_info) == R_AARCH64_JUMP26 ||
@@ -261,14 +258,14 @@ static bool branch_rela_needs_plt(Elf64_Sym *syms, Elf64_Rela *rela,
 
 /* Group branch PLT relas at the front end of the array. */
 static int partition_branch_plt_relas(Elf64_Sym *syms, Elf64_Rela *rela,
-				      int numrels, Elf64_Word dstidx)
+				      int numrels)
 {
 	int i = 0, j = numrels - 1;
 
 	while (i < j) {
-		if (branch_rela_needs_plt(syms, &rela[i], dstidx))
+		if (branch_rela_needs_plt(syms, &rela[i]))
 			i++;
-		else if (branch_rela_needs_plt(syms, &rela[j], dstidx))
+		else if (branch_rela_needs_plt(syms, &rela[j]))
 			swap(rela[i], rela[j]);
 		else
 			j--;
@@ -280,10 +277,9 @@ static int partition_branch_plt_relas(Elf64_Sym *syms, Elf64_Rela *rela,
 int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 			      char *secstrings, struct module *mod)
 {
-	unsigned long core_plts = 0;
-	unsigned long init_plts = 0;
+	unsigned long plts = 0;
 	Elf64_Sym *syms = NULL;
-	Elf_Shdr *pltsec, *tramp = NULL, *init_tramp = NULL;
+	Elf_Shdr *pltsec, *tramp = NULL;
 	int i;
 
 	/*
@@ -292,21 +288,16 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 	 */
 	for (i = 0; i < ehdr->e_shnum; i++) {
 		if (!strcmp(secstrings + sechdrs[i].sh_name, ".plt"))
-			mod->arch.core.plt_shndx = i;
-		else if (!strcmp(secstrings + sechdrs[i].sh_name, ".init.plt"))
-			mod->arch.init.plt_shndx = i;
+			mod->arch.plt_shndx = i;
 		else if (!strcmp(secstrings + sechdrs[i].sh_name,
 				 ".text.ftrace_trampoline"))
 			tramp = sechdrs + i;
-		else if (!strcmp(secstrings + sechdrs[i].sh_name,
-				 ".init.text.ftrace_trampoline"))
-			init_tramp = sechdrs + i;
 		else if (sechdrs[i].sh_type == SHT_SYMTAB)
 			syms = (Elf64_Sym *)sechdrs[i].sh_addr;
 	}
 
-	if (!mod->arch.core.plt_shndx || !mod->arch.init.plt_shndx) {
-		pr_err("%s: module PLT section(s) missing\n", mod->name);
+	if (!mod->arch.plt_shndx) {
+		pr_err("%s: module PLT section missing\n", mod->name);
 		return -ENOEXEC;
 	}
 	if (!syms) {
@@ -330,47 +321,26 @@ int module_frob_arch_sections(Elf_Ehdr *ehdr, Elf_Shdr *sechdrs,
 		 * sort branch relocations requiring a PLT by type, symbol index
 		 * and addend
 		 */
-		nents = partition_branch_plt_relas(syms, rels, numrels,
-						   sechdrs[i].sh_info);
+		nents = partition_branch_plt_relas(syms, rels, numrels);
 		if (nents)
 			sort(rels, nents, sizeof(Elf64_Rela), cmp_rela, NULL);
 
-		if (!module_init_layout_section(secstrings + dstsec->sh_name))
-			core_plts += count_plts(syms, rels, numrels,
-						sechdrs[i].sh_info, dstsec);
-		else
-			init_plts += count_plts(syms, rels, numrels,
-						sechdrs[i].sh_info, dstsec);
+		plts += count_plts(syms, rels, numrels, dstsec);
 	}
 
-	pltsec = sechdrs + mod->arch.core.plt_shndx;
+	pltsec = sechdrs + mod->arch.plt_shndx;
 	pltsec->sh_type = SHT_NOBITS;
 	pltsec->sh_flags = SHF_EXECINSTR | SHF_ALLOC;
 	pltsec->sh_addralign = L1_CACHE_BYTES;
-	pltsec->sh_size = (core_plts  + 1) * sizeof(struct plt_entry);
-	mod->arch.core.plt_num_entries = 0;
-	mod->arch.core.plt_max_entries = core_plts;
-
-	pltsec = sechdrs + mod->arch.init.plt_shndx;
-	pltsec->sh_type = SHT_NOBITS;
-	pltsec->sh_flags = SHF_EXECINSTR | SHF_ALLOC;
-	pltsec->sh_addralign = L1_CACHE_BYTES;
-	pltsec->sh_size = (init_plts + 1) * sizeof(struct plt_entry);
-	mod->arch.init.plt_num_entries = 0;
-	mod->arch.init.plt_max_entries = init_plts;
+	pltsec->sh_size = (plts + 1) * sizeof(struct plt_entry);
+	mod->arch.plt_num_entries = 0;
+	mod->arch.plt_max_entries = plts;
 
 	if (tramp) {
 		tramp->sh_type = SHT_NOBITS;
 		tramp->sh_flags = SHF_EXECINSTR | SHF_ALLOC;
 		tramp->sh_addralign = __alignof__(struct plt_entry);
 		tramp->sh_size = NR_FTRACE_PLTS * sizeof(struct plt_entry);
-	}
-
-	if (init_tramp) {
-		init_tramp->sh_type = SHT_NOBITS;
-		init_tramp->sh_flags = SHF_EXECINSTR | SHF_ALLOC;
-		init_tramp->sh_addralign = __alignof__(struct plt_entry);
-		init_tramp->sh_size = NR_FTRACE_PLTS * sizeof(struct plt_entry);
 	}
 
 	return 0;

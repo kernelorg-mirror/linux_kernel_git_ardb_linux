@@ -7,24 +7,17 @@
 
 #include <asm-generic/module.h>
 
-struct mod_plt_sec {
+struct mod_arch_specific {
 	int			plt_shndx;
 	int			plt_num_entries;
 	int			plt_max_entries;
-};
-
-struct mod_arch_specific {
-	struct mod_plt_sec	core;
-	struct mod_plt_sec	init;
 
 	/* for CONFIG_DYNAMIC_FTRACE */
 	struct plt_entry	*ftrace_trampolines;
-	struct plt_entry	*init_ftrace_trampolines;
 };
 
 u64 module_emit_plt_entry(struct module *mod, Elf64_Shdr *sechdrs,
-			  void *loc, const Elf64_Rela *rela,
-			  Elf64_Sym *sym);
+			  const Elf64_Rela *rela, Elf64_Sym *sym);
 
 u64 module_emit_veneer_for_adrp(struct module *mod, Elf64_Shdr *sechdrs,
 				void *loc, u64 val);
