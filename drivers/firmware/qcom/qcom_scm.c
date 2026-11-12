@@ -16,6 +16,7 @@
 #include <linux/firmware/qcom/qcom_pas.h>
 #include <linux/firmware/qcom/qcom_scm.h>
 #include <linux/firmware/qcom/qcom_tzmem.h>
+#include <linux/genalloc.h>
 #include <linux/init.h>
 #include <linux/interconnect.h>
 #include <linux/interrupt.h>
@@ -78,6 +79,8 @@ struct qcom_scm {
 	/* EL2 only: buffer in an SHM bridge for HLOS, for LMh requests */
 	void *hlos_buf;
 	dma_addr_t hlos_buf_phys;
+	/* EL2 only: PAS metadata buffers passed on behalf of the hypervisor */
+	struct gen_pool *hyp_pas_pool;
 };
 
 /*
@@ -629,6 +632,105 @@ static void qcom_scm_set_download_mode(struct qcom_scm *scm, u32 dload_mode)
 		writel_relaxed(minidump_dest, scm->minidump_sram);
 }
 
+/*
+ * Register an SHM bridge for the hypervisor VM on behalf of the hypervisor,
+ * with read/write permissions for both the hypervisor VM and TZ, like QHEE
+ * does for its own bridge.
+ */
+static int qcom_scm_hyp_shm_bridge_create(struct device *dev, phys_addr_t base,
+					  size_t size, u64 *handle)
+{
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_MP,
+		.cmd = QCOM_SCM_MP_SHM_BRIDGE_CREATE,
+		.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_VAL,
+					 QCOM_SCM_VAL, QCOM_SCM_VAL),
+		.args[0] = base | QCOM_SCM_PERM_RW,
+		.args[1] = base | QCOM_SCM_PERM_RW,
+		.args[2] = size | (1 << QCOM_SCM_SHM_BRIDGE_NUM_VM_SHIFT),
+		.args[3] = QCOM_SCM_VMID_HYP,
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	struct qcom_scm_res res = {};
+	long status;
+
+	status = scm_smc_call_hyp(dev, &desc, NULL, 0, &res);
+	if (status || res.result[0]) {
+		dev_err(dev,
+			"failed to register hypervisor SHM bridge [%pa-%#llx]: status %ld, result %#llx\n",
+			&base, (u64)base + size - 1, status, res.result[0]);
+		return -EIO;
+	}
+
+	if (handle)
+		*handle = res.result[1];
+
+	return 0;
+}
+
+static void qcom_scm_hyp_shm_bridge_delete(struct device *dev, u64 handle)
+{
+	struct qcom_scm_desc desc = {
+		.svc = QCOM_SCM_SVC_MP,
+		.cmd = QCOM_SCM_MP_SHM_BRIDGE_DELETE,
+		.arginfo = QCOM_SCM_ARGS(1, QCOM_SCM_VAL),
+		.args[0] = handle,
+		.owner = ARM_SMCCC_OWNER_SIP,
+	};
+	long status;
+
+	status = scm_smc_call_hyp(dev, &desc, NULL, 0, NULL);
+	if (status)
+		dev_warn(dev, "failed to delete hypervisor SHM bridge: status %ld\n",
+			 status);
+}
+
+/*
+ * When Linux runs at EL2 in place of QHEE, TZ refuses to initialize the images
+ * of the ADSP, CDSP and SLPI unless the PAS calls are issued on behalf of the
+ * hypervisor, with the image metadata in an SHM bridge for the hypervisor VM,
+ * like QHEE passes them on. Likewise, TZ only authenticates their images if
+ * the memory of the remote processor is covered by such a bridge as well. (TZ
+ * does accept the PAS calls for IPA from HLOS, though.)
+ *
+ * So in that case, issue the PAS calls for these remote processors on behalf
+ * of the hypervisor, pass the metadata in the bridge registered by
+ * qcom_scm_hyp_bufs_init(), and cover the memory of the remote processor with
+ * a bridge of its own while TZ authenticates the image.
+ */
+#define QCOM_SCM_PAS_ID_ADSP		1
+#define QCOM_SCM_PAS_ID_SLPI		12
+#define QCOM_SCM_PAS_ID_CDSP		18
+
+static bool qcom_scm_pas_use_hyp(u32 pas_id)
+{
+	if (!__scm->hyp_bufs)
+		return false;
+
+	switch (pas_id) {
+	case QCOM_SCM_PAS_ID_ADSP:
+	case QCOM_SCM_PAS_ID_SLPI:
+	case QCOM_SCM_PAS_ID_CDSP:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static int qcom_scm_pas_call(struct device *dev, u32 pas_id,
+			     const struct qcom_scm_desc *desc,
+			     struct qcom_scm_res *res)
+{
+	long status;
+
+	if (!qcom_scm_pas_use_hyp(pas_id))
+		return qcom_scm_call(dev, desc, res);
+
+	status = scm_smc_call_hyp(dev, desc, NULL, 0, res);
+
+	return status ? qcom_scm_remap_error(status) : 0;
+}
+
 static int __qcom_scm_pas_init_image(struct device *dev, u32 pas_id,
 				     dma_addr_t mdata_phys,
 				     struct qcom_scm_res *res)
@@ -652,13 +754,42 @@ static int __qcom_scm_pas_init_image(struct device *dev, u32 pas_id,
 
 	desc.args[1] = mdata_phys;
 
-	ret = qcom_scm_call(dev, &desc, res);
+	ret = qcom_scm_pas_call(dev, pas_id, &desc, res);
 	qcom_scm_bw_disable();
 
 disable_clk:
 	qcom_scm_clk_disable();
 
 	return ret;
+}
+
+static int qcom_scm_pas_hyp_init_image(struct device *dev, u32 pas_id,
+				       const void *metadata, size_t size,
+				       struct qcom_pas_context *ctx)
+{
+	struct gen_pool *pool = __scm->hyp_pas_pool;
+	struct qcom_scm_res res;
+	unsigned long mdata;
+	int ret;
+
+	/* The pool hands out 4 KiB aligned buffers in multiples of 4 KiB */
+	mdata = gen_pool_alloc(pool, size);
+	if (!mdata)
+		return -ENOMEM;
+
+	memcpy((void *)mdata, metadata, size);
+
+	ret = __qcom_scm_pas_init_image(dev, pas_id,
+					gen_pool_virt_to_phys(pool, mdata),
+					&res);
+	if (ret < 0 || !ctx) {
+		gen_pool_free(pool, mdata, size);
+	} else {
+		ctx->ptr = (void *)mdata;
+		ctx->size = size;
+	}
+
+	return ret ? : res.result[0];
 }
 
 static int qcom_scm_pas_prep_and_init_image(struct device *dev,
@@ -694,6 +825,10 @@ static int qcom_scm_pas_init_image(struct device *dev, u32 pas_id,
 	dma_addr_t mdata_phys;
 	void *mdata_buf;
 	int ret;
+
+	if (qcom_scm_pas_use_hyp(pas_id))
+		return qcom_scm_pas_hyp_init_image(dev, pas_id, metadata, size,
+						   ctx);
 
 	if (ctx && ctx->use_tzmem)
 		return qcom_scm_pas_prep_and_init_image(dev, ctx, metadata, size);
@@ -731,7 +866,10 @@ static int qcom_scm_pas_init_image(struct device *dev, u32 pas_id,
 static void qcom_scm_pas_metadata_release(struct device *dev,
 					  struct qcom_pas_context *ctx)
 {
-	if (ctx->use_tzmem)
+	if (qcom_scm_pas_use_hyp(ctx->pas_id))
+		gen_pool_free(__scm->hyp_pas_pool, (unsigned long)ctx->ptr,
+			      ctx->size);
+	else if (ctx->use_tzmem)
 		qcom_tzmem_free(ctx->ptr);
 	else
 		dma_free_coherent(dev, ctx->size, ctx->ptr, ctx->phys);
@@ -762,7 +900,7 @@ static int qcom_scm_pas_mem_setup(struct device *dev, u32 pas_id,
 	if (ret)
 		goto disable_clk;
 
-	ret = qcom_scm_call(dev, &desc, &res);
+	ret = qcom_scm_pas_call(dev, pas_id, &desc, &res);
 	qcom_scm_bw_disable();
 
 disable_clk:
@@ -928,7 +1066,7 @@ static int qcom_scm_pas_auth_and_reset(struct device *dev, u32 pas_id)
 	if (ret)
 		goto disable_clk;
 
-	ret = qcom_scm_call(dev, &desc, &res);
+	ret = qcom_scm_pas_call(dev, pas_id, &desc, &res);
 	qcom_scm_bw_disable();
 
 disable_clk:
@@ -942,6 +1080,24 @@ static int qcom_scm_pas_prepare_and_auth_reset(struct device *dev,
 {
 	u64 handle;
 	int ret;
+
+	/*
+	 * When Linux runs @ EL2 in place of QHEE, TrustZone only authenticates
+	 * the image if the remote subsystem memory region is covered by an
+	 * shmbridge for the hypervisor VM, so create one on behalf of the
+	 * hypervisor.
+	 */
+	if (qcom_scm_pas_use_hyp(ctx->pas_id)) {
+		ret = qcom_scm_hyp_shm_bridge_create(dev, ctx->mem_phys,
+						     ctx->mem_size, &handle);
+		if (ret)
+			return ret;
+
+		ret = qcom_scm_pas_auth_and_reset(dev, ctx->pas_id);
+		qcom_scm_hyp_shm_bridge_delete(dev, handle);
+
+		return ret;
+	}
 
 	/*
 	 * When Linux running @ EL1, Gunyah hypervisor running @ EL2 traps the
@@ -1004,7 +1160,7 @@ static int qcom_scm_pas_shutdown(struct device *dev, u32 pas_id)
 	if (ret)
 		goto disable_clk;
 
-	ret = qcom_scm_call(dev, &desc, &res);
+	ret = qcom_scm_pas_call(dev, pas_id, &desc, &res);
 	qcom_scm_bw_disable();
 
 disable_clk:
@@ -2192,25 +2348,18 @@ EXPORT_SYMBOL_GPL(qcom_scm_shm_bridge_delete);
  *
  * So register a bridge for the hypervisor VM covering the part of QHEE's (now
  * unused) memory that the qcom,hyp-shm-bridge DT property describes, and use
- * it for the buffers of memory assignment requests.
+ * it for the buffers of memory assignment requests, and for the image metadata
+ * that PAS calls pass (see qcom_scm_pas_use_hyp()).
  */
 static int qcom_scm_hyp_bufs_init(struct qcom_scm *scm)
 {
-	struct qcom_scm_desc desc = {
-		.svc = QCOM_SCM_SVC_MP,
-		.cmd = QCOM_SCM_MP_SHM_BRIDGE_CREATE,
-		.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_VAL,
-					 QCOM_SCM_VAL, QCOM_SCM_VAL),
-		.owner = ARM_SMCCC_OWNER_SIP,
-	};
 	size_t bufs_size = QCOM_SCM_HYP_NR_BUFS * QCOM_SCM_HYP_BUF_SIZE;
 	struct device *dev = scm->dev;
 	struct of_phandle_args args;
-	struct qcom_scm_res res = {};
+	struct gen_pool *pas_pool;
 	struct resource region;
 	phys_addr_t base;
 	u64 offset, size;
-	long status;
 	void *bufs;
 	int ret;
 
@@ -2236,35 +2385,41 @@ static int qcom_scm_hyp_bufs_init(struct qcom_scm *scm)
 	    !IS_ALIGNED(base | size, SZ_4K))
 		return -EINVAL;
 
-	bufs = devm_memremap(dev, base, bufs_size, MEMREMAP_WC);
+	bufs = devm_memremap(dev, base, size, MEMREMAP_WC);
 	if (IS_ERR(bufs))
 		return PTR_ERR(bufs);
 
-	/*
-	 * Register the bridge on behalf of the hypervisor, with read/write
-	 * permissions for both the hypervisor VM and TZ, like QHEE does for
-	 * its own bridge. It is never deleted.
-	 */
-	desc.args[0] = base | QCOM_SCM_PERM_RW;
-	desc.args[1] = base | QCOM_SCM_PERM_RW;
-	desc.args[2] = size | (1 << QCOM_SCM_SHM_BRIDGE_NUM_VM_SHIFT);
-	desc.args[3] = QCOM_SCM_VMID_HYP;
-
-	status = scm_smc_call_hyp(dev, &desc, NULL, 0, &res);
-	if (status || res.result[0]) {
-		dev_err(dev,
-			"failed to register hypervisor SHM bridge at %pa: status %ld, result %#llx\n",
-			&base, status, res.result[0]);
+	/* The bridge is never deleted. */
+	ret = qcom_scm_hyp_shm_bridge_create(dev, base, size, NULL);
+	if (ret) {
 		devm_memunmap(dev, bufs);
-		return -EIO;
+		return ret;
+	}
+
+	/*
+	 * Use the remainder of the bridge for the image metadata, in 4 KiB
+	 * aligned buffers, as TZ protects the metadata while it uses it.
+	 */
+	pas_pool = devm_gen_pool_create(dev, ilog2(SZ_4K), NUMA_NO_NODE,
+					"qcom-scm-hyp-pas");
+	if (IS_ERR(pas_pool))
+		return PTR_ERR(pas_pool);
+
+	if (size > bufs_size) {
+		ret = gen_pool_add_virt(pas_pool, (unsigned long)bufs + bufs_size,
+					base + bufs_size, size - bufs_size,
+					NUMA_NO_NODE);
+		if (ret)
+			return ret;
 	}
 
 	dev_info(dev,
-		 "issuing memory assignment requests on behalf of the hypervisor, using SHM bridge [%pa-%#llx]\n",
+		 "issuing memory assignment and DSP PAS requests on behalf of the hypervisor, using SHM bridge [%pa-%#llx]\n",
 		 &base, base + size - 1);
 
 	mutex_init(&scm->hyp_bufs_lock);
 	INIT_LIST_HEAD(&scm->hyp_regions);
+	scm->hyp_pas_pool = pas_pool;
 	scm->hyp_bufs_phys = base;
 	scm->hyp_bufs = bufs;
 
