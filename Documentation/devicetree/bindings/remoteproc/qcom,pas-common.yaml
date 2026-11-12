@@ -15,11 +15,11 @@ description:
 properties:
   clocks:
     minItems: 1
-    maxItems: 2
+    maxItems: 6
 
   clock-names:
     minItems: 1
-    maxItems: 2
+    maxItems: 6
 
   interconnects:
     maxItems: 1

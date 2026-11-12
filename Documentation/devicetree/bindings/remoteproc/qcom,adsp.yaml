@@ -13,6 +13,12 @@ description:
   This document defines the binding for a component that loads and boots
   firmware on the Qualcomm ADSP Hexagon core.
 
+  On SDM845, the hypervisor (QHEE) takes part in starting the ADSP once TZ has
+  authenticated its firmware, and in stopping it once TZ has shut it down. When
+  the OS runs at EL2 in place of this hypervisor, it needs to take these steps
+  itself, using the QDSP6SS registers, clocks, resets and halt registers of the
+  ADSP.
+
 properties:
   compatible:
     enum:
@@ -33,12 +39,44 @@ properties:
     maxItems: 1
 
   clocks:
+    minItems: 1
     items:
       - description: XO clock
+      - description: LPASS AHBS AON clock
+      - description: LPASS AHBM AON clock
+      - description: QDSP6SS XO clock
+      - description: QDSP6SS SLEEP clock
+      - description: QDSP6SS CORE clock
 
   clock-names:
+    minItems: 1
     items:
       - const: xo
+      - const: lpass_ahbs_aon_cbcr
+      - const: lpass_ahbm_aon_cbcr
+      - const: qdsp6ss_xo
+      - const: qdsp6ss_sleep
+      - const: qdsp6ss_core
+
+  resets:
+    items:
+      - description: PDC AUDIO SYNC RESET
+      - description: CC LPASS restart
+
+  reset-names:
+    items:
+      - const: pdc_sync
+      - const: cc_lpass
+
+  qcom,halt-regs:
+    $ref: /schemas/types.yaml#/definitions/phandle-array
+    description:
+      Phandle reference to a syscon representing TCSR followed by the
+      offset within syscon for q6 halt register.
+    items:
+      - items:
+          - description: phandle to TCSR syscon region
+          - description: offset to the Q6 halt register
 
   cx-supply: true
 
@@ -164,6 +202,26 @@ allOf:
     then:
       properties:
         qcom,qmp: false
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: qcom,sdm845-adsp-pas
+    then:
+      properties:
+        reg:
+          items:
+            - description: QDSP6SS registers
+    else:
+      properties:
+        clocks:
+          maxItems: 1
+        clock-names:
+          maxItems: 1
+        resets: false
+        reset-names: false
+        qcom,halt-regs: false
 
 examples:
   - |
