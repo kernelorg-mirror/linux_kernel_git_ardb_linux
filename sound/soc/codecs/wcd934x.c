@@ -2157,11 +2157,6 @@ static int wcd934x_init_dmic(struct snd_soc_component *comp)
 {
 	struct wcd934x_codec *wcd = dev_get_drvdata(comp->dev);
 	u32 def_dmic_rate, dmic_clk_drv;
-	int ret;
-
-	ret = wcd_dt_parse_micbias_info(&wcd->common);
-	if (ret)
-		return ret;
 
 	snd_soc_component_update_bits(comp, WCD934X_ANA_MICB1,
 				      WCD934X_MICB_VAL_MASK, wcd->common.micb_vout[0]);
@@ -5805,6 +5800,12 @@ static int wcd934x_codec_parse_data(struct wcd934x_codec *wcd)
 	struct device *dev = &wcd->sdev->dev;
 	struct wcd_mbhc_config *cfg = &wcd->mbhc_cfg;
 	struct device_node *ifc_dev_np;
+	int ret;
+
+	/* The MBHC configuration below depends on the micbias voltages */
+	ret = wcd_dt_parse_micbias_info(&wcd->common);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to parse micbias voltages\n");
 
 	ifc_dev_np = of_parse_phandle(dev->of_node, "slim-ifc-dev", 0);
 	if (!ifc_dev_np)
