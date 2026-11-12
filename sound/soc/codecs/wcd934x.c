@@ -554,6 +554,7 @@ struct wcd934x_codec {
 	struct mutex micb_lock;
 	u32 micb_ref[WCD934X_MAX_MICBIAS];
 	u32 pullup_ref[WCD934X_MAX_MICBIAS];
+	u32 mbhc_mclk_ref;
 };
 
 #define to_wcd934x_codec(_hw) container_of(_hw, struct wcd934x_codec, hw)
@@ -2448,14 +2449,31 @@ static int wcd934x_mbhc_request_micbias(struct snd_soc_component *component,
 					int micb_num, int req)
 {
 	struct wcd934x_codec *wcd = dev_get_drvdata(component->dev);
+	bool put = false;
 	int ret;
 
-	if (req == MICB_ENABLE)
+	if (req == MICB_ENABLE) {
 		__wcd934x_cdc_mclk_enable(wcd, true);
+		scoped_guard(mutex, &wcd->micb_lock)
+			wcd->mbhc_mclk_ref++;
+	}
 
 	ret = wcd934x_micbias_control(component, micb_num, req, false);
 
-	if (req == MICB_DISABLE)
+	/*
+	 * The MBHC disables micbias more often than it enables it, so like the
+	 * micbias reference count, only drop the MCLK references it holds.
+	 */
+	if (req == MICB_DISABLE) {
+		scoped_guard(mutex, &wcd->micb_lock) {
+			if (wcd->mbhc_mclk_ref > 0) {
+				wcd->mbhc_mclk_ref--;
+				put = true;
+			}
+		}
+	}
+
+	if (put)
 		__wcd934x_cdc_mclk_enable(wcd, false);
 
 	return ret;
