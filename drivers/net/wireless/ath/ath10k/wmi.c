@@ -5339,6 +5339,15 @@ void ath10k_wmi_event_vdev_install_key_complete(struct ath10k *ar,
 						struct sk_buff *skb)
 {
 	ath10k_dbg(ar, ATH10K_DBG_WMI, "WMI_VDEV_INSTALL_KEY_COMPLETE_EVENTID\n");
+
+	/*
+	 * Installations are completed by the security indication, which the
+	 * firmware doesn't necessarily send for a deletion, so complete pending
+	 * deletions here. The event for an installation may arrive after the
+	 * security indication, but it can then only complete a deletion early.
+	 */
+	if (READ_ONCE(ar->key_delete_pending))
+		complete(&ar->install_key_done);
 }
 
 void ath10k_wmi_event_inst_rssi_stats(struct ath10k *ar, struct sk_buff *skb)

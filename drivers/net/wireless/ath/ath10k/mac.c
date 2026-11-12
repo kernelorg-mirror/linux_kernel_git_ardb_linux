@@ -320,15 +320,23 @@ static int ath10k_install_key(struct ath10k_vif *arvif,
 	if (arvif->nohwcrypt)
 		return 1;
 
+	/*
+	 * Not all firmware sends a security indication when it deletes a key,
+	 * so let the WMI install key complete event complete a deletion too.
+	 */
+	WRITE_ONCE(ar->key_delete_pending, cmd == DISABLE_KEY);
+
 	ret = ath10k_send_key(arvif, key, cmd, macaddr, flags);
 	if (ret)
-		return ret;
+		goto out;
 
 	time_left = wait_for_completion_timeout(&ar->install_key_done, 3 * HZ);
 	if (time_left == 0)
-		return -ETIMEDOUT;
+		ret = -ETIMEDOUT;
 
-	return 0;
+out:
+	WRITE_ONCE(ar->key_delete_pending, false);
+	return ret;
 }
 
 static int ath10k_install_peer_wep_keys(struct ath10k_vif *arvif,

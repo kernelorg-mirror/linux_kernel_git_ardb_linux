@@ -1154,6 +1154,7 @@ struct ath10k {
 	u8 cfg_rx_chainmask;
 
 	struct completion install_key_done;
+	bool key_delete_pending;
 
 	int last_wmi_vdev_start_status;
 	struct completion vdev_setup_done;
