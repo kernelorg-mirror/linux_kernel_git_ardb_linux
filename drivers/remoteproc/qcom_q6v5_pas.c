@@ -13,7 +13,9 @@
 #include <linux/firmware.h>
 #include <linux/interrupt.h>
 #include <linux/iommu.h>
+#include <linux/iopoll.h>
 #include <linux/kernel.h>
+#include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -24,14 +26,18 @@
 #include <linux/pm_runtime.h>
 #include <linux/firmware/qcom/qcom_pas.h>
 #include <linux/firmware/qcom/qcom_scm.h>
+#include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/remoteproc.h>
+#include <linux/reset.h>
 #include <linux/soc/qcom/mdt_loader.h>
 #include <linux/soc/qcom/qmi_tmd.h>
 #include <linux/soc/qcom/smem.h>
 #include <linux/soc/qcom/smem_state.h>
 #include <dt-bindings/power/qcom,rpmhpd.h>
 #include <dt-bindings/thermal/qcom,pas.h>
+
+#include <asm/virt.h>
 
 #include "qcom_common.h"
 #include "qcom_pil_info.h"
@@ -50,6 +56,39 @@
 struct tmd_name {
 	const char *name;
 	int id;
+};
+
+/* QDSP6SS registers */
+#define QDSP6SS_RST_EVB			0x010
+#define QDSP6SS_RET_CFG			0x01c
+#define QDSP6SS_CORE_START		0x400
+#define QDSP6SS_BOOT_CMD		0x404
+#define QDSP6SS_BOOT_STATUS		0x408
+
+#define QDSP6SS_EVB_MASK		GENMASK(27, 4)
+#define QDSP6SS_BOOT_TIMEOUT_US		USEC_PER_SEC
+
+/* LPASS halt registers, in TCSR */
+#define LPASS_HALTREQ			0x00
+#define LPASS_HALTACK			0x04
+#define LPASS_MASTER_IDLE		0x08
+#define LPASS_PWR_ON			0x10
+
+#define LPASS_HALT_TIMEOUT_US		USEC_PER_SEC
+
+#define QCOM_PAS_EL2_MAX_VMIDS		2
+
+/*
+ * What the hypervisor does once TZ has authenticated the image of a remote
+ * processor, or shut it down, and that Linux needs to do itself when it runs
+ * at EL2 in place of the hypervisor: the clocks it turns on to start the
+ * remote processor, and the VMIDs it assigns the memory of the latter to.
+ */
+struct qcom_pas_el2_data {
+	const char * const *clk_ids;
+	unsigned int num_clks;
+	int vmids[QCOM_PAS_EL2_MAX_VMIDS];
+	unsigned int num_vmids;
 };
 
 struct qcom_pas_data {
@@ -84,6 +123,8 @@ struct qcom_pas_data {
 	int region_assign_vmid;
 	bool early_boot;
 	bool needs_tzmem;
+
+	const struct qcom_pas_el2_data *el2_data;
 };
 
 struct qcom_pas {
@@ -146,6 +187,16 @@ struct qcom_pas {
 	struct qcom_pas_context *dtb_pas_ctx;
 
 	struct qmi_tmd_client *tmd_inst;
+
+	/* EL2 only: what's needed to take the hypervisor's steps */
+	const struct qcom_pas_el2_data *el2_data;
+	struct clk_bulk_data *el2_clks;
+	void __iomem *qdsp6ss_base;
+	struct reset_control *pdc_sync_reset;
+	struct reset_control *restart;
+	struct regmap *halt_map;
+	unsigned int halt_lpass;
+	u64 el2_owners;
 };
 
 static void qcom_pas_segment_dump(struct rproc *rproc,
@@ -305,6 +356,124 @@ static int qcom_pas_map_carveout(struct rproc *rproc, phys_addr_t mem_phys, size
 	return ret;
 }
 
+/*
+ * On SDM845, the hypervisor (QHEE) takes part in starting the ADSP once TZ
+ * has authenticated its image: it assigns the memory of the ADSP to the latter,
+ * turns on its clocks, programs the boot address and starts the core through
+ * its boot FSM. And once TZ has shut the ADSP down, QHEE halts the QDSP6's bus
+ * port and resets the LPASS. When Linux runs at EL2 in place of QHEE, it needs
+ * to take these steps itself, like qcom_q6v5_adsp.c does for the ADSP without
+ * TZ.
+ */
+static int qcom_pas_el2_start(struct qcom_pas *pas)
+{
+	struct qcom_scm_vmperm perms[QCOM_PAS_EL2_MAX_VMIDS + 1];
+	const struct qcom_pas_el2_data *data = pas->el2_data;
+	void __iomem *base = pas->qdsp6ss_base;
+	unsigned int i;
+	u64 entry;
+	u32 val;
+	int ret;
+
+	if (!data)
+		return 0;
+
+	/*
+	 * Keep HLOS as an owner of the memory: it can't be taken back at EL2
+	 * (see qcom_scm_assign_mem_can_reclaim()), and needs to be written to
+	 * again when the remote processor is restarted. Assigning the memory
+	 * to the owners it already has does nothing.
+	 */
+	perms[0].vmid = QCOM_SCM_VMID_HLOS;
+	perms[0].perm = QCOM_SCM_PERM_RW;
+	for (i = 0; i < data->num_vmids; i++) {
+		perms[i + 1].vmid = data->vmids[i];
+		perms[i + 1].perm = QCOM_SCM_PERM_RWX;
+	}
+
+	ret = qcom_scm_assign_mem(pas->mem_phys, pas->mem_size,
+				  &pas->el2_owners, perms, data->num_vmids + 1);
+	if (ret) {
+		dev_err(pas->dev, "failed to assign memory: %d\n", ret);
+		return ret;
+	}
+
+	ret = clk_bulk_prepare_enable(data->num_clks, pas->el2_clks);
+	if (ret) {
+		dev_err(pas->dev, "failed to enable clocks: %d\n", ret);
+		return ret;
+	}
+
+	/* Boot from the entry point of the image, as relocated */
+	entry = rproc_elf_get_boot_addr(pas->rproc, pas->firmware);
+	entry = pas->mem_phys + (entry - pas->mem_reloc);
+	writel((entry >> 4) & QDSP6SS_EVB_MASK, base + QDSP6SS_RST_EVB);
+
+	/* Let the core execute once out of reset, and kick the boot FSM */
+	writel(1, base + QDSP6SS_CORE_START);
+	writel(1, base + QDSP6SS_BOOT_CMD);
+
+	ret = readl_poll_timeout(base + QDSP6SS_BOOT_STATUS, val, val & BIT(0),
+				 10, QDSP6SS_BOOT_TIMEOUT_US);
+	if (ret) {
+		dev_err(pas->dev, "core failed to come out of reset\n");
+		clk_bulk_disable_unprepare(data->num_clks, pas->el2_clks);
+	}
+
+	return ret;
+}
+
+static void qcom_pas_el2_stop(struct qcom_pas *pas, int shutdown_ret)
+{
+	const struct qcom_pas_el2_data *data = pas->el2_data;
+	unsigned int halt = pas->halt_lpass;
+	unsigned int val;
+	int ret;
+
+	if (!data)
+		return;
+
+	/*
+	 * Like QHEE, leave the core alone if TZ didn't shut it down, but drop
+	 * the clocks either way, as starting it again enables them again.
+	 */
+	if (shutdown_ret) {
+		clk_bulk_disable_unprepare(data->num_clks, pas->el2_clks);
+		return;
+	}
+
+	/* Reset the retention logic */
+	writel(1, pas->qdsp6ss_base + QDSP6SS_RET_CFG);
+
+	clk_bulk_disable_unprepare(data->num_clks, pas->el2_clks);
+
+	/* The QDSP6 master port needs to be halted explicitly, unless idle */
+	ret = regmap_read(pas->halt_map, halt + LPASS_PWR_ON, &val);
+	if (ret || !(val & BIT(0)))
+		goto reset;
+
+	ret = regmap_read(pas->halt_map, halt + LPASS_MASTER_IDLE, &val);
+	if (ret || (val & BIT(0)))
+		goto reset;
+
+	regmap_write(pas->halt_map, halt + LPASS_HALTREQ, 1);
+	ret = regmap_read_poll_timeout(pas->halt_map, halt + LPASS_HALTACK, val,
+				       val & BIT(0), 100, LPASS_HALT_TIMEOUT_US);
+	if (ret)
+		dev_err(pas->dev, "QDSP6 master port failed to halt\n");
+
+reset:
+	/* Reset the LPASS PDC and the LPASS */
+	reset_control_assert(pas->pdc_sync_reset);
+	reset_control_assert(pas->restart);
+	usleep_range(200, 300);
+
+	regmap_write(pas->halt_map, halt + LPASS_HALTREQ, 0);
+	reset_control_deassert(pas->pdc_sync_reset);
+	reset_control_deassert(pas->restart);
+	usleep_range(200, 300);
+}
+
 static int qcom_pas_start(struct rproc *rproc)
 {
 	struct qcom_pas *pas = rproc->priv;
@@ -369,10 +538,16 @@ static int qcom_pas_start(struct rproc *rproc)
 		goto unmap_carveout;
 	}
 
+	ret = qcom_pas_el2_start(pas);
+	if (ret) {
+		qcom_pas_shutdown(pas->pas_id);
+		goto unmap_carveout;
+	}
+
 	ret = qcom_q6v5_wait_for_start(&pas->q6v5, msecs_to_jiffies(5000));
 	if (ret == -ETIMEDOUT) {
 		dev_err(pas->dev, "start timed out\n");
-		qcom_pas_shutdown(pas->pas_id);
+		qcom_pas_el2_stop(pas, qcom_pas_shutdown(pas->pas_id));
 		goto unmap_carveout;
 	}
 
@@ -446,6 +621,8 @@ static int qcom_pas_stop(struct rproc *rproc)
 
 	if (ret)
 		dev_err(pas->dev, "failed to shutdown: %d\n", ret);
+
+	qcom_pas_el2_stop(pas, ret);
 
 	if (pas->dtb_pas_id) {
 		dtb_ret = qcom_pas_shutdown(pas->dtb_pas_id);
@@ -678,6 +855,66 @@ static int qcom_pas_init_regulator(struct qcom_pas *pas)
 		else
 			return PTR_ERR(pas->px_supply);
 	}
+
+	return 0;
+}
+
+static int qcom_pas_init_el2(struct qcom_pas *pas,
+			     const struct qcom_pas_data *desc)
+{
+	const struct qcom_pas_el2_data *data = desc->el2_data;
+	struct device *dev = pas->dev;
+	struct resource *res;
+	unsigned int i;
+	int ret;
+
+	if (!data || !is_kernel_in_hyp_mode())
+		return 0;
+
+	/*
+	 * The LPASS clock controller owns the QDSP6SS clock branches in this
+	 * range, so don't claim it.
+	 */
+	res = platform_get_resource(to_platform_device(dev), IORESOURCE_MEM, 0);
+	if (!res)
+		return dev_err_probe(dev, -EINVAL,
+				     "missing QDSP6SS registers, needed at EL2\n");
+
+	pas->qdsp6ss_base = devm_ioremap(dev, res->start, resource_size(res));
+	if (!pas->qdsp6ss_base)
+		return -ENOMEM;
+
+	pas->el2_clks = devm_kcalloc(dev, data->num_clks,
+				     sizeof(*pas->el2_clks), GFP_KERNEL);
+	if (!pas->el2_clks)
+		return -ENOMEM;
+
+	for (i = 0; i < data->num_clks; i++)
+		pas->el2_clks[i].id = data->clk_ids[i];
+
+	ret = devm_clk_bulk_get(dev, data->num_clks, pas->el2_clks);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to get clocks\n");
+
+	pas->pdc_sync_reset = devm_reset_control_get_exclusive(dev, "pdc_sync");
+	if (IS_ERR(pas->pdc_sync_reset))
+		return dev_err_probe(dev, PTR_ERR(pas->pdc_sync_reset),
+				     "failed to get pdc_sync reset\n");
+
+	pas->restart = devm_reset_control_get_exclusive(dev, "cc_lpass");
+	if (IS_ERR(pas->restart))
+		return dev_err_probe(dev, PTR_ERR(pas->restart),
+				     "failed to get cc_lpass reset\n");
+
+	pas->halt_map = syscon_regmap_lookup_by_phandle_args(dev->of_node,
+							     "qcom,halt-regs",
+							     1, &pas->halt_lpass);
+	if (IS_ERR(pas->halt_map))
+		return dev_err_probe(dev, PTR_ERR(pas->halt_map),
+				     "failed to get halt registers\n");
+
+	pas->el2_owners = BIT(QCOM_SCM_VMID_HLOS);
+	pas->el2_data = data;
 
 	return 0;
 }
@@ -990,6 +1227,10 @@ static int qcom_pas_probe(struct platform_device *pdev)
 	if (ret)
 		goto unassign_mem;
 
+	ret = qcom_pas_init_el2(pas, desc);
+	if (ret)
+		goto unassign_mem;
+
 	ret = qcom_pas_pds_attach(&pdev->dev, pas->proxy_pds, desc->proxy_pd_names);
 	if (ret < 0)
 		goto unassign_mem;
@@ -1122,6 +1363,18 @@ static const struct qcom_pas_data sa8775p_adsp_resource = {
 	.ssctl_id = 0x14,
 };
 
+static const char * const sdm845_adsp_el2_clk_ids[] = {
+	"lpass_ahbs_aon_cbcr", "lpass_ahbm_aon_cbcr",
+	"qdsp6ss_xo", "qdsp6ss_sleep", "qdsp6ss_core",
+};
+
+static const struct qcom_pas_el2_data sdm845_adsp_el2_data = {
+	.clk_ids = sdm845_adsp_el2_clk_ids,
+	.num_clks = ARRAY_SIZE(sdm845_adsp_el2_clk_ids),
+	.vmids = { QCOM_SCM_VMID_ADSP_Q6, QCOM_SCM_VMID_LPASS },
+	.num_vmids = 2,
+};
+
 static const struct qcom_pas_data sdm845_adsp_resource_init = {
 	.crash_reason_smem = 423,
 	.firmware_name = "adsp.mdt",
@@ -1131,6 +1384,7 @@ static const struct qcom_pas_data sdm845_adsp_resource_init = {
 	.ssr_name = "lpass",
 	.sysmon_name = "adsp",
 	.ssctl_id = 0x14,
+	.el2_data = &sdm845_adsp_el2_data,
 };
 
 static const struct qcom_pas_data sm6350_adsp_resource = {
