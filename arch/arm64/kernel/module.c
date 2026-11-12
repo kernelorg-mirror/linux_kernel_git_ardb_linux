@@ -25,6 +25,39 @@
 #include <asm/sections.h>
 #include <asm/text-patching.h>
 
+/*
+ * The module loader allocates the core and init text regions of a module
+ * independently, and so they may end up out of direct branching range of each
+ * other. This complicates the handling of PLTs and ftrace trampolines, which
+ * need to be emitted within range of the branch instructions that use them.
+ *
+ * So keep executable .init sections in the core text region instead. This
+ * costs a bit of memory, as __init code will no longer be freed after the
+ * module's init routine returns, but this is usually a small fraction of the
+ * overall size of the module. Non-executable .init sections are not affected.
+ */
+bool module_init_section(const char *name)
+{
+	if (strstarts(name, ".init.text"))
+		return false;
+
+	return strstarts(name, ".init");
+}
+
+/*
+ * Without CONFIG_MODULE_UNLOAD, the module loader places .exit sections into
+ * the init region, as they will never be used. Keep .exit.text in the core
+ * text region in this case too, so that branches emitted into it are always
+ * guaranteed to be in range of the core PLT.
+ */
+bool module_exit_section(const char *name)
+{
+	if (strstarts(name, ".exit.text"))
+		return false;
+
+	return strstarts(name, ".exit");
+}
+
 enum aarch64_reloc_op {
 	RELOC_OP_NONE,
 	RELOC_OP_ABS,
