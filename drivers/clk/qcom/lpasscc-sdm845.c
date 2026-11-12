@@ -3,8 +3,12 @@
  * Copyright (c) 2018, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_clock.h>
+#include <linux/pm_runtime.h>
 #include <linux/module.h>
 #include <linux/regmap.h>
 
@@ -145,9 +149,51 @@ static struct clk_hw *lpass_cc_sdm845_hw_get(struct of_phandle_args *clkspec,
 	return &lpass_cc_sdm845_clocks[idx]->hw;
 }
 
+/*
+ * The registers are only accessible while GCC_LPASS_SWAY_CLK is on. If the DT
+ * describes it as the interface clock, let runtime PM turn it on and off: the
+ * clock core keeps the device resumed while any of its clocks is prepared,
+ * and while it accesses the registers otherwise. Without autosuspend, it is
+ * turned off as soon as the last clock is unprepared, e.g., before the LPASS
+ * is reset when the ADSP is stopped, which turns it off as well.
+ */
+static int lpass_cc_sdm845_pm_init(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct clk *iface;
+	int ret;
+
+	if (!of_property_present(dev->of_node, "clocks"))
+		return 0;
+
+	ret = devm_pm_runtime_enable(dev);
+	if (ret)
+		return ret;
+
+	ret = devm_pm_clk_create(dev);
+	if (ret)
+		return ret;
+
+	iface = clk_get(dev, "iface");
+	if (IS_ERR(iface))
+		return dev_err_probe(dev, PTR_ERR(iface),
+				     "failed to get the interface clock\n");
+
+	ret = pm_clk_add_clk(dev, iface);
+	if (ret)
+		clk_put(iface);
+
+	return ret;
+}
+
 static int lpass_cc_sdm845_probe(struct platform_device *pdev)
 {
 	int ret;
+
+	/* Runtime PM must be enabled before the clocks are registered */
+	ret = lpass_cc_sdm845_pm_init(pdev);
+	if (ret)
+		return ret;
 
 	ret = lpass_cc_sdm845_register(pdev, 0, &lpass_cc_regmap_config,
 				       LPASS_Q6SS_AHBM_AON_CLK,
@@ -177,11 +223,16 @@ static const struct of_device_id lpass_cc_sdm845_match_table[] = {
 };
 MODULE_DEVICE_TABLE(of, lpass_cc_sdm845_match_table);
 
+static const struct dev_pm_ops lpass_cc_sdm845_pm_ops = {
+	RUNTIME_PM_OPS(pm_clk_suspend, pm_clk_resume, NULL)
+};
+
 static struct platform_driver lpass_cc_sdm845_driver = {
 	.probe		= lpass_cc_sdm845_probe,
 	.driver		= {
 		.name	= "sdm845-lpasscc",
 		.of_match_table = lpass_cc_sdm845_match_table,
+		.pm	= pm_ptr(&lpass_cc_sdm845_pm_ops),
 	},
 };
 
