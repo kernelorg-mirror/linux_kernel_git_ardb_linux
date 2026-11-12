@@ -7,6 +7,12 @@
 /dts-v1/;
 /plugin/;
 
+#include <dt-bindings/clock/qcom,gcc-sdm845.h>
+#include <dt-bindings/clock/qcom,lpass-sdm845.h>
+#include <dt-bindings/clock/qcom,rpmh.h>
+#include <dt-bindings/reset/qcom,sdm845-aoss.h>
+#include <dt-bindings/reset/qcom,sdm845-pdc.h>
+
 /* We can't and don't need to use zap shader in EL2 as linux can zap the gpu on its own. */
 &gpu_zap_shader {
 	status = "disabled";
@@ -20,36 +26,74 @@
 };
 
 /*
- * TrustZone only accepts memory assignment requests from the hypervisor, i.e.,
- * QHEE, and requires the buffers they pass to reside in a shared memory bridge
- * for the hypervisor VM. With QHEE out of the picture, the SCM driver can issue
- * such requests itself, using a bridge that it registers for 64 KiB of QHEE's
- * (now unused) carveout. This is needed to start the modem, which also hosts
- * the WLAN firmware.
+ * TrustZone only accepts memory assignment requests and PAS calls from the
+ * hypervisor, i.e., QHEE, and requires the buffers they pass to reside in a
+ * shared memory bridge for the hypervisor VM. With QHEE out of the picture, the
+ * SCM driver can issue such requests itself, using a bridge that it registers
+ * for 64 KiB of QHEE's (now unused) carveout. This is needed to start the
+ * modem, which also hosts the WLAN firmware, and the ADSP.
  */
 &{/firmware/scm} {
 	qcom,hyp-shm-bridge = <&hyp_mem 0x400000 0x10000>;
 };
 
 /*
- * In EL2, the ADSP, CDSP and SLPI cannot be started: TZ refuses to initialize
- * their firmware images, and even when the image metadata and the memory of
- * the DSP are passed via SHM bridges for the hypervisor VM, which makes TZ
- * authenticate and release them, they never signal that they are up.
+ * In EL2, the OS needs to take QHEE's part in starting and stopping the ADSP,
+ * using the same clocks, resets and halt registers as for the ADSP without TZ
+ * (qcom,sdm845-adsp-pil), in addition to its QDSP6SS registers.
  */
 &adsp_pas {
-	status = "disabled";
+	clocks = <&rpmhcc RPMH_CXO_CLK>,
+		 <&lpasscc LPASS_Q6SS_AHBS_AON_CLK>,
+		 <&lpasscc LPASS_Q6SS_AHBM_AON_CLK>,
+		 <&lpasscc LPASS_QDSP6SS_XO_CLK>,
+		 <&lpasscc LPASS_QDSP6SS_SLEEP_CLK>,
+		 <&lpasscc LPASS_QDSP6SS_CORE_CLK>;
+	clock-names = "xo",
+		      "lpass_ahbs_aon_cbcr",
+		      "lpass_ahbm_aon_cbcr",
+		      "qdsp6ss_xo",
+		      "qdsp6ss_sleep",
+		      "qdsp6ss_core";
+
+	resets = <&pdc_reset PDC_AUDIO_SYNC_RESET>,
+		 <&aoss_reset AOSS_CC_LPASS_RESTART>;
+	reset-names = "pdc_sync", "cc_lpass";
+
+	qcom,halt-regs = <&tcsr_regs_1 0x2000>;
 };
 
+/*
+ * The LPASS registers are only accessible while GCC_LPASS_SWAY_CLK is on,
+ * which the LPASS clock controller takes care of in EL2, as its interface
+ * clock. So stop protecting this clock, which GCC only provides when built
+ * with CONFIG_SDM_LPASSCC_845=y. Neither QHEE nor the driver for the ADSP
+ * without TZ touches GCC_LPASS_Q6_AXI_CLK, so keep protecting that one, along
+ * with the others that the Yoga C630 protects.
+ */
+&gcc {
+	protected-clocks = <GCC_QSPI_CORE_CLK>,
+			   <GCC_QSPI_CORE_CLK_SRC>,
+			   <GCC_QSPI_CNOC_PERIPH_AHB_CLK>,
+			   <GCC_LPASS_Q6_AXI_CLK>;
+};
+
+&lpasscc {
+	clocks = <&gcc GCC_LPASS_SWAY_CLK>;
+	clock-names = "iface";
+
+	status = "okay";
+};
+
+/*
+ * In EL2, the CDSP and SLPI cannot be started yet: TZ authenticates and
+ * releases their firmware images, but they never signal that they are up,
+ * presumably because they also need some steps that QHEE would take.
+ */
 &cdsp_pas {
 	status = "disabled";
 };
 
 &slpi_pas {
-	status = "disabled";
-};
-
-/* The sound card depends on the audio services that run on the ADSP. */
-&sound {
 	status = "disabled";
 };
