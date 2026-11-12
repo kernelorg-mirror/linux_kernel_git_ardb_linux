@@ -1356,15 +1356,6 @@ static int __wcd934x_cdc_mclk_enable(struct wcd934x_codec *wcd, bool enable)
 		}
 		ret = wcd934x_enable_ana_bias_and_sysclk(wcd);
 	} else {
-		int val;
-
-		regmap_read(wcd->regmap, WCD934X_CDC_CLK_RST_CTRL_SWR_CONTROL,
-			    &val);
-
-		/* Don't disable clock if soundwire using it.*/
-		if (val & WCD934X_CDC_SWR_CLK_EN_MASK)
-			return 0;
-
 		wcd934x_disable_ana_bias_and_syclk(wcd);
 		clk_disable_unprepare(wcd->extclk);
 	}
