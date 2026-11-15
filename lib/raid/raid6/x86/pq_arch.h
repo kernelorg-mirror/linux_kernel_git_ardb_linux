@@ -25,6 +25,8 @@ void raid6_gfni_init(void);
 extern const struct raid6_recov_calls raid6_recov_ssse3;
 extern const struct raid6_recov_calls raid6_recov_avx2;
 extern const struct raid6_recov_calls raid6_recov_avx512;
+extern const struct raid6_recov_calls raid6_recov_gfni_avx2;
+extern const struct raid6_recov_calls raid6_recov_gfni_avx512;
 
 static inline int raid6_has_avx512(void)
 {
@@ -112,7 +114,11 @@ static __always_inline void __init arch_raid6_init(void)
 		}
 	}
 
-	if (raid6_has_avx512())
+	if (raid6_has_avx512() && raid6_has_gfni())
+		raid6_recov_algo_add(&raid6_recov_gfni_avx512);
+	else if (raid6_has_avx2() && raid6_has_gfni())
+		raid6_recov_algo_add(&raid6_recov_gfni_avx2);
+	else if (raid6_has_avx512())
 		raid6_recov_algo_add(&raid6_recov_avx512);
 	else if (raid6_has_avx2())
 		raid6_recov_algo_add(&raid6_recov_avx2);

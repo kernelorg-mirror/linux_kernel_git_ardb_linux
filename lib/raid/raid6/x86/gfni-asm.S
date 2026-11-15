@@ -81,13 +81,13 @@
 .endif
 .endm
 
-/* Q = D[N], P = D[N] (gen) or P = P ^ D[N] (xor) */
+/* Q = D[N], P = D[N] (gen, gen_cached) or P = P ^ D[N] (xor) */
 .macro	_lane_init	v, op, vl, i, p, q
 	_vmov		\v, \i*\vl(PZ1), \q
-.ifc \op, gen
-	_vmov		\v, \q, \p
-.else
+.ifc \op, xor
 	_vxor		\v, \i*\vl(P), \q, \p
+.else
+	_vmov		\v, \q, \p
 .endif
 .endm
 
@@ -121,6 +121,12 @@
 	vmovntdq	\q, \i*\vl(Q)
 .endm
 
+/* Store P and Q using ordinary stores */
+.macro	_lane_store_gen_cached	v, vl, i, p, q
+	_vmov		\v, \p, \i*\vl(P)
+	_vmov		\v, \q, \i*\vl(Q)
+.endm
+
 /* Q = Q + g^start * Q', and store P and Q */
 .macro	_lane_store_xor	v, vl, i, p, q
 	vgf2p8affineqb	$0, %\v\()mm\()AS, \q, \q
@@ -135,7 +141,9 @@
  *
  * \op:	'gen' to generate P and Q from ptrs[0..n], or 'xor' to update P and Q
  *	in place with the contribution of ptrs[0..n] (which the caller has
- *	rebased to point to the 'start' disk).
+ *	rebased to point to the 'start' disk).  'gen_cached' is like 'gen' but
+ *	uses ordinary stores rather than non-temporal ones, for use by the
+ *	recovery code, which consumes the generated syndromes right away.
  * \v:	'y' for AVX2 (32 byte vectors) or 'z' for AVX-512 (64 byte vectors)
  * \n:	the number of vectors to process in parallel
  */
@@ -224,3 +232,113 @@ SYM_FUNC_END(raid6_gfni_avx512_gen_x4)
 SYM_FUNC_START(raid6_gfni_avx512_xor_x4)
 	_raid6_gfni	xor, z, 4
 SYM_FUNC_END(raid6_gfni_avx512_xor_x4)
+
+/*
+ * Recovery
+ *
+ * In both cases, the caller has already regenerated the syndromes with the
+ * failed data disks replaced by zeroes (using gen_cached), and stored the
+ * resulting deltas in the failed data disks' buffers (dp and dq).
+ */
+#undef BYTES
+#undef P
+#undef Q
+#define BYTES	%rdi		/* number of bytes to recover */
+#define P	%rsi		/* pointer to P syndrome */
+#define Q	%rdx		/* pointer to Q syndrome */
+#define DP	%rcx		/* pointer to failed data disk A, holds delta P */
+#define DQ	%r8		/* pointer to failed data disk B, holds delta Q */
+#define RMATS	%r9		/* pointer to the matrices */
+
+#define AP	14		/* multiplication by (g^(b-a) + 1)^-1 */
+#define AQ	15		/* multiplication by (g^a + g^b)^-1 or g^-a */
+
+/*
+ *   px = P + dP
+ *   qx = (g^a + g^b)^-1 * (Q + dQ)
+ *   B  = (g^(b-a) + 1)^-1 * px + qx
+ *   A  = B + px
+ */
+.macro	_lane_recov_2data	v, vl, i, px, qx
+	_vmov		\v, \i*\vl(P), \px
+	_vxor		\v, \i*\vl(DP), \px, \px
+	_vmov		\v, \i*\vl(Q), \qx
+	_vxor		\v, \i*\vl(DQ), \qx, \qx
+	vgf2p8affineqb	$0, %\v\()mm\()AQ, \qx, \qx
+	vgf2p8affineqb	$0, %\v\()mm\()AP, \px, %\v\()mm\()T0
+	_vxor		\v, %\v\()mm\()T0, \qx, \qx
+	_vmov		\v, \qx, \i*\vl(DQ)
+	_vxor		\v, \px, \qx, \qx
+	_vmov		\v, \qx, \i*\vl(DP)
+.endm
+
+/*
+ *   A  = g^-a * (Q + dQ)
+ *   P  = P + A
+ */
+.macro	_lane_recov_datap	v, vl, i, px, qx
+	_vmov		\v, \i*\vl(Q), \qx
+	_vxor		\v, \i*\vl(DQ), \qx, \qx
+	vgf2p8affineqb	$0, %\v\()mm\()AQ, \qx, \qx
+	_vmov		\v, \qx, \i*\vl(DQ)
+	_vxor		\v, \i*\vl(P), \qx, \qx
+	_vmov		\v, \qx, \i*\vl(P)
+.endm
+
+/*
+ * void raid6_gfni_<isa>_recov_<op>(size_t bytes, u8 *p, u8 *q, u8 *dp,
+ *				    u8 *dq, const u64 mats[2]);
+ *
+ * \op:	'2data' to recover data disks A and B into dp and dq, using
+ *	mats[0] = (g^(b-a) + 1)^-1 and mats[1] = (g^a + g^b)^-1, or
+ *	'datap' to recover data disk A into dq and update P, using
+ *	mats[1] = g^-a (dp and mats[0] are ignored)
+ * \v:	'y' for AVX2 (32 byte vectors) or 'z' for AVX-512 (64 byte vectors)
+ */
+.macro	_raid6_gfni_recov	op, v
+.ifc \v, z
+	.set		VL, 64
+.else
+	.set		VL, 32
+.endif
+.ifc \op, 2data
+	vpbroadcastq	0(RMATS), %\v\()mm\()AP
+.endif
+	vpbroadcastq	8(RMATS), %\v\()mm\()AQ
+.Lrecov\@:
+	_for_each_lane	4, \v, _lane_recov_\op, VL
+	add		$(4 * VL), P
+	add		$(4 * VL), Q
+.ifc \op, 2data
+	add		$(4 * VL), DP
+.endif
+	add		$(4 * VL), DQ
+	sub		$(4 * VL), BYTES
+	jnz		.Lrecov\@
+	vzeroupper
+	RET
+.endm
+
+SYM_FUNC_START(raid6_gfni_avx2_gen_cached_x4)
+	_raid6_gfni	gen_cached, y, 4
+SYM_FUNC_END(raid6_gfni_avx2_gen_cached_x4)
+
+SYM_FUNC_START(raid6_gfni_avx512_gen_cached_x4)
+	_raid6_gfni	gen_cached, z, 4
+SYM_FUNC_END(raid6_gfni_avx512_gen_cached_x4)
+
+SYM_FUNC_START(raid6_gfni_avx2_recov_2data)
+	_raid6_gfni_recov	2data, y
+SYM_FUNC_END(raid6_gfni_avx2_recov_2data)
+
+SYM_FUNC_START(raid6_gfni_avx2_recov_datap)
+	_raid6_gfni_recov	datap, y
+SYM_FUNC_END(raid6_gfni_avx2_recov_datap)
+
+SYM_FUNC_START(raid6_gfni_avx512_recov_2data)
+	_raid6_gfni_recov	2data, z
+SYM_FUNC_END(raid6_gfni_avx512_recov_2data)
+
+SYM_FUNC_START(raid6_gfni_avx512_recov_datap)
+	_raid6_gfni_recov	datap, z
+SYM_FUNC_END(raid6_gfni_avx512_recov_datap)

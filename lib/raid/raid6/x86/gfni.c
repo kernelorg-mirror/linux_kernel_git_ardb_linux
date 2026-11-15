@@ -9,6 +9,7 @@
 #include <linux/bits.h>
 #include <linux/cache.h>
 #include <linux/linkage.h>
+#include <linux/mm.h>
 #include <asm/fpu/api.h>
 #include "algos.h"
 #include "pq_arch.h"
@@ -79,3 +80,125 @@ DEFINE_RAID6_GFNI(avx2, 2);
 DEFINE_RAID6_GFNI(avx2, 4);
 DEFINE_RAID6_GFNI(avx512, 2);
 DEFINE_RAID6_GFNI(avx512, 4);
+
+/* Return the GF2P8AFFINEQB matrix that multiplies by c, which must be non-zero */
+static u64 raid6_gfni_mul(u8 c)
+{
+	return raid6_gfni_gexp[raid6_gflog[c]];
+}
+
+typedef void (*raid6_gfni_gen_fn)(void **ptrs, unsigned long nr, size_t bytes,
+				  const u64 mats[], u8 *p, u8 *q);
+typedef void (*raid6_gfni_recov_fn)(size_t bytes, u8 *p, u8 *q, u8 *dp, u8 *dq,
+				    const u64 mats[2]);
+
+#define DECLARE_RAID6_GFNI_RECOV(isa)					\
+asmlinkage void raid6_gfni_##isa##_gen_cached_x4(void **ptrs,		\
+		unsigned long nr, size_t bytes, const u64 mats[],	\
+		u8 *p, u8 *q);						\
+asmlinkage void raid6_gfni_##isa##_recov_2data(size_t bytes, u8 *p,	\
+		u8 *q, u8 *dp, u8 *dq, const u64 mats[2]);		\
+asmlinkage void raid6_gfni_##isa##_recov_datap(size_t bytes, u8 *p,	\
+		u8 *q, u8 *dp, u8 *dq, const u64 mats[2])
+
+DECLARE_RAID6_GFNI_RECOV(avx2);
+DECLARE_RAID6_GFNI_RECOV(avx512);
+
+static __always_inline void raid6_gfni_2data_recov(int disks, size_t bytes,
+		int faila, int failb, void **ptrs, raid6_gfni_gen_fn gen,
+		raid6_gfni_recov_fn recov)
+{
+	u8 *p = ptrs[disks - 2], *q = ptrs[disks - 1];
+	u8 *dp = ptrs[faila], *dq = ptrs[failb];
+	const u64 mats[2] = {
+		raid6_gfni_mul(raid6_gfexi[failb - faila]),
+		raid6_gfni_mul(raid6_gfinv[raid6_gfexp[faila] ^
+					   raid6_gfexp[failb]]),
+	};
+
+	/*
+	 * Compute the syndromes with zeroes for the missing data pages, using
+	 * the dead data pages as temporary storage for delta P and delta Q.
+	 * Use ordinary stores for this, given that the deltas are consumed
+	 * right away.
+	 */
+	ptrs[faila] = page_address(ZERO_PAGE(0));
+	ptrs[failb] = page_address(ZERO_PAGE(0));
+
+	kernel_fpu_begin();
+	gen(ptrs, disks - 3, bytes, &raid6_gfni_gexp[1], dp, dq);
+	recov(bytes, p, q, dp, dq, mats);
+	kernel_fpu_end();
+
+	ptrs[faila] = dp;
+	ptrs[failb] = dq;
+}
+
+static __always_inline void raid6_gfni_datap_recov(int disks, size_t bytes,
+		int faila, void **ptrs, raid6_gfni_gen_fn gen,
+		raid6_gfni_recov_fn recov)
+{
+	u8 *p = ptrs[disks - 2], *q = ptrs[disks - 1];
+	u8 *dq = ptrs[faila];
+	const u64 mats[2] = {
+		0, raid6_gfni_mul(raid6_gfinv[raid6_gfexp[faila]]),
+	};
+
+	/*
+	 * Compute the syndromes with zeroes for the missing data page, using
+	 * the dead data page as temporary storage for delta Q.  Use ordinary
+	 * stores for this, given that P and delta Q are consumed right away.
+	 */
+	ptrs[faila] = page_address(ZERO_PAGE(0));
+
+	kernel_fpu_begin();
+	gen(ptrs, disks - 3, bytes, &raid6_gfni_gexp[1], p, dq);
+	recov(bytes, p, q, NULL, dq, mats);
+	kernel_fpu_end();
+
+	ptrs[faila] = dq;
+}
+
+static void raid6_gfni_avx2_2data_recov(int disks, size_t bytes, int faila,
+		int failb, void **ptrs)
+{
+	raid6_gfni_2data_recov(disks, bytes, faila, failb, ptrs,
+			       raid6_gfni_avx2_gen_cached_x4,
+			       raid6_gfni_avx2_recov_2data);
+}
+
+static void raid6_gfni_avx2_datap_recov(int disks, size_t bytes, int faila,
+		void **ptrs)
+{
+	raid6_gfni_datap_recov(disks, bytes, faila, ptrs,
+			       raid6_gfni_avx2_gen_cached_x4,
+			       raid6_gfni_avx2_recov_datap);
+}
+
+static void raid6_gfni_avx512_2data_recov(int disks, size_t bytes, int faila,
+		int failb, void **ptrs)
+{
+	raid6_gfni_2data_recov(disks, bytes, faila, failb, ptrs,
+			       raid6_gfni_avx512_gen_cached_x4,
+			       raid6_gfni_avx512_recov_2data);
+}
+
+static void raid6_gfni_avx512_datap_recov(int disks, size_t bytes, int faila,
+		void **ptrs)
+{
+	raid6_gfni_datap_recov(disks, bytes, faila, ptrs,
+			       raid6_gfni_avx512_gen_cached_x4,
+			       raid6_gfni_avx512_recov_datap);
+}
+
+const struct raid6_recov_calls raid6_recov_gfni_avx2 = {
+	.data2		= raid6_gfni_avx2_2data_recov,
+	.datap		= raid6_gfni_avx2_datap_recov,
+	.name		= "gfni_avx2",
+};
+
+const struct raid6_recov_calls raid6_recov_gfni_avx512 = {
+	.data2		= raid6_gfni_avx512_2data_recov,
+	.datap		= raid6_gfni_avx512_datap_recov,
+	.name		= "gfni_avx512",
+};
