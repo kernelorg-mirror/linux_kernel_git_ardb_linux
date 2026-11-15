@@ -48,6 +48,8 @@ raid6_pq-$(CONFIG_X86)		+= x86/sse2.o \
 				   x86/recov_ssse3.o \
 				   x86/recov_avx2.o \
 				   x86/recov_avx512.o
+raid6_pq-$(CONFIG_X86_64)	+= x86/gfni.o \
+				   x86/gfni-asm.o
 
 hostprogs			+= mktables
 

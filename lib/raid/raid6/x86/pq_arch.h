@@ -15,6 +15,12 @@ extern const struct raid6_calls raid6_avx2x4;
 extern const struct raid6_calls raid6_avx512x1;
 extern const struct raid6_calls raid6_avx512x2;
 extern const struct raid6_calls raid6_avx512x4;
+extern const struct raid6_calls raid6_gfni_avx2x2;
+extern const struct raid6_calls raid6_gfni_avx2x4;
+extern const struct raid6_calls raid6_gfni_avx512x2;
+extern const struct raid6_calls raid6_gfni_avx512x4;
+
+void raid6_gfni_init(void);
 
 extern const struct raid6_recov_calls raid6_recov_ssse3;
 extern const struct raid6_recov_calls raid6_recov_avx2;
@@ -33,6 +39,12 @@ static inline int raid6_has_avx512(void)
 static inline bool raid6_has_avx2(void)
 {
 	return boot_cpu_has(X86_FEATURE_AVX2) && boot_cpu_has(X86_FEATURE_AVX);
+}
+
+static inline bool raid6_has_gfni(void)
+{
+	/* the GFNI code is only implemented for x86_64 */
+	return IS_ENABLED(CONFIG_X86_64) && boot_cpu_has(X86_FEATURE_GFNI);
 }
 
 static inline bool raid6_has_ssse3(void)
@@ -59,7 +71,20 @@ static inline bool raid6_has_sse1_or_mmxext(void)
 
 static __always_inline void __init arch_raid6_init(void)
 {
-	if (raid6_has_avx2()) {
+	if (raid6_has_avx2() && raid6_has_gfni()) {
+		/*
+		 * The GFNI versions replace the shift/mask based multiplication
+		 * by {02} with a single instruction, so there is no point in
+		 * considering the plain AVX2 and AVX-512 versions as well.
+		 */
+		raid6_gfni_init();
+		raid6_algo_add(&raid6_gfni_avx2x2);
+		raid6_algo_add(&raid6_gfni_avx2x4);
+		if (raid6_has_avx512()) {
+			raid6_algo_add(&raid6_gfni_avx512x2);
+			raid6_algo_add(&raid6_gfni_avx512x4);
+		}
+	} else if (raid6_has_avx2()) {
 		raid6_algo_add(&raid6_avx2x1);
 		raid6_algo_add(&raid6_avx2x2);
 		if (IS_ENABLED(CONFIG_X86_64))
