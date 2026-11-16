@@ -127,7 +127,7 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
 	efi_bs_call(free_pages, *reserve_addr + MAX_UNCOMP_KERNEL_SIZE,
 		    (alloc_size - MAX_UNCOMP_KERNEL_SIZE) / EFI_PAGE_SIZE);
 
-	*image_addr = kernel_base + TEXT_OFFSET;
+	*image_addr = efistub_image_info._text_offset = kernel_base + TEXT_OFFSET;
 	*image_size = 0;
 
 	efi_debug("image addr == 0x%lx, reserve_addr == 0x%lx\n",
