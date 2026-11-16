@@ -6,24 +6,7 @@
 
 #include <arm_neon.h>
 #include "arm/neon.h"
-
-#ifdef CONFIG_ARM
-/*
- * AArch32 does not provide this intrinsic natively because it does not
- * implement the underlying instruction. AArch32 only provides a 64-bit
- * wide vtbl.8 instruction, so use that instead.
- */
-static uint8x16_t vqtbl1q_u8(uint8x16_t a, uint8x16_t b)
-{
-	union {
-		uint8x16_t	val;
-		uint8x8x2_t	pair;
-	} __a = { a };
-
-	return vcombine_u8(vtbl2_u8(__a.pair, vget_low_u8(b)),
-			   vtbl2_u8(__a.pair, vget_high_u8(b)));
-}
-#endif
+#include "arm/neon_compat.h"
 
 void __raid6_2data_recov_neon(int bytes, uint8_t *p, uint8_t *q, uint8_t *dp,
 			      uint8_t *dq, const uint8_t *pbmul,

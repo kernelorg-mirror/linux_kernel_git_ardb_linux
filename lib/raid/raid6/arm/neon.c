@@ -34,10 +34,12 @@
 					size_t bytes, void **ptrs)	\
 	{								\
 		void raid6_neon ## _n  ## _xor_syndrome_real(int,	\
-				int, int, unsigned long, void**);	\
+				int, int, unsigned long, void**,	\
+				const u8 *);				\
 		scoped_ksimd()						\
 			raid6_neon ## _n ## _xor_syndrome_real(disks,	\
-				start, stop, (unsigned long)bytes, ptrs);\
+				start, stop, (unsigned long)bytes, ptrs,\
+				raid6_vgfmul[raid6_gfexp[start]]);	\
 	}								\
 	struct raid6_calls const raid6_neonx ## _n = {			\
 		.gen_syndrome	= raid6_neon ## _n ## _gen_syndrome,	\
