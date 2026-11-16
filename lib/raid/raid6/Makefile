@@ -24,6 +24,10 @@ raid6_pq-$(CONFIG_KERNEL_MODE_NEON) += arm/neon.o \
 				   arm/neon8.o \
 				   arm/recov_neon.o \
 				   arm/recov_neon_inner.o
+raid6_pq-$(CONFIG_ARM64)	+= arm64/eor3_1.o \
+				   arm64/eor3_2.o \
+				   arm64/eor3_4.o \
+				   arm64/eor3_8.o
 raid6_pq-$(CONFIG_LOONGARCH)	+= loongarch/loongarch_simd.o \
 				   loongarch/recov_loongarch_simd.o
 raid6_pq-$(CONFIG_ALTIVEC)	+= powerpc/altivec1.o \
@@ -56,11 +60,21 @@ CFLAGS_arm/neon2.o += $(CC_FLAGS_FPU)
 CFLAGS_arm/neon4.o += $(CC_FLAGS_FPU)
 CFLAGS_arm/neon8.o += $(CC_FLAGS_FPU)
 CFLAGS_arm/recov_neon_inner.o += $(CC_FLAGS_FPU)
+# SHA3 is an optional extension of ARMv8.2, so any CPU that implements it
+# implements ARMv8.2 as well
+CFLAGS_arm64/eor3_1.o += $(CC_FLAGS_FPU) -DRAID6_NEON_EOR3 -march=armv8.2-a+sha3
+CFLAGS_arm64/eor3_2.o += $(CC_FLAGS_FPU) -DRAID6_NEON_EOR3 -march=armv8.2-a+sha3
+CFLAGS_arm64/eor3_4.o += $(CC_FLAGS_FPU) -DRAID6_NEON_EOR3 -march=armv8.2-a+sha3
+CFLAGS_arm64/eor3_8.o += $(CC_FLAGS_FPU) -DRAID6_NEON_EOR3 -march=armv8.2-a+sha3
 CFLAGS_REMOVE_arm/neon1.o += $(CC_FLAGS_NO_FPU)
 CFLAGS_REMOVE_arm/neon2.o += $(CC_FLAGS_NO_FPU)
 CFLAGS_REMOVE_arm/neon4.o += $(CC_FLAGS_NO_FPU)
 CFLAGS_REMOVE_arm/neon8.o += $(CC_FLAGS_NO_FPU)
 CFLAGS_REMOVE_arm/recov_neon_inner.o += $(CC_FLAGS_NO_FPU)
+CFLAGS_REMOVE_arm64/eor3_1.o += $(CC_FLAGS_NO_FPU)
+CFLAGS_REMOVE_arm64/eor3_2.o += $(CC_FLAGS_NO_FPU)
+CFLAGS_REMOVE_arm64/eor3_4.o += $(CC_FLAGS_NO_FPU)
+CFLAGS_REMOVE_arm64/eor3_8.o += $(CC_FLAGS_NO_FPU)
 
 ifeq ($(CONFIG_ALTIVEC),y)
 altivec_flags := -maltivec $(call cc-option,-mabi=altivec)
@@ -107,6 +121,11 @@ $(obj)/int%.c: $(src)/int.uc $(src)/unroll.awk FORCE
 
 targets += arm/neon1.c arm/neon2.c arm/neon4.c arm/neon8.c
 $(obj)/arm/neon%.c: $(src)/arm/neon.uc $(src)/unroll.awk FORCE
+	$(call if_changed,unroll)
+
+# the arm64 EOR3 versions are built from the same source
+targets += arm64/eor3_1.c arm64/eor3_2.c arm64/eor3_4.c arm64/eor3_8.c
+$(obj)/arm64/eor3_%.c: $(src)/arm/neon.uc $(src)/unroll.awk FORCE
 	$(call if_changed,unroll)
 
 targets += powerpc/altivec1.c \

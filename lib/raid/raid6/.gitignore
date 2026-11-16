@@ -4,5 +4,6 @@ altivec*.c
 int*.c
 tables.c
 neon?.c
+eor3_?.c
 s390vx?.c
 vpermxor*.c

@@ -33,6 +33,10 @@
  * Since this reduction is linear, the bits shifted out of all terms can be
  * XORed together first, and reduced using a single polynomial multiplication
  * by 0x1d, which is exact as long as no more than 4 bits are shifted out.
+ *
+ * When built with RAID6_NEON_EOR3 defined, this file is compiled with the
+ * arm64 SHA3 extension enabled, allowing the compiler to fold the additions
+ * into three-way XOR (EOR3) instructions.
  */
 
 #include <arm_neon.h>
@@ -43,7 +47,19 @@ typedef uint8x16_t unative_t;
 
 #define NSIZE	sizeof(unative_t)
 
+#ifdef RAID6_NEON_EOR3
+#define RAID6_NEON_FN(n, fn)	raid6_eor3_ ## n ## _ ## fn
+
+/*
+ * The compiler emits EOR3 for a ^ b ^ c by itself, but recent GCC versions
+ * reassociate the XORs into the loop carried P accumulator such that EOR3
+ * can no longer be used, so spell it out for that case.
+ */
+#define XOR3(a, b, c)		veor3q_u8(a, b, c)
+#else
 #define RAID6_NEON_FN(n, fn)	raid6_neon ## n ## _ ## fn
+#define XOR3(a, b, c)		((a) ^ (b) ^ (c))
+#endif
 
 /*
  * The SHLBYTE() operation shifts each byte left by 1, *not*
@@ -116,7 +132,7 @@ static inline void STEP2(unative_t *wp, unative_t *wq, const uint8_t *s1,
 	unative_t d1 = vld1q_u8(s1);
 	unative_t d0 = vld1q_u8(s0);
 
-	*wp ^= d1 ^ d0;
+	*wp = XOR3(*wp, d1, d0);
 	*wq = HORNER2(*wq, d1, d0, x1d);
 }
 
@@ -129,7 +145,7 @@ static inline void STEP4(unative_t *wp, unative_t *wq, const uint8_t *s3,
 	unative_t d1 = vld1q_u8(s1);
 	unative_t d0 = vld1q_u8(s0);
 
-	*wp ^= d3 ^ d2 ^ d1 ^ d0;
+	*wp = XOR3(XOR3(*wp, d3, d2), d1, d0);
 	*wq = HORNER4(*wq, d3, d2, d1, d0, x1d);
 }
 
