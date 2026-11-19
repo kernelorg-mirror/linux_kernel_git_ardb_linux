@@ -24,7 +24,8 @@
 #endif
 
 #define HYPERVISOR_RODATA_SECTIONS				\
-	HYP_SECTION_NAME(.rodata) : {				\
+	HYP_SECTION_NAME(.rodata) :				\
+	AT(ADDR(HYP_SECTION_NAME(.rodata)) - LOAD_OFFSET) {	\
 		. = ALIGN(PAGE_SIZE);				\
 		__hyp_rodata_start = .;				\
 		*(HYP_SECTION_NAME(.data..ro_after_init))	\
@@ -35,7 +36,8 @@
 	}
 
 #define HYPERVISOR_DATA_SECTION					\
-	HYP_SECTION_NAME(.data) : {				\
+	HYP_SECTION_NAME(.data) :				\
+	AT(ADDR(HYP_SECTION_NAME(.data)) - LOAD_OFFSET) {	\
 		. = ALIGN(PAGE_SIZE);				\
 		__hyp_data_start = .;				\
 		*(HYP_SECTION_NAME(.data))			\
@@ -45,12 +47,13 @@
 
 #define HYPERVISOR_PERCPU_SECTION				\
 	. = ALIGN(PAGE_SIZE);					\
-	HYP_SECTION_NAME(.data..percpu) : {			\
+	HYP_SECTION_NAME(.data..percpu) :			\
+	AT(ADDR(HYP_SECTION_NAME(.data..percpu)) - LOAD_OFFSET) { \
 		*(HYP_SECTION_NAME(.data..percpu))		\
 	}
 
 #define HYPERVISOR_RELOC_SECTION				\
-	.hyp.reloc : ALIGN(4) {					\
+	.hyp.reloc : AT(ADDR(.hyp.reloc) - LOAD_OFFSET) ALIGN(4) { \
 		__hyp_reloc_begin = .;				\
 		*(.hyp.reloc)					\
 		__hyp_reloc_end = .;				\
@@ -78,6 +81,9 @@
 #define SBSS_ALIGN			0
 #endif
 
+#define LOAD_OFFSET			KIMAGE_VADDR
+
+#define EMITS_PT_NOTE
 #define RO_EXCEPTION_TABLE_ALIGN	4
 #define RUNTIME_DISCARD_EXIT
 
@@ -146,7 +152,7 @@ jiffies = jiffies_64;
 
 #ifdef CONFIG_UNWIND_TABLES
 #define UNWIND_DATA_SECTIONS				\
-	.eh_frame : {					\
+	.eh_frame : AT(ADDR(.eh_frame) - LOAD_OFFSET) {	\
 		__pi___eh_frame_start = .;		\
 		*(.eh_frame)				\
 		__pi___eh_frame_end = .;		\
@@ -165,11 +171,21 @@ jiffies = jiffies_64;
 PECOFF_FILE_ALIGNMENT = 0x200;
 
 #ifdef CONFIG_EFI
-#define PECOFF_EDATA_PADDING	\
-	.pecoff_edata_padding : { BYTE(0); . = ALIGN(PECOFF_FILE_ALIGNMENT); }
+#define PECOFF_EDATA_PADDING					\
+	.pecoff_edata_padding :					\
+	AT(ADDR(.pecoff_edata_padding) - LOAD_OFFSET) {		\
+		BYTE(0);					\
+		. = ALIGN(PECOFF_FILE_ALIGNMENT);		\
+	}
 #else
 #define PECOFF_EDATA_PADDING
 #endif
+
+PHDRS {
+	text PT_LOAD FLAGS(5);	/* R_E */
+	data PT_LOAD FLAGS(6);	/* RW_ */
+	note PT_NOTE FLAGS(0);	/* ___ */
+}
 
 SECTIONS
 {
@@ -188,11 +204,12 @@ SECTIONS
 
 	. = KIMAGE_VADDR;
 
-	.head.text : {
+	.head.text : AT(ADDR(.head.text) - LOAD_OFFSET) {
 		_text = .;
 		HEAD_TEXT
-	}
-	.text : ALIGN(SEGMENT_ALIGN) {	/* Real text segment		*/
+	} :text
+	/* Real text segment */
+	.text : AT(ADDR(.text) - LOAD_OFFSET) ALIGN(SEGMENT_ALIGN) {
 		_stext = .;		/* Text and read-only data	*/
 			IRQENTRY_TEXT
 			SOFTIRQENTRY_TEXT
@@ -215,24 +232,24 @@ SECTIONS
 	HYPERVISOR_RODATA_SECTIONS
 
 #ifdef CONFIG_NVHE_EL2_TRACING
-	.rodata.hyp_string_fmts : {
+	.rodata.hyp_string_fmts : AT(ADDR(.rodata.hyp_string_fmts) - LOAD_OFFSET) {
 		__hyp_string_fmts_start = .;
 		*(_hyp_string_fmts)
 		__hyp_string_fmts_end = .;
 	}
 #endif
 
-	.got : { *(.got) }
+	.got : AT(ADDR(.got) - LOAD_OFFSET) { *(.got) }
 	/*
 	 * Make sure that the .got.plt is either completely empty or it
 	 * contains only the lazy dispatch entries.
 	 */
-	.got.plt : { *(.got.plt) }
+	.got.plt : AT(ADDR(.got.plt) - LOAD_OFFSET) { *(.got.plt) }
 	ASSERT(SIZEOF(.got.plt) == 0 || SIZEOF(.got.plt) == 0x18,
 	       "Unexpected GOT/PLT entries detected!")
 
 	/* code sections that are never executed via the kernel mapping */
-	.rodata.text : {
+	.rodata.text : AT(ADDR(.rodata.text) - LOAD_OFFSET) {
 		TRAMP_TEXT
 		HIBERNATE_TEXT
 		KEXEC_TEXT
@@ -261,13 +278,13 @@ SECTIONS
 	INIT_TEXT_SECTION(8)
 
 	__exittext_begin = .;
-	.exit.text : {
+	.exit.text : AT(ADDR(.exit.text) - LOAD_OFFSET) {
 		EXIT_TEXT
 	}
 	__exittext_end = .;
 
 	. = ALIGN(4);
-	.altinstructions : {
+	.altinstructions : AT(ADDR(.altinstructions) - LOAD_OFFSET) {
 		__alt_instructions = .;
 		*(.altinstructions)
 		__alt_instructions_end = .;
@@ -279,19 +296,19 @@ SECTIONS
 	__inittext_end = .;
 	__initdata_begin = .;
 
-	__pi_init_idmap_pg_dir = .;
-	. += INIT_IDMAP_DIR_SIZE;
-	__pi_init_idmap_pg_end = .;
+	.init.data : AT(ADDR(.init.data) - LOAD_OFFSET) {
+		__pi_init_idmap_pg_dir = .;
+		. += INIT_IDMAP_DIR_SIZE;
+		__pi_init_idmap_pg_end = .;
 
-	.init.data : {
 		INIT_DATA
 		INIT_SETUP(16)
 		INIT_CALLS
 		CON_INITCALL
 		INIT_RAM_FS
 		*(.init.altinstructions .init.bss)	/* from the EFI stub */
-	}
-	.exit.data : {
+	} :data
+	.exit.data : AT(ADDR(.exit.data) - LOAD_OFFSET) {
 		EXIT_DATA
 	}
 
@@ -302,13 +319,13 @@ SECTIONS
 
 	HYPERVISOR_RELOC_SECTION
 
-	.rela.dyn : ALIGN(8) {
+	.rela.dyn : AT(ADDR(.rela.dyn) - LOAD_OFFSET) ALIGN(8) {
 		__pi_rela_start = .;
 		*(.rela .rela*)
 		__pi_rela_end = .;
 	}
 
-	.relr.dyn : ALIGN(8) {
+	.relr.dyn : AT(ADDR(.relr.dyn) - LOAD_OFFSET) ALIGN(8) {
 		__pi_relr_start = .;
 		*(.relr.dyn)
 		__pi_relr_end = .;
@@ -318,7 +335,7 @@ SECTIONS
 	__initdata_end = .;
 	__init_end = .;
 
-	.data.rel.ro : { *(.data.rel.ro) }
+	.data.rel.ro : AT(ADDR(.data.rel.ro) - LOAD_OFFSET) { *(.data.rel.ro) }
 	ASSERT(SIZEOF(.data.rel.ro) == 0, "Unexpected RELRO detected!")
 
 	_data = .;
@@ -328,7 +345,7 @@ SECTIONS
 	HYPERVISOR_DATA_SECTION
 
 #ifdef CONFIG_NVHE_EL2_TRACING
-	.data.hyp_events : {
+	.data.hyp_events : AT(ADDR(.data.hyp_events) - LOAD_OFFSET) {
 		__hyp_events_start = .;
 		*(SORT(_hyp_events.*))
 		__hyp_events_end = .;
@@ -342,12 +359,12 @@ SECTIONS
 	 * Granule (CWG) area so the cache maintenance operations don't
 	 * interfere with adjacent data.
 	 */
-	.mmuoff.data.write : ALIGN(SZ_2K) {
+	.mmuoff.data.write : AT(ADDR(.mmuoff.data.write) - LOAD_OFFSET) ALIGN(SZ_2K) {
 		__mmuoff_data_start = .;
 		*(.mmuoff.data.write)
 	}
 	. = ALIGN(SZ_2K);
-	.mmuoff.data.read : {
+	.mmuoff.data.read : AT(ADDR(.mmuoff.data.read) - LOAD_OFFSET) {
 		*(.mmuoff.data.read)
 		__mmuoff_data_end = .;
 	}
@@ -361,21 +378,22 @@ SECTIONS
 	__pi___bss_start = __bss_start;
 
 	/* page table BSS starts here - preceding data/BSS is omitted from the linear map */
-	.pgtbl : ALIGN(PAGE_SIZE) {
+	.pgtbl : AT(ADDR(.pgtbl) - LOAD_OFFSET) ALIGN(PAGE_SIZE) {
 		*(.bss..pgtbl)
+
+		. = ALIGN(PAGE_SIZE);
+		__pi_init_pg_dir = .;
+		. += INIT_DIR_SIZE;
+		__pi_init_pg_end = .;
+		/* end of zero-init region */
+
+		. += SZ_4K;		/* stack for the early C runtime */
+		early_init_stack = .;
+
+		. = ALIGN(SEGMENT_ALIGN);
 	}
 	ASSERT(ADDR(.pgtbl) == __bss_stop, ".pgtbl must follow BSS")
 
-	. = ALIGN(PAGE_SIZE);
-	__pi_init_pg_dir = .;
-	. += INIT_DIR_SIZE;
-	__pi_init_pg_end = .;
-	/* end of zero-init region */
-
-	. += SZ_4K;		/* stack for the early C runtime */
-	early_init_stack = .;
-
-	. = ALIGN(SEGMENT_ALIGN);
 	__pecoff_data_size = ABSOLUTE(. - __initdata_begin);
 	_end = .;
 	__pi__end = .;
