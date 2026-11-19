@@ -15,6 +15,28 @@
 extern unsigned char _gzdata_start[], _gzdata_end[];
 
 static struct z_stream_s stream;
+static int inflate_rc;
+
+/* Decompress the next outlen bytes of the payload into out. */
+static bool gzip_decompress_slice(u8 *out, unsigned long outlen)
+{
+	stream.next_out = out;
+	stream.avail_out = outlen;
+
+	inflate_rc = zlib_inflate(&stream, 0);
+	if (inflate_rc != Z_OK && inflate_rc != Z_STREAM_END) {
+		efi_err("GZIP decompression failed with status %d\n", inflate_rc);
+		return false;
+	}
+
+	/* a truncated stream leaves part of the slice unwritten */
+	if (stream.avail_out) {
+		efi_err("GZIP-compressed data is truncated\n");
+		return false;
+	}
+
+	return true;
+}
 
 efi_status_t efi_zboot_decompress_init(unsigned long *alloc_size)
 {
@@ -48,20 +70,19 @@ out:
 
 efi_status_t efi_zboot_decompress(u8 *out, unsigned long outlen)
 {
-	int rc;
+	bool ret;
 
-	stream.next_out = out;
-	stream.avail_out = outlen;
+	ret = gzip_decompress_slice(out, outlen);
 
-	rc = zlib_inflate(&stream, 0);
+	/* the payload must take up the entire stream */
+	if (ret && inflate_rc != Z_STREAM_END) {
+		efi_err("GZIP-compressed data exceeds the recorded size\n");
+		ret = false;
+	}
+
 	zlib_inflateEnd(&stream);
 
 	efi_free(zlib_inflate_workspacesize(), (unsigned long)stream.workspace);
 
-	if (rc != Z_STREAM_END) {
-		efi_err("GZIP decompression failed with status %d\n", rc);
-		return EFI_LOAD_ERROR;
-	}
-
-	return EFI_SUCCESS;
+	return ret ? EFI_SUCCESS : EFI_LOAD_ERROR;
 }
