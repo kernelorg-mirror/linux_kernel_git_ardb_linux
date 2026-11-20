@@ -16,10 +16,12 @@
 #include <linux/string.h>
 #include <linux/smp.h>
 #include <linux/efi.h>
+#include <linux/platform_device.h>
 #include <linux/ucs2_string.h>
 
 /* Private pointer to registered efivars */
 static struct efivars *__efivars;
+static struct platform_device *efivars_pdev;
 
 static DEFINE_SEMAPHORE(efivars_lock, 1);
 
@@ -63,7 +65,7 @@ int efivars_register(struct efivars *efivars,
 		     const struct efivar_operations *ops)
 {
 	int rv;
-	int event;
+	int event = 0;
 
 	if (down_interruptible(&efivars_lock))
 		return -EINTR;
@@ -90,6 +92,22 @@ int efivars_register(struct efivars *efivars,
 out:
 	up(&efivars_lock);
 
+	if (!rv && event == EFIVAR_OPS_RDWR) {
+		struct platform_device *pdev;
+
+		pdev = platform_device_register_simple("efivars", 0, NULL, 0);
+		if (!IS_ERR(pdev)) {
+			down(&efivars_lock);
+			if (__efivars == efivars) {
+				efivars_pdev = pdev;
+				pdev = NULL;
+			}
+			up(&efivars_lock);
+			if (pdev)
+				platform_device_unregister(pdev);
+		}
+	}
+
 	return rv;
 }
 EXPORT_SYMBOL_GPL(efivars_register);
@@ -103,6 +121,7 @@ EXPORT_SYMBOL_GPL(efivars_register);
  */
 int efivars_unregister(struct efivars *efivars)
 {
+	struct platform_device *pdev;
 	int rv;
 
 	if (down_interruptible(&efivars_lock))
@@ -119,6 +138,15 @@ int efivars_unregister(struct efivars *efivars)
 		goto out;
 	}
 
+	pdev = efivars_pdev;
+	efivars_pdev = NULL;
+	up(&efivars_lock);
+
+	/* Detach consumers before clearing __efivars */
+	if (!IS_ERR_OR_NULL(pdev))
+		platform_device_unregister(pdev);
+
+	down(&efivars_lock);
 	pr_info("Unregistered efivars operations\n");
 	__efivars = NULL;
 
@@ -143,7 +171,7 @@ int efivar_lock(void)
 {
 	if (down_interruptible(&efivars_lock))
 		return -EINTR;
-	if (!__efivars->ops) {
+	if (!__efivars || !__efivars->ops) {
 		up(&efivars_lock);
 		return -ENODEV;
 	}
@@ -159,7 +187,7 @@ int efivar_trylock(void)
 {
 	if (down_trylock(&efivars_lock))
 		 return -EBUSY;
-	if (!__efivars->ops) {
+	if (!__efivars || !__efivars->ops) {
 		up(&efivars_lock);
 		return -ENODEV;
 	}

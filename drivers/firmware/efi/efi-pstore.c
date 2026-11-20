@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0+
 
 #include <linux/efi.h>
+#include <linux/mod_devicetable.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/pstore.h>
 #include <linux/slab.h>
 #include <linux/ucs2_string.h>
@@ -21,6 +23,7 @@ MODULE_PARM_DESC(record_size, "size of each pstore UEFI var (in bytes, min/defau
 
 static bool efivars_pstore_disable =
 	IS_ENABLED(CONFIG_EFI_VARS_PSTORE_DEFAULT_DISABLE);
+static bool efivars_pstore_autoprobe_disable;
 
 module_param_named(pstore_disable, efivars_pstore_disable, bool, 0444);
 
@@ -228,13 +231,17 @@ static struct pstore_info efi_pstore_info = {
 	.erase		= efi_pstore_erase,
 };
 
-static __init int efivars_pstore_init(void)
+static int efi_pstore_probe(struct platform_device *pdev)
 {
-	if (!efivar_supports_writes())
-		return 0;
+	int ret;
 
-	if (efivars_pstore_disable)
-		return 0;
+	if (!efivar_supports_writes())
+		return -ENODEV;
+
+	if (efivars_pstore_autoprobe_disable) {
+		efivars_pstore_autoprobe_disable = false;
+		return -ENODEV;
+	}
 
 	/*
 	 * Notice that 1024 is the minimum here to prevent issues with
@@ -251,24 +258,50 @@ static __init int efivars_pstore_init(void)
 
 	efi_pstore_info.bufsize = record_size;
 
-	if (pstore_register(&efi_pstore_info)) {
+	ret = pstore_register(&efi_pstore_info);
+	if (ret) {
 		kfree(efi_pstore_info.buf);
 		efi_pstore_info.buf = NULL;
 		efi_pstore_info.bufsize = 0;
+		return ret;
 	}
 
 	return 0;
 }
 
-static __exit void efivars_pstore_exit(void)
+static void efi_pstore_remove(struct platform_device *pdev)
 {
-	if (!efi_pstore_info.bufsize)
-		return;
-
 	pstore_unregister(&efi_pstore_info);
 	kfree(efi_pstore_info.buf);
 	efi_pstore_info.buf = NULL;
 	efi_pstore_info.bufsize = 0;
+}
+
+static const struct platform_device_id efi_pstore_ids[] = {
+	{ "efivars", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(platform, efi_pstore_ids);
+
+static struct platform_driver efi_pstore_driver = {
+	.probe		= efi_pstore_probe,
+	.remove		= efi_pstore_remove,
+	.id_table	= efi_pstore_ids,
+	.driver		= {
+		.name		= "efi-pstore",
+		.probe_type	= PROBE_FORCE_SYNCHRONOUS,
+	},
+};
+
+static __init int efivars_pstore_init(void)
+{
+	efivars_pstore_autoprobe_disable = efivars_pstore_disable;
+	return platform_driver_register(&efi_pstore_driver);
+}
+
+static __exit void efivars_pstore_exit(void)
+{
+	platform_driver_unregister(&efi_pstore_driver);
 }
 
 module_init(efivars_pstore_init);
@@ -276,4 +309,3 @@ module_exit(efivars_pstore_exit);
 
 MODULE_DESCRIPTION("EFI variable backend for pstore");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:efivars");
